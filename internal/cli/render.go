@@ -77,24 +77,28 @@ func newRenderCommand(global *globalFlags) *cobra.Command {
 	return cmd
 }
 
-// loadFleet reads princo.yaml and the secrets next to it.
+// loadFleet reads princo.yaml and resolves its secrets.
 func loadFleet(global *globalFlags) (*fleet.Fleet, error) {
+	cfg, err := loadConfig(global)
+	if err != nil {
+		return nil, err
+	}
+	resolver, err := newResolver(global, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return fleet.Build(cfg, resolver)
+}
+
+func loadConfig(global *globalFlags) (*config.Config, error) {
 	data, err := os.ReadFile(global.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	cfg, err := config.Parse(data)
-	if err != nil {
-		return nil, err
-	}
-	keyPath := global.KeyPath
-	if keyPath == "" {
-		home, _ := os.UserHomeDir()
-		keyPath = filepath.Join(home, ".config", "princo", "key.txt")
-	}
-	store, err := secrets.Open(secretsPath(global.ConfigPath), keyPath)
-	if err != nil {
-		return nil, err
-	}
-	return fleet.Build(cfg, store)
+	return config.Parse(data)
+}
+
+// newResolver looks secrets up as princo.yaml's secrets: block says, with paths relative to the config file.
+func newResolver(global *globalFlags, cfg *config.Config) (*secrets.Resolver, error) {
+	return secrets.NewResolver(filepath.Dir(global.ConfigPath), identityPath(global), cfg.SecretMappings())
 }

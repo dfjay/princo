@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/dfjay/princo/internal/secrets"
 )
 
 func TestParse_KeepsOrderAndSecrets(t *testing.T) {
@@ -48,4 +50,18 @@ func TestParse_Version(t *testing.T) {
 	require.ErrorContains(t, err, "princo: required")
 	_, err = Parse([]byte("princo: v9\n"))
 	require.ErrorContains(t, err, "unsupported schema version")
+}
+
+func TestParse_SecretMappings(t *testing.T) {
+	cfg, err := Parse([]byte(`
+princo: v1
+secrets:
+  users/*: sops:../secrets/shared.yaml#vless_uuid_*
+  nodes/fr/reality: sops:../secrets/fr.yaml#reality_private_key
+`))
+	require.NoError(t, err)
+	require.Equal(t, []secrets.Mapping{
+		{Pattern: "users/*", Target: "sops:../secrets/shared.yaml#vless_uuid_*"},
+		{Pattern: "nodes/fr/reality", Target: "sops:../secrets/fr.yaml#reality_private_key"},
+	}, cfg.SecretMappings())
 }

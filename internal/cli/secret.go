@@ -26,14 +26,18 @@ func newSecretCommand(global *globalFlags) *cobra.Command {
 func newSecretGetCommand(global *globalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <path>",
-		Short: "Print a secret value",
+		Short: "Print a secret value, wherever princo.yaml's secrets: block maps it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := openSecretStore(global)
+			cfg, err := loadConfig(global)
 			if err != nil {
 				return err
 			}
-			v, err := store.Get(args[0])
+			resolver, err := newResolver(global, cfg)
+			if err != nil {
+				return err
+			}
+			v, err := resolver.Get(args[0])
 			if err != nil {
 				return err
 			}
@@ -91,12 +95,7 @@ func newSecretListCommand(global *globalFlags) *cobra.Command {
 // (store, path-to-recipients-file, error). Recipients live in `.princo/recipients`
 // or `recipients` next to the config.
 func openSecretStore(global *globalFlags) (*secrets.Store, string, error) {
-	keyPath := global.KeyPath
-	if keyPath == "" {
-		home, _ := os.UserHomeDir()
-		keyPath = filepath.Join(home, ".config", "princo", "key.txt")
-	}
-	store, err := secrets.Open(secretsPath(global.ConfigPath), keyPath)
+	store, err := secrets.Open(secretsPath(global.ConfigPath), identityPath(global))
 	if err != nil {
 		return nil, "", err
 	}
@@ -115,5 +114,14 @@ func openSecretStore(global *globalFlags) (*secrets.Store, string, error) {
 
 // secretsPath converts /path/to/princo.yaml → /path/to/secrets.age.
 func secretsPath(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), "secrets.age")
+	return filepath.Join(filepath.Dir(configPath), secrets.DefaultFile)
+}
+
+// identityPath is the age identity for age-encrypted secrets.
+func identityPath(global *globalFlags) string {
+	if global.KeyPath != "" {
+		return global.KeyPath
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "princo", "key.txt")
 }

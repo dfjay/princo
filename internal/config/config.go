@@ -15,12 +15,22 @@ import (
 
 // Config is the top level of princo.yaml.
 type Config struct {
-	Princo       string        `yaml:"princo"`
-	Defaults     Defaults      `yaml:"defaults"`
-	Nodes        Ordered[Node] `yaml:"nodes"`
-	Users        Ordered[User] `yaml:"users"`
-	Client       Client        `yaml:"client"`
-	Subscription *Subscription `yaml:"subscription"`
+	Princo       string          `yaml:"princo"`
+	Defaults     Defaults        `yaml:"defaults"`
+	Nodes        Ordered[Node]   `yaml:"nodes"`
+	Users        Ordered[User]   `yaml:"users"`
+	Client       Client          `yaml:"client"`
+	Subscription *Subscription   `yaml:"subscription"`
+	Secrets      Ordered[string] `yaml:"secrets"`
+}
+
+// SecretMappings returns the secrets: block in document order.
+func (c *Config) SecretMappings() []secrets.Mapping {
+	var out []secrets.Mapping
+	for pattern, target := range c.Secrets.All() {
+		out = append(out, secrets.Mapping{Pattern: pattern, Target: target})
+	}
+	return out
 }
 
 // Defaults are inherited by every node. Protocol blocks here only supply

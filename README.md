@@ -15,8 +15,9 @@ client routing, and subscriptions. princo renders it into sing-box configs
   - routing rules as `match: [geosite:…, geoip:…, port:…]` plus an action;
   - client groups (selectors) picked by node tags, with fallbacks;
   - `defaults:` inherited by every node.
-- Secrets in an age-encrypted `secrets.age`, at conventional paths
-  (`users/<name>`, `nodes/<node>/reality`, …) or `!secret path`.
+- Secrets at conventional paths (`users/<name>`, `nodes/<node>/reality`,
+  …) or `!secret path`, kept in an age-encrypted `secrets.age` or in sops
+  files you already have (see below).
 - `princo render --node N` — the node's sing-box config.
 - `princo render --user U [--uris]` — the user's sing-box profile or share links.
 - `princo secret get/set/list`.
@@ -45,6 +46,27 @@ echo "<private key>" | princo secret set nodes/de/reality
 princo render --node de
 princo render --user alice --uris
 ```
+
+## Secrets
+
+princo asks for secrets by logical path: `users/<name>` (the user's UUID),
+`shared/hy2_obfs`, `nodes/<node>/reality`, `nodes/<node>/warp/{private_key,ipv4,ipv6}`,
+`nodes/<node>/chain`. By default they live in `secrets.age` next to
+`princo.yaml`. A `secrets:` block sends them elsewhere — for example to
+existing sops files, decrypted with the `sops` CLI and whatever keys it
+knows (age, PGP on a YubiKey, cloud KMS):
+
+```yaml
+secrets:
+  users/*: sops:../secrets/shared.yaml#vless_uuid_*   # users/alice → vless_uuid_alice
+  shared/hy2_obfs: sops:../secrets/shared.yaml#hy2_obfs_password
+  nodes/fr/*: sops:../secrets/fr.yaml                 # nodes/fr/reality → reality
+```
+
+The first matching pattern wins; `*` may only end a pattern, and in the
+target key it stands for what the pattern's `*` matched. A single field can
+also point anywhere with `!secret sops:file.yaml#key`. `princo secret get
+<path>` shows what a path resolves to.
 
 ## Repository layout
 

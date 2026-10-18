@@ -128,12 +128,16 @@ func splitPath(p string) []string {
 }
 
 // Get returns the string value at the given dot/slash-separated path.
-func (s *Store) Get(path string) (string, error) {
+func (s *Store) Get(path string) (string, error) { return lookup(s.values, path) }
+
+// lookup finds the value at a dot/slash-separated path in decrypted values.
+// Scalars of any type come back as strings.
+func lookup(values map[string]any, path string) (string, error) {
 	parts := splitPath(path)
 	if len(parts) == 0 {
 		return "", fmt.Errorf("empty secret path")
 	}
-	cur := any(s.values)
+	cur := any(values)
 	for i, part := range parts {
 		m, ok := cur.(map[string]any)
 		if !ok {
@@ -145,11 +149,14 @@ func (s *Store) Get(path string) (string, error) {
 		}
 		cur = next
 	}
-	str, ok := cur.(string)
-	if !ok {
-		return "", fmt.Errorf("secret %s is not a string (got %T)", path, cur)
+	switch v := cur.(type) {
+	case string:
+		return v, nil
+	case map[string]any, []any, nil:
+		return "", fmt.Errorf("secret %s is not a scalar (got %T)", path, cur)
+	default:
+		return fmt.Sprint(v), nil
 	}
-	return str, nil
 }
 
 // Set writes a string value at the path, creating intermediate maps.
