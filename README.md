@@ -90,3 +90,7 @@ go test ./internal/engine/singbox -update   # accept new golden files
 
 With `sing-box` in `PATH`, the tests also run `sing-box check` on every
 rendered config.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
