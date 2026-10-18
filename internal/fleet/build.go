@@ -1,0 +1,394 @@
+package fleet
+
+import (
+	"cmp"
+	"errors"
+	"fmt"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/dfjay/princo/internal/config"
+	"github.com/dfjay/princo/internal/secrets"
+)
+
+// Default secret paths, used when princo.yaml doesn't name one.
+const (
+	secretHy2Obfs = "shared/hy2_obfs"
+)
+
+func secretUserUUID(user string) string    { return "users/" + user }
+func secretReality(node string) string     { return "nodes/" + node + "/reality" }
+func secretWarp(node, field string) string { return "nodes/" + node + "/warp/" + field }
+func secretChainUUID(node string) string   { return "nodes/" + node + "/chain" }
+
+var supportedEngines = []string{"sing-box"}
+
+// Build applies defaults, resolves secrets through sec and checks every
+// reference, reporting all problems at once.
+func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
+	b := &builder{cfg: cfg, sec: sec, f: &Fleet{
+		nodes: map[string]*Node{},
+		users: map[string]*User{},
+	}}
+	b.nodes()
+	b.egress()
+	b.users()
+	b.subscription()
+	b.client()
+	if err := errors.Join(b.errs...); err != nil {
+		return nil, err
+	}
+	return b.f, nil
+}
+
+type builder struct {
+	cfg  *config.Config
+	sec  secrets.Getter
+	f    *Fleet
+	errs []error
+}
+
+func (b *builder) errorf(format string, args ...any) {
+	b.errs = append(b.errs, fmt.Errorf(format, args...))
+}
+
+// secret resolves ref, or the conventional path when ref is unset.
+func (b *builder) secret(where string, ref *secrets.SecretOrPlain, convention string) string {
+	r := secrets.SecretOrPlain{SecretPath: convention}
+	if ref != nil {
+		r = *ref
+	}
+	v, err := r.Resolve(b.sec)
+	if err != nil {
+		b.errorf("%s: %w", where, err)
+	}
+	return v
+}
+
+func (b *builder) nodes() {
+	d := b.cfg.Defaults
+	for _, name := range slices.Sorted(slices.Values(b.cfg.Nodes.Keys())) {
+		c, _ := b.cfg.Nodes.Get(name)
+		where := "nodes." + name
+		n := &Node{
+			Name:      name,
+			SSH:       c.SSH,
+			Address:   c.Address,
+			Engine:    cmp.Or(c.Engine, d.Engine, "sing-box"),
+			ACMEEmail: cmp.Or(c.ACMEEmail, d.ACMEEmail),
+			Tags:      c.Tags,
+			IPv6:      c.IPv6 == nil || *c.IPv6,
+		}
+		if !slices.Contains(supportedEngines, n.Engine) {
+			b.errorf("%s: engine %q is not supported (have: %s)", where, n.Engine, strings.Join(supportedEngines, ", "))
+		}
+
+		if c.Reality != nil {
+			def := deref(d.Reality)
+			n.Reality = &Reality{
+				ServerName: cmp.Or(c.Reality.ServerName, def.ServerName),
+				ShortID:    cmp.Or(c.Reality.ShortID, def.ShortID),
+				PublicKey:  c.Reality.PublicKey,
+				PrivateKey: b.secret(where+".reality.private_key", c.Reality.PrivateKey, secretReality(name)),
+			}
+			if n.Reality.ServerName == "" || n.Reality.ShortID == "" || n.Reality.PublicKey == "" {
+				b.errorf("%s.reality: server_name, short_id and public_key are required", where)
+			}
+		}
+		if c.Hysteria2 != nil {
+			def := deref(d.Hysteria2)
+			masquerade := cmp.Or(c.Hysteria2.Masquerade, def.Masquerade)
+			if masquerade == "" && n.Reality != nil {
+				masquerade = "https://" + n.Reality.ServerName
+			}
+			if masquerade == "" {
+				b.errorf("%s.hysteria2: masquerade is required without reality.server_name to default to", where)
+			}
+			n.Hysteria2 = &Hysteria2{
+				Masquerade:   masquerade,
+				ObfsPassword: b.secret(where+".hysteria2.obfs_password", cmp.Or(c.Hysteria2.ObfsPassword, def.ObfsPassword), secretHy2Obfs),
+			}
+		}
+		if c.Naive != nil {
+			if c.Naive.Domain == "" {
+				b.errorf("%s.naive: domain is required", where)
+			}
+			n.Naive = &Naive{Domain: c.Naive.Domain}
+		}
+		if n.Reality == nil && n.Hysteria2 == nil && n.Naive == nil {
+			b.errorf("%s: enable at least one protocol (reality, hysteria2, naive)", where)
+		}
+		if n.Address == "" && (n.Reality != nil || n.Hysteria2 != nil) {
+			b.errorf("%s: address is required", where)
+		}
+
+		if dns := cmp.Or(c.DNS, d.DNS); dns != nil {
+			n.DNS = b.dns(where+".dns", dns, nil)
+		}
+		rules := d.Rules
+		if c.Rules != nil {
+			rules = c.Rules
+		}
+		n.Rules = b.rules(where+".rules", rules, []string{ActionDirect, ActionReject, ActionSniff}, nil)
+		for host, target := range c.Passthrough.All() {
+			n.Passthrough = append(n.Passthrough, Passthrough{Host: host, Target: target})
+		}
+
+		b.f.Nodes = append(b.f.Nodes, n)
+		b.f.nodes[name] = n
+	}
+}
+
+// egress resolves each node's way out, once every node exists.
+func (b *builder) egress() {
+	for _, n := range b.f.Nodes {
+		c, _ := b.cfg.Nodes.Get(n.Name)
+		where := "nodes." + n.Name
+		egress := cmp.Or(c.Egress, b.cfg.Defaults.Egress, "direct")
+		switch egress {
+		case "direct":
+			n.Egress = Egress{Kind: EgressDirect}
+		case "warp":
+			n.Egress = Egress{Kind: EgressWarp}
+			w := deref(c.Warp)
+			n.Warp = &Warp{
+				PrivateKey: b.secret(where+".warp.private_key", w.PrivateKey, secretWarp(n.Name, "private_key")),
+				IPv4:       b.secret(where+".warp.ipv4", w.IPv4, secretWarp(n.Name, "ipv4")),
+				IPv6:       b.secret(where+".warp.ipv6", w.IPv6, secretWarp(n.Name, "ipv6")),
+			}
+		default:
+			up, ok := b.f.nodes[egress]
+			switch {
+			case !ok:
+				b.errorf("%s.egress: %q is not warp, direct or a node", where, egress)
+			case up == n:
+				b.errorf("%s.egress: a node can't chain to itself", where)
+			case up.Reality == nil:
+				b.errorf("%s.egress: chain upstream %s needs reality", where, egress)
+			default:
+				n.Egress = Egress{Kind: EgressNode, Node: up}
+				n.ChainUUID = b.secret(where+".egress", nil, secretChainUUID(n.Name))
+			}
+		}
+	}
+	// Chains must end somewhere.
+	for _, n := range b.f.Nodes {
+		seen := map[*Node]bool{}
+		for m := n; m != nil && m.Egress.Kind == EgressNode; m = m.Egress.Node {
+			if seen[m] {
+				b.errorf("nodes.%s.egress: chain loops back to %s", n.Name, m.Name)
+				break
+			}
+			seen[m] = true
+		}
+	}
+}
+
+func (b *builder) users() {
+	for _, name := range slices.Sorted(slices.Values(b.cfg.Users.Keys())) {
+		c, _ := b.cfg.Users.Get(name)
+		where := "users." + name
+		u := &User{Name: name, UUID: b.secret(where+".uuid", c.UUID, secretUserUUID(name))}
+		if c.Nodes == nil {
+			u.Nodes = b.f.Nodes
+		}
+		for _, tag := range c.Nodes {
+			n, ok := b.f.nodes[tag]
+			if !ok {
+				b.errorf("%s.nodes: unknown node %q", where, tag)
+				continue
+			}
+			u.Nodes = append(u.Nodes, n)
+		}
+		b.f.Users = append(b.f.Users, u)
+		b.f.users[name] = u
+	}
+}
+
+func (b *builder) subscription() {
+	c := b.cfg.Subscription
+	if c == nil {
+		return
+	}
+	n, ok := b.f.nodes[c.Node]
+	if !ok {
+		b.errorf("subscription.node: unknown node %q", c.Node)
+		return
+	}
+	if c.Domain == "" {
+		b.errorf("subscription.domain: required")
+	}
+	n.ServesSubscription = true
+	b.f.Subscription = &Subscription{Node: n, Domain: c.Domain}
+}
+
+func (b *builder) client() {
+	c := b.cfg.Client
+	groups := c.Groups.Keys()
+	for name, g := range c.Groups.All() {
+		where := "client.groups." + name
+		if name == "direct" {
+			b.errorf("%s: \"direct\" is reserved", where)
+		}
+		sel, err := parseSelector(g.Nodes)
+		if err != nil {
+			b.errorf("%s.nodes: %w", where, err)
+		}
+		if g.Fallback != "" && g.Fallback != "direct" && (g.Fallback == name || !slices.Contains(groups, g.Fallback)) {
+			b.errorf("%s.fallback: want direct or another group, got %q", where, g.Fallback)
+		}
+		b.f.Client.Groups = append(b.f.Client.Groups, Group{
+			Name:          name,
+			Members:       sel,
+			Default:       cmp.Or(g.Default, "first"),
+			IncludeDirect: g.IncludeDirect,
+			Fallback:      g.Fallback,
+		})
+	}
+	if c.DNS != nil {
+		b.f.Client.DNS = b.dns("client.dns", c.DNS, groups)
+	}
+	b.f.Client.Rules = b.rules("client.rules", c.Rules, []string{ActionDirect, ActionReject}, groups)
+	b.f.Client.Final = cmp.Or(c.Final, "direct")
+	if b.f.Client.Final != "direct" && !slices.Contains(groups, b.f.Client.Final) {
+		b.errorf("client.final: want direct or a group, got %q", b.f.Client.Final)
+	}
+}
+
+// rules converts rules allowing the given actions; groups, if non-nil,
+// enables `via: <group>`.
+func (b *builder) rules(where string, in []config.Rule, actions, groups []string) []Rule {
+	out := make([]Rule, 0, len(in))
+	for i, r := range in {
+		w := fmt.Sprintf("%s[%d]", where, i)
+		match, err := parseMatchers(r.Match)
+		if err != nil {
+			b.errorf("%s: %w", w, err)
+		}
+		rule := Rule{Match: match, Action: r.Action, Via: r.Via}
+		switch {
+		case r.Via != "" && r.Action != "":
+			b.errorf("%s: set either action or via, not both", w)
+		case r.Via != "":
+			if groups == nil {
+				b.errorf("%s: via is only for client rules", w)
+			} else if !slices.Contains(groups, r.Via) {
+				b.errorf("%s.via: unknown group %q", w, r.Via)
+			}
+			rule.Action = ActionVia
+		case !slices.Contains(actions, r.Action):
+			b.errorf("%s.action: want one of %s, got %q", w, strings.Join(actions, ", "), r.Action)
+		}
+		if len(match) == 0 && rule.Action != ActionSniff {
+			b.errorf("%s: match is required", w)
+		}
+		out = append(out, rule)
+	}
+	return out
+}
+
+// dns converts a resolver config; groups, if non-nil, enables `via`.
+func (b *builder) dns(where string, c *config.DNS, groups []string) *DNS {
+	d := &DNS{
+		Final:           c.Final,
+		DefaultResolver: c.DefaultResolver,
+		Strategy:        c.Strategy,
+		Optimistic:      c.Optimistic,
+	}
+	names := c.Servers.Keys()
+	known := func(field, name string) {
+		if name != "" && !slices.Contains(names, name) {
+			b.errorf("%s.%s: unknown server %q", where, field, name)
+		}
+	}
+	for name, s := range c.Servers.All() {
+		w := where + ".servers." + name
+		srv, err := parseDNSAddress(s.Address)
+		if err != nil {
+			b.errorf("%s.address: %w", w, err)
+		}
+		srv.Name, srv.Via, srv.Resolver = name, s.Via, s.Resolver
+		if s.Via != "" {
+			if groups == nil {
+				b.errorf("%s.via: only client DNS servers can go via a group", w)
+			} else if !slices.Contains(groups, s.Via) {
+				b.errorf("%s.via: unknown group %q", w, s.Via)
+			}
+		}
+		known("servers."+name+".resolver", s.Resolver)
+		d.Servers = append(d.Servers, srv)
+	}
+	if d.Final == "" {
+		b.errorf("%s.final: required", where)
+	}
+	known("final", d.Final)
+	known("default_resolver", d.DefaultResolver)
+	for i, r := range c.Rules {
+		w := fmt.Sprintf("%s.rules[%d]", where, i)
+		match, err := parseMatchers(r.Match)
+		if err != nil {
+			b.errorf("%s: %w", w, err)
+		}
+		for _, m := range match {
+			if !m.IsDomain() {
+				b.errorf("%s: DNS rules match domains only, got %s", w, m)
+			}
+		}
+		known(fmt.Sprintf("rules[%d].server", i), r.Server)
+		d.Rules = append(d.Rules, DNSRule{Match: match, Server: r.Server})
+	}
+	return d
+}
+
+func parseSelector(s string) (Selector, error) {
+	switch {
+	case s == "" || s == "all":
+		return Selector{All: true}, nil
+	case strings.HasPrefix(s, "!") && len(s) > 1:
+		return Selector{Tag: s[1:], Negate: true}, nil
+	case strings.HasPrefix(s, "!"):
+		return Selector{}, fmt.Errorf("want <tag>, !<tag> or all, got %q", s)
+	default:
+		return Selector{Tag: s}, nil
+	}
+}
+
+// parseDNSAddress accepts udp://, tcp://, tls://, https://, quic:// URLs
+// or a bare IP (UDP).
+func parseDNSAddress(s string) (DNSServer, error) {
+	if !strings.Contains(s, "://") {
+		s = "udp://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || u.Hostname() == "" {
+		return DNSServer{}, fmt.Errorf("invalid DNS address %q", s)
+	}
+	srv := DNSServer{Type: u.Scheme, Server: u.Hostname()}
+	switch u.Scheme {
+	case "udp", "tcp", "tls", "quic":
+	case "https":
+		if u.Path != "" && u.Path != "/dns-query" {
+			srv.Path = u.Path
+		}
+	default:
+		return DNSServer{}, fmt.Errorf("DNS address %q: unsupported scheme %q", s, u.Scheme)
+	}
+	if p := u.Port(); p != "" {
+		port, err := strconv.Atoi(p)
+		if err != nil {
+			return DNSServer{}, fmt.Errorf("DNS address %q: bad port", s)
+		}
+		srv.Port = port
+	}
+	return srv, nil
+}
+
+func deref[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
+}
