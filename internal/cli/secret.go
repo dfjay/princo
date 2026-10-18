@@ -84,7 +84,9 @@ func newSecretListCommand(global *globalFlags) *cobra.Command {
 			paths := store.List()
 			sort.Strings(paths)
 			for _, p := range paths {
-				fmt.Fprintln(cmd.OutOrStdout(), p)
+				if _, err := fmt.Fprintln(cmd.OutOrStdout(), p); err != nil {
+					return err
+				}
 			}
 			return nil
 		},

@@ -1,0 +1,7 @@
+version: "2"
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        # Closing a file opened for reading can't lose data.
+        - (*os.File).Close
