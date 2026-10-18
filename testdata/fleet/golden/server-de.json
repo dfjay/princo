@@ -1,0 +1,174 @@
+{
+  "dns": {
+    "final": "quad9",
+    "servers": [
+      {
+        "domain_resolver": "bootstrap",
+        "server": "dns.quad9.net",
+        "tag": "quad9",
+        "type": "https"
+      },
+      {
+        "server": "9.9.9.9",
+        "tag": "bootstrap",
+        "type": "udp"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "endpoints": [
+    {
+      "address": [
+        "172.16.0.2/32",
+        "2606:4700:110:8000::2/128"
+      ],
+      "mtu": 1280,
+      "peers": [
+        {
+          "address": "engage.cloudflareclient.com",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "port": 2408,
+          "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
+        }
+      ],
+      "private_key": "wGTHAZhzR/vWlWuI64A5WrL/fLhw2ilcfl9HvB4lfkk=",
+      "tag": "warp",
+      "type": "wireguard"
+    }
+  ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 8444,
+      "tag": "vless-reality-in",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.samsung.com",
+            "server_port": 443
+          },
+          "private_key": "gNpfH9byN0h7UnCRJa4PQQuLDgefpCUyEyiEpRspf3w",
+          "short_id": [
+            "1a3287df"
+          ]
+        },
+        "server_name": "www.samsung.com"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+        },
+        {
+          "flow": "xtls-rprx-vision",
+          "name": "chain-relay",
+          "uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd"
+        }
+      ]
+    },
+    {
+      "listen": "::",
+      "listen_port": 443,
+      "masquerade": {
+        "rewrite_host": true,
+        "type": "proxy",
+        "url": "https://example.com"
+      },
+      "obfs": {
+        "password": "obfs-password",
+        "type": "salamander"
+      },
+      "tag": "hy2-in",
+      "tls": {
+        "certificate_path": "/var/lib/princo/certs/de.example.com/fullchain.pem",
+        "enabled": true,
+        "key_path": "/var/lib/princo/certs/de.example.com/key.pem",
+        "server_name": "de.example.com"
+      },
+      "type": "hysteria2",
+      "users": [
+        {
+          "name": "alice",
+          "password": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+        }
+      ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 8445,
+      "tag": "naive-in",
+      "tls": {
+        "certificate_path": "/var/lib/princo/certs/naive-de.example.com/fullchain.pem",
+        "enabled": true,
+        "key_path": "/var/lib/princo/certs/naive-de.example.com/key.pem",
+        "server_name": "naive-de.example.com"
+      },
+      "type": "naive",
+      "users": [
+        {
+          "password": "dbc5aca6-f0dd-416d-b30f-813754d72f99",
+          "username": "alice"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": "bootstrap",
+    "final": "warp",
+    "rule_set": [
+      {
+        "format": "binary",
+        "path": "/var/lib/princo/rules/geosite-category-ru.srs",
+        "tag": "geosite-category-ru",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "/var/lib/princo/rules/geoip-ru.srs",
+        "tag": "geoip-ru",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "action": "reject",
+        "port": [
+          25,
+          465,
+          587
+        ]
+      },
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "reject",
+        "rule_set": [
+          "geosite-category-ru",
+          "geoip-ru"
+        ]
+      }
+    ]
+  }
+}

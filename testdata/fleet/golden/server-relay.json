@@ -1,0 +1,115 @@
+{
+  "dns": {
+    "final": "quad9",
+    "servers": [
+      {
+        "domain_resolver": "bootstrap",
+        "server": "dns.quad9.net",
+        "tag": "quad9",
+        "type": "https"
+      },
+      {
+        "server": "9.9.9.9",
+        "tag": "bootstrap",
+        "type": "udp"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "::",
+      "listen_port": 443,
+      "tag": "vless-reality-in",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.ozon.ru",
+            "server_port": 443
+          },
+          "private_key": "ODrnfoT5MGn1Tpnwgshpqr59LlXLAV2AganlE1w3fF4",
+          "short_id": [
+            "f0447be7"
+          ]
+        },
+        "server_name": "www.ozon.ru"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "de.example.com",
+      "server_port": 443,
+      "tag": "de-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "rTfvDnYUF2iyaHAreWAuNEJ2MipD-PGBiDysUvNJHjM",
+          "short_id": "1a3287df"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": "bootstrap",
+    "final": "de-reality",
+    "rule_set": [
+      {
+        "format": "binary",
+        "path": "/var/lib/princo/rules/geosite-category-ru.srs",
+        "tag": "geosite-category-ru",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "/var/lib/princo/rules/geoip-ru.srs",
+        "tag": "geoip-ru",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "route",
+        "outbound": "direct",
+        "rule_set": [
+          "geosite-category-ru",
+          "geoip-ru"
+        ]
+      }
+    ]
+  }
+}

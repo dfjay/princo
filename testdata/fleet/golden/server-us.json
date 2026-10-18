@@ -1,0 +1,105 @@
+{
+  "dns": {
+    "final": "quad9",
+    "servers": [
+      {
+        "domain_resolver": "bootstrap",
+        "server": "dns.quad9.net",
+        "tag": "quad9",
+        "type": "https"
+      },
+      {
+        "server": "9.9.9.9",
+        "tag": "bootstrap",
+        "type": "udp"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  },
+  "inbounds": [
+    {
+      "listen": "::",
+      "listen_port": 443,
+      "tag": "vless-reality-in",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.samsung.com",
+            "server_port": 443
+          },
+          "private_key": "UFIhUIhB8SBHFUlN9nTxsTsj5N05fwNkMrcD1NEygGI",
+          "short_id": [
+            "2b4398e0"
+          ]
+        },
+        "server_name": "www.samsung.com"
+      },
+      "type": "vless",
+      "users": [
+        {
+          "flow": "xtls-rprx-vision",
+          "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+        },
+        {
+          "flow": "xtls-rprx-vision",
+          "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
+        }
+      ]
+    }
+  ],
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "default_domain_resolver": "bootstrap",
+    "final": "direct",
+    "rule_set": [
+      {
+        "format": "binary",
+        "path": "/var/lib/princo/rules/geosite-category-ru.srs",
+        "tag": "geosite-category-ru",
+        "type": "local"
+      },
+      {
+        "format": "binary",
+        "path": "/var/lib/princo/rules/geoip-ru.srs",
+        "tag": "geoip-ru",
+        "type": "local"
+      }
+    ],
+    "rules": [
+      {
+        "action": "reject",
+        "port": [
+          25,
+          465,
+          587
+        ]
+      },
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "reject",
+        "rule_set": [
+          "geosite-category-ru",
+          "geoip-ru"
+        ]
+      }
+    ]
+  }
+}

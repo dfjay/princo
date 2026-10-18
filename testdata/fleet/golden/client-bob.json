@@ -1,0 +1,200 @@
+{
+  "dns": {
+    "final": "proxy-dns",
+    "rules": [
+      {
+        "action": "predefined",
+        "query_type": [
+          "AAAA"
+        ],
+        "rule_set": [
+          "geosite-category-ru"
+        ]
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "geosite-category-ru"
+        ],
+        "server": "ru-dns"
+      }
+    ],
+    "servers": [
+      {
+        "detour": "select",
+        "domain_resolver": "bootstrap-dns",
+        "server": "dns.quad9.net",
+        "tag": "proxy-dns",
+        "type": "https"
+      },
+      {
+        "server": "77.88.8.8",
+        "tag": "direct-dns",
+        "type": "udp"
+      },
+      {
+        "server": "77.88.8.8",
+        "tag": "bootstrap-dns",
+        "type": "udp"
+      },
+      {
+        "detour": "ru-select",
+        "server": "77.88.8.8",
+        "tag": "ru-dns",
+        "type": "udp"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_dns": true
+    },
+    "clash_api": {
+      "default_mode": "Rule",
+      "external_controller": "127.0.0.1:9090"
+    }
+  },
+  "http_clients": [
+    {
+      "detour": "select",
+      "tag": "proxy-http"
+    }
+  ],
+  "inbounds": [
+    {
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "tag": "tun-in",
+      "type": "tun"
+    }
+  ],
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "default": "us-reality",
+      "outbounds": [
+        "us-reality"
+      ],
+      "tag": "select",
+      "type": "selector"
+    },
+    {
+      "default": "direct",
+      "outbounds": [
+        "direct",
+        "relay-reality"
+      ],
+      "tag": "ru-select",
+      "type": "selector"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "203.0.113.7",
+      "server_port": 443,
+      "tag": "us-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk",
+          "short_id": "2b4398e0"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "relay.example.ru",
+      "server_port": 443,
+      "tag": "relay-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "TueZqbh5xK2pH6ajdlAB8E-weA_Z8SUOL_PekPXsrBw",
+          "short_id": "f0447be7"
+        },
+        "server_name": "www.ozon.ru",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "bootstrap-dns",
+    "default_http_client": "proxy-http",
+    "final": "select",
+    "rule_set": [
+      {
+        "format": "binary",
+        "tag": "geoip-ru",
+        "type": "remote",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-ru.srs"
+      },
+      {
+        "format": "binary",
+        "tag": "geosite-category-ru",
+        "type": "remote",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ru.srs"
+      }
+    ],
+    "rules": [
+      {
+        "action": "reject",
+        "ip_version": 6,
+        "rule_set": [
+          "geoip-ru"
+        ]
+      },
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "action": "route",
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "network": "icmp",
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "outbound": "ru-select",
+        "rule_set": [
+          "geosite-category-ru",
+          "geoip-ru"
+        ]
+      }
+    ]
+  }
+}

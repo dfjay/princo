@@ -1,0 +1,91 @@
+# A small fleet exercising every feature: all three protocols with WARP
+# egress and a site behind the multiplexer (de), VLESS-Reality alone on
+# 443 (us), and a chain hop without IPv6 that exits through de (relay).
+princo: v1
+
+defaults:
+  acme_email: admin@example.com
+  reality:
+    server_name: www.samsung.com
+  egress: warp
+  dns:
+    servers:
+      quad9: { address: https://dns.quad9.net, resolver: bootstrap }
+      bootstrap: { address: 9.9.9.9 }
+    final: quad9
+    default_resolver: bootstrap
+    strategy: prefer_ipv4
+  rules:
+    - { match: [port:25, port:465, port:587], action: reject }
+    - { action: sniff }
+    - { match: [geosite:category-ru, geoip:ru], action: reject }
+
+nodes:
+  de:
+    ssh: root@de.example.com
+    address: de.example.com
+    reality:
+      short_id: 1a3287df
+      public_key: rTfvDnYUF2iyaHAreWAuNEJ2MipD-PGBiDysUvNJHjM
+    hysteria2:
+      masquerade: https://example.com
+    naive:
+      domain: naive-de.example.com
+    passthrough:
+      example.com: 127.0.0.1:8443
+
+  us:
+    ssh: root@203.0.113.7
+    address: 203.0.113.7
+    reality:
+      short_id: 2b4398e0
+      public_key: P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk
+    egress: direct
+
+  relay:
+    ssh: root@relay.example.ru
+    address: relay.example.ru
+    tags: [domestic]
+    ipv6: false
+    reality:
+      server_name: www.ozon.ru
+      short_id: f0447be7
+      public_key: TueZqbh5xK2pH6ajdlAB8E-weA_Z8SUOL_PekPXsrBw
+    egress: de
+    rules:
+      - { action: sniff }
+      - { match: [geosite:category-ru, geoip:ru], action: direct }
+
+users:
+  alice: { nodes: [de, us] }
+  bob: { nodes: [us, relay] }
+
+client:
+  groups:
+    select:
+      nodes: "!domestic"
+      default: first
+    ru-select:
+      nodes: domestic
+      include_direct: true
+      default: direct
+      fallback: direct
+  dns:
+    servers:
+      proxy-dns: { address: https://dns.quad9.net, via: select, resolver: bootstrap-dns }
+      direct-dns: { address: 77.88.8.8 }
+      bootstrap-dns: { address: 77.88.8.8 }
+      ru-dns: { address: 77.88.8.8, via: ru-select }
+    final: proxy-dns
+    default_resolver: bootstrap-dns
+    strategy: prefer_ipv4
+    rules:
+      - { match: [geosite:category-ru], server: ru-dns }
+  rules:
+    - { match: [ip:private, network:icmp], action: direct }
+    - { match: [geosite:category-ru, geoip:ru], via: ru-select }
+  final: select
+
+subscription:
+  node: de
+  domain: subs.example.com
