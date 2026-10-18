@@ -1,0 +1,45 @@
+language: en-US
+tone_instructions: "Be brief and concrete. Bugs and security risks first; style only when it hurts readability."
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  review_details: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    # Rendered with `go test ./internal/engine/singbox -update`; review the code that makes them.
+    - "!testdata/**/golden/**"
+  path_instructions:
+    - path: "internal/secrets/**"
+      instructions: >-
+        Secret values must never reach logs, errors or stdout (except `princo
+        secret get`, which prints one on purpose). Errors may name secret paths
+        and files, not values.
+    - path: "internal/engine/singbox/**"
+      instructions: >-
+        Output is a sing-box 1.14 config. Check field names and value types
+        against the sing-box docs, and that rules keep their order: sing-box
+        evaluates route and DNS rules top to bottom.
+    - path: "internal/fleet/**"
+      instructions: >-
+        Build reports every problem in princo.yaml at once; each error should
+        say where it is (e.g. `nodes.fr.reality: ...`).
+    - path: "testdata/fleet/secrets.test.yaml"
+      instructions: "Throwaway keys for tests, not real secrets."
+  tools:
+    golangci-lint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+
+chat:
+  auto_reply: true
