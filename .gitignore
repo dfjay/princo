@@ -1,0 +1,16 @@
+# build artifacts
+/princo
+/dist/
+*.test
+
+# local generation
+/out/
+
+# secrets — never commit plaintext
+secrets.plain.yaml
+testdata/**/key.txt
+
+# editor / OS
+.idea/
+.vscode/
+.DS_Store
