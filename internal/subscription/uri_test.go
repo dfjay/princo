@@ -1,0 +1,24 @@
+package subscription
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/dfjay/princo/internal/fleet/fleettest"
+)
+
+func TestURIs(t *testing.T) {
+	f := fleettest.Load(t, "../../testdata/fleet")
+	bob, _ := f.User("bob")
+	require.Equal(t, []string{
+		"vless://5ad0af17-e352-4d1e-a22a-a5d4007007da@203.0.113.7:443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=www.samsung.com&fp=chrome&pbk=P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk&sid=2b4398e0#bob-us-reality",
+		"vless://5ad0af17-e352-4d1e-a22a-a5d4007007da@relay.example.ru:443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=www.ozon.ru&fp=chrome&pbk=TueZqbh5xK2pH6ajdlAB8E-weA_Z8SUOL_PekPXsrBw&sid=f0447be7#bob-relay-reality",
+	}, URIs(bob))
+
+	alice, _ := f.User("alice")
+	uris := URIs(alice)
+	require.Len(t, uris, 4, "de: reality, hy2, naive; us: reality")
+	require.Equal(t, "hysteria2://dbc5aca6-f0dd-416d-b30f-813754d72f99@de.example.com:443?sni=de.example.com&obfs=salamander&obfs-password=obfs-password#alice-de-hy2", uris[1])
+	require.Equal(t, "naive+https://alice:dbc5aca6-f0dd-416d-b30f-813754d72f99@naive-de.example.com:443#alice-de-naive", uris[2])
+}

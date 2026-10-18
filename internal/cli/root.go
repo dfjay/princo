@@ -22,6 +22,7 @@ func NewRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVarP(&flags.KeyPath, "key", "k", "", "Path to age identity (default ~/.config/princo/key.txt)")
 
 	root.AddCommand(newVersionCommand())
+	root.AddCommand(newRenderCommand(flags))
 	root.AddCommand(newSecretCommand(flags))
 	return root
 }
