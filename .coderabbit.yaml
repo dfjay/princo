@@ -29,6 +29,10 @@ reviews:
       instructions: >-
         Build reports every problem in princo.yaml at once; each error should
         say where it is (e.g. `nodes.fr.reality: ...`).
+    - path: "nix/**"
+      instructions: >-
+        No secret value may reach the Nix store: the module only wires up
+        secret files, and princo-render reads them on the host.
     - path: "testdata/fleet/secrets.test.yaml"
       instructions: "Throwaway keys for tests, not real secrets."
   tools:

@@ -47,7 +47,7 @@ func NewResolver(baseDir, identityPath string, mappings []Mapping) (*Resolver, e
 		if strings.Contains(strings.TrimSuffix(m.Pattern, "*"), "*") {
 			return nil, fmt.Errorf("secrets: pattern %q: `*` is only allowed at the end", m.Pattern)
 		}
-		if _, _, _, err := parseLocation(m.Target); err != nil {
+		if _, _, _, err := ParseLocation(m.Target); err != nil {
 			return nil, fmt.Errorf("secrets: %s: %w", m.Pattern, err)
 		}
 	}
@@ -62,8 +62,8 @@ func NewResolver(baseDir, identityPath string, mappings []Mapping) (*Resolver, e
 
 // Get resolves a logical path or an explicit location.
 func (r *Resolver) Get(path string) (string, error) {
-	location := r.locate(path)
-	kind, file, key, err := parseLocation(location)
+	location := r.Locate(path)
+	kind, file, key, err := ParseLocation(location)
 	if err != nil {
 		return "", err
 	}
@@ -81,8 +81,8 @@ func (r *Resolver) Get(path string) (string, error) {
 	return v, nil
 }
 
-// locate turns a logical path into a location.
-func (r *Resolver) locate(path string) string {
+// Locate returns where path is looked up: a location like sops:file#key.
+func (r *Resolver) Locate(path string) string {
 	if isLocation(path) {
 		return path
 	}
@@ -91,7 +91,7 @@ func (r *Resolver) locate(path string) string {
 		if !ok {
 			continue
 		}
-		if _, _, key, _ := parseLocation(m.Target); key != "" {
+		if _, _, key, _ := ParseLocation(m.Target); key != "" {
 			return strings.Replace(m.Target, "*", rest, 1)
 		}
 		return m.Target + "#" + rest
@@ -114,7 +114,7 @@ func isLocation(s string) bool {
 }
 
 // parseLocation splits `kind:file#key`; key may be empty.
-func parseLocation(s string) (kind, file, key string, err error) {
+func ParseLocation(s string) (kind, file, key string, err error) {
 	kind, rest, ok := strings.Cut(s, ":")
 	if !ok || (kind != "sops" && kind != "age") {
 		return "", "", "", fmt.Errorf("secret location %q: want sops:<file>[#key] or age:<file>[#key]", s)

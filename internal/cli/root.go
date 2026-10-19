@@ -8,6 +8,7 @@ var Version = "dev"
 type globalFlags struct {
 	ConfigPath string
 	KeyPath    string
+	SecretsDir string
 }
 
 func NewRootCommand() *cobra.Command {
@@ -21,8 +22,11 @@ func NewRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVarP(&flags.ConfigPath, "config", "c", "princo.yaml", "Path to princo.yaml")
 	root.PersistentFlags().StringVarP(&flags.KeyPath, "key", "k", "", "Path to age identity (default ~/.config/princo/key.txt)")
 
+	root.PersistentFlags().StringVar(&flags.SecretsDir, "secrets-dir", "", "Read secrets from files under this directory, one per path (as on a host), instead of where princo.yaml says")
+
 	root.AddCommand(newVersionCommand())
 	root.AddCommand(newRenderCommand(flags))
+	root.AddCommand(newPlanCommand(flags))
 	root.AddCommand(newSecretCommand(flags))
 	return root
 }

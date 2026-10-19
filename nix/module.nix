@@ -1,0 +1,321 @@
+# Runs one node of a princo fleet on NixOS.
+#
+# At build time `princo plan` says what the node needs around its files:
+# ports, the SNI multiplexer, certificates, rule sets and secrets. The module
+# turns that into firewall rules, an nginx stream map, ACME certificates and
+# sops-nix secrets. On the host, princo-render.service renders the node's
+# files from the decrypted secrets, and princo.service runs the node's engine
+# (engines.nix) on them; no secret reaches the Nix store.
+{
+  config,
+  lib,
+  pkgs,
+  options,
+  ...
+}:
+
+let
+  cfg = config.services.princo;
+
+  plan = lib.importJSON (
+    pkgs.runCommand "princo-plan-${cfg.node}" { } ''
+      ${lib.getExe cfg.package} --config ${cfg.config} plan --node ${lib.escapeShellArg cfg.node} > $out
+    ''
+  );
+
+  engines = import ./engines.nix { inherit lib pkgs; };
+  engine =
+    engines.${plan.engine}
+      or (throw "services.princo: node ${cfg.node} uses engine ${plan.engine}, which the module can't run yet (nix/engines.nix).");
+
+  # Where princo-render writes the node's files.
+  outDir = "/run/princo/files";
+  # Absent from the plan JSON when the node has none.
+  site = plan.subscription or null;
+  mux = plan.mux or null;
+  siteRoot = "${outDir}/${site.root}";
+
+  useSops = cfg.secretsDir == null;
+  secretsDir = if useSops then "/run/secrets/princo" else cfg.secretsDir;
+  sopsFormat =
+    file:
+    if lib.hasSuffix ".json" file then
+      "json"
+    else if lib.hasSuffix ".env" file then
+      "dotenv"
+    else if lib.hasSuffix ".ini" file then
+      "ini"
+    else
+      "yaml";
+  notSops = lib.filter (s: s.source.type != "sops") plan.secrets;
+
+  ruleSetDir = pkgs.linkFarm "princo-rule-sets" (
+    map (file: {
+      name = file;
+      path = engine.ruleSet file;
+    }) plan.rule_sets
+  );
+  certUnits = map (d: "acme-${d}.service") plan.certificates;
+
+  needsNginx = mux != null || plan.certificates != [ ];
+  http = [
+    {
+      addr = "0.0.0.0";
+      port = 80;
+    }
+    {
+      addr = "[::]";
+      port = 80;
+    }
+  ];
+  parseAddr =
+    addr:
+    let
+      m = builtins.match "(.*):([0-9]+)" addr;
+    in
+    {
+      addr = builtins.elemAt m 0;
+      port = lib.toInt (builtins.elemAt m 1);
+    };
+in
+{
+  options.services.princo = {
+    enable = lib.mkEnableOption "a node of a princo VPN fleet";
+
+    package = lib.mkOption {
+      type = lib.types.package;
+      default = pkgs.callPackage ./package.nix { };
+      defaultText = lib.literalExpression "princo built with the host's nixpkgs";
+      description = "The princo package.";
+    };
+
+    config = lib.mkOption {
+      type = lib.types.path;
+      example = lib.literalExpression "./vpn/princo.yaml";
+      description = ''
+        The fleet's princo.yaml. Secret files it names are relative to its
+        directory, so pass it as a Nix path, not a string.
+      '';
+    };
+
+    node = lib.mkOption {
+      type = lib.types.str;
+      example = "fr";
+      description = "The node of the fleet this host runs.";
+    };
+
+    secretsDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/run/agenix/princo";
+      description = ''
+        Directory holding the node's secrets, one file per secret path
+        (users/alice, nodes/fr/reality, ...). When null, the module has
+        sops-nix decrypt them from the sops files princo.yaml's `secrets:`
+        block names, which needs sops-nix imported.
+      '';
+    };
+
+    enginePackage = lib.mkOption {
+      type = lib.types.package;
+      default = engine.package;
+      defaultText = lib.literalExpression "the package of the node's engine, e.g. pkgs.sing-box";
+      description = "The package of the engine the node runs.";
+    };
+
+    plan = lib.mkOption {
+      type = lib.types.attrs;
+      readOnly = true;
+      description = "The node's plan from `princo plan`, for inspection.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable (
+    lib.mkMerge [
+      {
+        services.princo.plan = plan;
+
+        assertions = [
+          {
+            assertion = !useSops || options ? sops;
+            message = "services.princo: import sops-nix, or set services.princo.secretsDir.";
+          }
+          {
+            assertion = !useSops || notSops == [ ];
+            message = ''
+              services.princo: these secrets of node ${cfg.node} aren't in sops files, so sops-nix can't provide them:
+                ${lib.concatMapStringsSep "\n  " (s: "${s.path} (${s.source.type}:${s.source.file})") notSops}
+              Map them to sops files in princo.yaml's secrets: block, or set services.princo.secretsDir.
+            '';
+          }
+        ];
+
+        networking.firewall = {
+          allowedTCPPorts = plan.tcp_ports ++ lib.optional (plan.certificates != [ ]) 80;
+          allowedUDPPorts = plan.udp_ports;
+        };
+
+        # The paths the rendered config refers to.
+        systemd.tmpfiles.rules = [
+          "d /var/lib/princo 0755 root root -"
+          "L+ /var/lib/princo/rules - - - - ${ruleSetDir}"
+          "L+ /var/lib/princo/certs - - - - /var/lib/acme"
+        ];
+
+        systemd.services.princo-render = {
+          description = "Render princo files of node ${cfg.node}";
+          wantedBy = [ "multi-user.target" ];
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            RuntimeDirectory = "princo";
+            RuntimeDirectoryPreserve = true;
+            UMask = "0027";
+            ExecStart = lib.escapeShellArgs [
+              (lib.getExe cfg.package)
+              "--config"
+              "${cfg.config}"
+              "--secrets-dir"
+              secretsDir
+              "render"
+              "--node"
+              cfg.node
+              "--out"
+              outDir
+            ];
+            # nginx serves the subscription site; the rest stays root's.
+            ExecStartPost = lib.optionals (site != null) [
+              "${pkgs.coreutils}/bin/chmod 0751 ${outDir}"
+              "${pkgs.coreutils}/bin/chgrp -R ${config.services.nginx.group} ${siteRoot}"
+            ];
+          };
+        };
+
+        systemd.services.princo =
+          let
+            caps = [
+              "CAP_NET_ADMIN"
+              "CAP_NET_BIND_SERVICE"
+              "CAP_NET_RAW"
+              # Reads the rendered config and the certificates, both root's.
+              "CAP_DAC_READ_SEARCH"
+            ];
+          in
+          {
+            description = "princo node ${cfg.node} (${plan.engine})";
+            wantedBy = [ "multi-user.target" ];
+            requires = [ "princo-render.service" ];
+            # Restarts with princo-render, so new files take effect.
+            partOf = [ "princo-render.service" ];
+            wants = [ "network-online.target" ] ++ certUnits;
+            after = [
+              "network-online.target"
+              "princo-render.service"
+            ]
+            ++ certUnits;
+            serviceConfig = {
+              ExecStart = lib.escapeShellArgs (
+                engine.command {
+                  package = cfg.enginePackage;
+                  config = "${outDir}/${plan.config}";
+                  stateDir = "/var/lib/princo-${plan.engine}";
+                }
+              );
+              ExecReload = lib.mkIf engine.reloads "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
+              DynamicUser = true;
+              StateDirectory = "princo-${plan.engine}";
+              StateDirectoryMode = "0700";
+              AmbientCapabilities = caps;
+              CapabilityBoundingSet = caps;
+              Restart = "on-failure";
+              RestartSec = "10s";
+              LimitNOFILE = "infinity";
+            };
+          };
+
+        security.acme = lib.mkIf (plan.certificates != [ ]) {
+          acceptTerms = true;
+          defaults.email = lib.mkIf (plan.acme_email or "" != "") (lib.mkDefault plan.acme_email);
+          certs = lib.genAttrs plan.certificates (d: {
+            reloadServices = lib.optional (site == null || d != site.domain) "princo.service";
+          });
+        };
+
+        services.nginx = lib.mkIf needsNginx {
+          enable = true;
+          streamConfig = lib.mkIf (mux != null) ''
+            map $ssl_preread_server_name $princo_backend {
+              ${lib.concatMapStringsSep "\n  " (r: "${r.sni} ${r.target};") mux.routes}
+              ${lib.optionalString (mux.default or "" != "") "default ${mux.default};"}
+            }
+            server {
+              listen ${toString mux.port};
+              listen [::]:${toString mux.port};
+              ssl_preread on;
+              proxy_pass $princo_backend;
+            }
+          '';
+
+          # The engine's domains: plain HTTP, only for ACME challenges.
+          virtualHosts =
+            lib.genAttrs (lib.filter (d: site == null || d != site.domain) plan.certificates) (_: {
+              enableACME = true;
+              listen = lib.mkDefault http;
+              locations."/".return = lib.mkDefault "404";
+            })
+            // lib.optionalAttrs (site != null) {
+              ${site.domain} = {
+                forceSSL = true;
+                enableACME = true;
+                listen = http ++ [ ((parseAddr site.listen) // { ssl = true; }) ];
+                root = siteRoot;
+                extraConfig = ''
+                  add_header X-Robots-Tag "noindex, nofollow" always;
+                '';
+                locations."~ ^/([a-f0-9]+)/sing-box$".extraConfig = ''
+                  default_type application/json;
+                  try_files /$1/sing-box/config =404;
+                '';
+                locations."~ ^/([a-f0-9]+)/qr$".extraConfig = ''
+                  default_type text/html;
+                  try_files /$1/index.html =404;
+                '';
+                # Named capture: the `if` regex below would reset $1.
+                locations."~ ^/(?<token>[a-f0-9]+)/?$".extraConfig = ''
+                  # sing-box apps send "SFx (sing-box ...)": give them the
+                  # profile so the universal link works there too.
+                  if ($http_user_agent ~ "^SF[A-Z] \(sing-box") {
+                    rewrite ^ /$token/sing-box last;
+                  }
+                  default_type text/plain;
+                  add_header profile-update-interval "24";
+                  try_files /$token/base64 =404;
+                '';
+              };
+            };
+        };
+        # nginx reads the site that princo-render writes.
+        systemd.services.nginx = lib.mkIf (site != null) {
+          wants = [ "princo-render.service" ];
+          after = [ "princo-render.service" ];
+        };
+      }
+
+      (lib.optionalAttrs (options ? sops) {
+        sops.secrets = lib.mkIf useSops (
+          lib.listToAttrs (
+            map (s: {
+              name = "princo/${s.file}";
+              value = {
+                sopsFile = dirOf cfg.config + "/${s.source.file}";
+                format = sopsFormat s.source.file;
+                key = s.source.key;
+                restartUnits = [ "princo-render.service" ];
+              };
+            }) (lib.filter (s: s.source.type == "sops") plan.secrets)
+          )
+        );
+      })
+    ]
+  );
+}
