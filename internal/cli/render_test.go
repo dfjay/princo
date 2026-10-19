@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,11 +74,31 @@ func TestRender_URIs(t *testing.T) {
 	require.Contains(t, out, "#bob-relay-reality\n")
 }
 
+func TestRender_Links(t *testing.T) {
+	out, err := runRender(t, "--user", "alice", "--links")
+	require.NoError(t, err)
+	// The token is what `sops decrypt ... | sha256sum | cut -c1-32` gave
+	// before princo, so users keep their links.
+	const sub = "https://subs.example.com/f8cb68efcef124689abd331ff3fa5241/"
+	require.Equal(t, "QR page:   "+sub+"qr\n"+
+		"Universal: "+sub+"\n"+
+		"sing-box:  sing-box://import-remote-profile?url="+url.QueryEscape(sub+"sing-box")+"#alice\n", out)
+}
+
+func TestRender_LinksMissingUUID(t *testing.T) {
+	_, err := run(t, "--config", "../../testdata/fleet/princo.yaml", "--secrets-dir", t.TempDir(),
+		"render", "--user", "alice", "--links")
+	require.ErrorContains(t, err, "secrets missing from")
+	require.ErrorContains(t, err, "users/alice")
+}
+
 func TestRender_Flags(t *testing.T) {
 	_, err := runRender(t)
 	require.ErrorContains(t, err, "exactly one of --node or --user")
 	_, err = runRender(t, "--node", "de", "--uris")
-	require.ErrorContains(t, err, "--uris needs --user")
+	require.ErrorContains(t, err, "--uris and --links need --user")
+	_, err = runRender(t, "--user", "alice", "--uris", "--links")
+	require.ErrorContains(t, err, "at most one of --uris or --links")
 	_, err = runRender(t, "--node", "nope")
 	require.ErrorContains(t, err, `no node named "nope"`)
 }

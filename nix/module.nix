@@ -17,9 +17,16 @@
 let
   cfg = config.services.princo;
 
+  # The plan is read at evaluation, so princo runs where the system is
+  # evaluated, not where it runs.
+  planPrinco =
+    if cfg.planPkgs.stdenv.hostPlatform.system == pkgs.stdenv.hostPlatform.system then
+      cfg.package
+    else
+      cfg.planPkgs.callPackage ./package.nix { };
   plan = lib.importJSON (
-    pkgs.runCommand "princo-plan-${cfg.node}" { } ''
-      ${lib.getExe cfg.package} --config ${cfg.config} plan --node ${lib.escapeShellArg cfg.node} > $out
+    cfg.planPkgs.runCommand "princo-plan-${cfg.node}" { } ''
+      ${lib.getExe planPrinco} --config ${cfg.config} plan --node ${lib.escapeShellArg cfg.node} > $out
     ''
   );
 
@@ -121,6 +128,19 @@ in
       default = engine.package;
       defaultText = lib.literalExpression "the package of the node's engine, e.g. pkgs.sing-box";
       description = "The package of the engine the node runs.";
+    };
+
+    planPkgs = lib.mkOption {
+      type = lib.types.pkgs;
+      default = pkgs;
+      defaultText = lib.literalExpression "pkgs";
+      example = lib.literalExpression "inputs.nixpkgs.legacyPackages.aarch64-darwin";
+      description = ''
+        The nixpkgs `princo plan` runs with while the system is evaluated
+        (import from derivation). By default that's the host's, which needs
+        a builder for the host's platform even just to evaluate; set it to
+        the packages of the machine you deploy from to plan there.
+      '';
     };
 
     plan = lib.mkOption {

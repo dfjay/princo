@@ -22,3 +22,16 @@ func TestURIs(t *testing.T) {
 	require.Equal(t, "hysteria2://dbc5aca6-f0dd-416d-b30f-813754d72f99@de.example.com:443?sni=de.example.com&obfs=salamander&obfs-password=obfs-password#alice-de-hy2", uris[1])
 	require.Equal(t, "naive+https://alice:dbc5aca6-f0dd-416d-b30f-813754d72f99@naive-de.example.com:443#alice-de-naive", uris[2])
 }
+
+func TestURIs_EscapesName(t *testing.T) {
+	f := fleettest.Load(t, "../../testdata/fleet")
+	alice, _ := f.User("alice")
+	u := *alice
+	u.Name = "ops#team"
+	uris := URIs(&u)
+	require.Equal(t, "naive+https://ops%23team:dbc5aca6-f0dd-416d-b30f-813754d72f99@naive-de.example.com:443#ops%23team-de-naive", uris[2])
+
+	links, ok := UserLinks(f, &u)
+	require.True(t, ok)
+	require.Equal(t, "sing-box://import-remote-profile?url=https%3A%2F%2Fsubs.example.com%2Ff8cb68efcef124689abd331ff3fa5241%2Fsing-box#ops%23team", links.SingBox)
+}

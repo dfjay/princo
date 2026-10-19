@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"net/url"
 	"strings"
 
 	"rsc.io/qr"
@@ -19,6 +20,33 @@ import (
 func Token(u *fleet.User) string {
 	sum := sha256.Sum256([]byte(u.UUID))
 	return hex.EncodeToString(sum[:])[:32]
+}
+
+// Links are a user's links to the subscription site.
+type Links struct {
+	// Universal is the subscription: share links for most apps, the
+	// profile for sing-box apps.
+	Universal string
+	// SingBox imports the profile into sing-box apps.
+	SingBox string
+	// QR is the page with both as QR codes.
+	QR string
+}
+
+// UserLinks returns the user's links, or false when the fleet has no
+// subscription.
+func UserLinks(f *fleet.Fleet, u *fleet.User) (Links, bool) {
+	if f.Subscription == nil {
+		return Links{}, false
+	}
+	universal := "https://" + f.Subscription.Domain + "/" + Token(u) + "/"
+	return Links{
+		Universal: universal,
+		// https://sing-box.sagernet.org/clients/general/#remote-profile
+		SingBox: "sing-box://import-remote-profile?url=" + url.QueryEscape(universal+"sing-box") +
+			"#" + (&url.URL{Fragment: u.Name}).EscapedFragment(),
+		QR: universal + "qr",
+	}, true
 }
 
 // Site renders the subscription site as files relative to its root, for
@@ -43,28 +71,27 @@ func Site(f *fleet.Fleet, profile func(user string) ([]byte, error)) (map[string
 		if err != nil {
 			return nil, fmt.Errorf("profile of %s: %w", u.Name, err)
 		}
-		universal := "https://" + f.Subscription.Domain + "/" + token + "/"
-		singBox := "sing-box://import-remote-profile?url=" + universal + "sing-box#" + u.Name
-		subQR, err := qrSVG(universal)
+		links, _ := UserLinks(f, u)
+		subQR, err := qrSVG(links.Universal)
 		if err != nil {
 			return nil, err
 		}
-		singBoxQR, err := qrSVG(singBox)
+		singBoxQR, err := qrSVG(links.SingBox)
 		if err != nil {
 			return nil, err
 		}
 		var page bytes.Buffer
 		if err := pageTemplate.Execute(&page, map[string]any{
 			"User":      u.Name,
-			"Universal": universal,
+			"Universal": links.Universal,
 			// html/template blanks hrefs with schemes it doesn't know.
-			"SingBox": template.URL(singBox),
+			"SingBox": template.URL(links.SingBox),
 		}); err != nil {
 			return nil, err
 		}
 
-		links := strings.Join(URIs(u), "\n")
-		files[token+"/base64"] = []byte(base64.StdEncoding.EncodeToString([]byte(links)))
+		uris := strings.Join(URIs(u), "\n")
+		files[token+"/base64"] = []byte(base64.StdEncoding.EncodeToString([]byte(uris)))
 		files[token+"/sing-box/config"] = p
 		files[token+"/index.html"] = page.Bytes()
 		files[token+"/qr-sub.svg"] = subQR

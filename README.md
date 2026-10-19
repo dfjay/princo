@@ -21,7 +21,8 @@ planned.
   …) or `!secret path`, kept in an age-encrypted `secrets.age` or in sops
   files you already have (see below).
 - `princo render --node N` — the node's sing-box config.
-- `princo render --user U [--uris]` — the user's sing-box profile or share links.
+- `princo render --user U [--uris | --links]` — the user's sing-box profile,
+  share links, or subscription links (QR page, universal, sing-box import).
 - `princo render --node N --out DIR` — every file the node runs from: its
   config and, on the subscription node, the subscription site.
 - `princo plan --node N` — what a deploy sets up around those files (ports,
@@ -52,6 +53,7 @@ echo "<private key>" | princo secret set nodes/de/reality
 
 princo render --node de
 princo render --user alice --uris
+princo render --user alice --links
 ```
 
 ## Secrets
@@ -101,8 +103,15 @@ certificates and the subscription site. Secrets come from sops-nix, using
 the sops files of princo.yaml's `secrets:` block, or from
 `services.princo.secretsDir`. On the host, `princo-render.service` renders
 the node's files into `/run/princo/files` and sing-box runs from there, so
-no secret reaches the Nix store. Building the plan needs a machine that
-builds for the host's platform (import from derivation).
+no secret reaches the Nix store.
+
+The plan is read while the system is evaluated (import from derivation),
+by default with a princo built for the host's platform. To evaluate
+without a builder for it, plan on the machine you deploy from:
+
+```nix
+services.princo.planPkgs = inputs.nixpkgs.legacyPackages.aarch64-darwin;
+```
 
 Other HTTPS sites on the host must not listen on 443 themselves: route them
 through the multiplexer with `passthrough:` and listen on its target, e.g.
