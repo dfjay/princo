@@ -14,6 +14,7 @@ reviews:
   path_filters:
     # Rendered with `go test ./internal/engine/singbox -update`; review the code that makes them.
     - "!testdata/**/golden/**"
+    - "!vendor/**"
   path_instructions:
     - path: "internal/secrets/**"
       instructions: >-

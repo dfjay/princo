@@ -1,0 +1,26 @@
+# Builds the binaries of a release that release-please has just created
+# (.github/workflows/release.yml).
+version: 2
+
+builds:
+  - main: ./cmd/princo
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    # No commit in `princo version`: the release's VERSION is enough.
+    flags: [-trimpath, -buildvcs=false]
+    ldflags: [-s -w]
+
+archives:
+  - formats: [tar.gz]
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+# release-please writes the release notes; only add the binaries.
+release:
+  mode: keep-existing
+
+changelog:
+  disable: true

@@ -15,3 +15,5 @@ testdata/**/key.txt
 .idea/
 .vscode/
 .DS_Store
+/dist
+/.direnv

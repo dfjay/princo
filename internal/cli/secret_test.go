@@ -52,6 +52,23 @@ func TestSecret_SetThenGet(t *testing.T) {
 	require.Equal(t, "super-secret-value\n", stdout.String())
 }
 
+func TestSecret_SetCreatesFile(t *testing.T) {
+	configPath, keyPath, _ := newSecretFixture(t)
+	require.NoError(t, os.Remove(filepath.Join(filepath.Dir(configPath), "secrets.age")))
+
+	cmd := NewRootCommand()
+	cmd.SetIn(strings.NewReader("first\n"))
+	cmd.SetArgs([]string{"--config", configPath, "--key", keyPath, "secret", "set", "users/alice"})
+	require.NoError(t, cmd.Execute())
+
+	var stdout bytes.Buffer
+	cmd = NewRootCommand()
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{"--config", configPath, "--key", keyPath, "secret", "get", "users/alice"})
+	require.NoError(t, cmd.Execute())
+	require.Equal(t, "first\n", stdout.String())
+}
+
 func TestSecret_List(t *testing.T) {
 	configPath, keyPath, recPath := newSecretFixture(t)
 	require.NoError(t, secrets.Save(
