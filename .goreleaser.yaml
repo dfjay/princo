@@ -2,21 +2,93 @@
 # (.github/workflows/release.yml).
 version: 2
 
+before:
+  hooks:
+    # Shell completions for the archives and packages.
+    - mkdir -p completions
+    - sh -ec 'for sh in bash zsh fish; do go run ./cmd/princo completion $sh > completions/princo.$sh; done'
+
 builds:
   - main: ./cmd/princo
     env: [CGO_ENABLED=0]
     goos: [linux, darwin]
     goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: amd64
+    mod_timestamp: "{{ .CommitTimestamp }}"
     # No commit in `princo version`: the release's VERSION is enough.
     flags: [-trimpath, -buildvcs=false]
     ldflags: [-s -w]
 
 archives:
   - formats: [tar.gz]
-    files: [LICENSE, README.md]
+    builds_info: &info
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: &file
+          <<: *info
+          mode: 0644
+      - src: README.md
+        info: *file
+      - src: completions/*
+        info: *file
+
+nfpms:
+  - formats: [deb, rpm]
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: dfjay
+    maintainer: Pavel Yozhikov <mail@dfjay.com>
+    homepage: https://github.com/dfjay/princo
+    description: Declarative VPN fleet manager; one princo.yaml renders the configs of every node.
+    license: MIT
+    section: net
+    mtime: "{{ .CommitDate }}"
+    deb:
+      lintian_overrides: [statically-linked-binary]
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/princo/copyright
+        file_info: *file
+      - src: README.md
+        dst: /usr/share/doc/princo/README.md
+        file_info: *file
+      - src: completions/princo.bash
+        dst: /usr/share/bash-completion/completions/princo
+        file_info: *file
+      # Debian's zsh reads vendor-completions, Fedora's site-functions.
+      - src: completions/princo.zsh
+        dst: /usr/share/zsh/vendor-completions/_princo
+        packager: deb
+        file_info: *file
+      - src: completions/princo.zsh
+        dst: /usr/share/zsh/site-functions/_princo
+        packager: rpm
+        file_info: *file
+      - src: completions/princo.fish
+        dst: /usr/share/fish/vendor_completions.d/princo.fish
+        file_info: *file
 
 checksum:
   name_template: checksums.txt
+
+# Keyless: cosign signs with the workflow's identity, recorded in Sigstore's
+# transparency log. Check with
+#   cosign verify-blob --bundle checksums.txt.sigstore.json \
+#     --certificate-identity-regexp '^https://github.com/dfjay/princo/' \
+#     --certificate-oidc-issuer https://token.actions.githubusercontent.com checksums.txt
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: [sign-blob, "--bundle=${signature}", "${artifact}", --yes]
+
+# An SPDX SBOM per archive, made by syft.
+sboms:
+  - artifacts: archive
 
 # release-please writes the release notes; only add the binaries.
 release:
