@@ -13,7 +13,9 @@ import (
 func URIs(u *fleet.User) []string {
 	var out []string
 	for _, n := range u.Nodes {
-		name := func(protocol string) string { return u.Name + "-" + n.Name + "-" + protocol }
+		name := func(protocol string) string {
+			return (&url.URL{Fragment: u.Name + "-" + n.Name + "-" + protocol}).EscapedFragment()
+		}
 		if r := n.Reality; r != nil {
 			out = append(out, fmt.Sprintf(
 				"vless://%s@%s:443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
@@ -24,7 +26,8 @@ func URIs(u *fleet.User) []string {
 				u.UUID, n.Address, n.Address, url.QueryEscape(h.ObfsPassword), name("hy2")))
 		}
 		if nv := n.Naive; nv != nil {
-			out = append(out, fmt.Sprintf("naive+https://%s:%s@%s:443#%s", u.Name, u.UUID, nv.Domain, name("naive")))
+			out = append(out, fmt.Sprintf("naive+https://%s@%s:443#%s",
+				url.UserPassword(u.Name, u.UUID), nv.Domain, name("naive")))
 		}
 	}
 	return out

@@ -21,20 +21,24 @@ import (
 
 func newRenderCommand(global *globalFlags) *cobra.Command {
 	var nodeName, userName, outDir string
-	var uris bool
+	var uris, links bool
 	cmd := &cobra.Command{
 		Use:   "render",
 		Short: "Print a node's engine config, or a user's client profile or share links",
 		Example: `  princo render --node fr        # server config of node fr
   princo render --user alice     # alice's client profile
   princo render --user alice --uris
+  princo render --user alice --links  # alice's subscription links
   princo render --node fr --out /run/princo  # every file node fr runs from`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if (nodeName == "") == (userName == "") {
 				return fmt.Errorf("pass exactly one of --node or --user")
 			}
-			if uris && userName == "" {
-				return fmt.Errorf("--uris needs --user")
+			if (uris || links) && userName == "" {
+				return fmt.Errorf("--uris and --links need --user")
+			}
+			if uris && links {
+				return fmt.Errorf("pass at most one of --uris or --links")
 			}
 			if outDir != "" && nodeName == "" {
 				return fmt.Errorf("--out needs --node")
@@ -76,6 +80,20 @@ func newRenderCommand(global *globalFlags) *cobra.Command {
 					return fmt.Errorf("no user named %q", userName)
 				}
 				out = []byte(strings.Join(subscription.URIs(u), "\n"))
+			case links:
+				u, ok := f.User(userName)
+				if !ok {
+					return fmt.Errorf("no user named %q", userName)
+				}
+				// The links hash the UUID, which hides a placeholder for it.
+				if err := checkSecrets(global, []byte(u.UUID)); err != nil {
+					return err
+				}
+				l, ok := subscription.UserLinks(f, u)
+				if !ok {
+					return fmt.Errorf("princo.yaml has no subscription")
+				}
+				out = fmt.Appendf(nil, "QR page:   %s\nUniversal: %s\nsing-box:  %s", l.QR, l.Universal, l.SingBox)
 			default:
 				e, err := engine.Lookup(engine.ClientEngine)
 				if err != nil {
@@ -95,6 +113,7 @@ func newRenderCommand(global *globalFlags) *cobra.Command {
 	cmd.Flags().StringVar(&nodeName, "node", "", "Node whose server config to render")
 	cmd.Flags().StringVar(&userName, "user", "", "User whose client profile to render")
 	cmd.Flags().BoolVar(&uris, "uris", false, "With --user: print share links instead of the profile")
+	cmd.Flags().BoolVar(&links, "links", false, "With --user: print the user's subscription links instead of the profile")
 	cmd.Flags().StringVar(&outDir, "out", "", "With --node: write the config and, on the subscription node, the site into this directory, replacing it")
 	return cmd
 }
