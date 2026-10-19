@@ -80,3 +80,18 @@ func TestPlan_Flags(t *testing.T) {
 	_, err = run(t, "--config", "../../testdata/fleet/princo.yaml", "render", "--user", "alice", "--out", "x")
 	require.ErrorContains(t, err, "--out needs --node")
 }
+
+// TestExamples keeps the examples valid: every node plans.
+func TestExamples(t *testing.T) {
+	configs, err := filepath.Glob("../../examples/*/princo.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, configs)
+	for _, c := range configs {
+		cfg, err := loadConfig(&globalFlags{ConfigPath: c})
+		require.NoError(t, err, c)
+		for _, node := range cfg.Nodes.Keys() {
+			_, err := run(t, "--config", c, "plan", "--node", node)
+			require.NoError(t, err, "%s: node %s", c, node)
+		}
+	}
+}

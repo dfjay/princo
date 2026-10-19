@@ -1,8 +1,10 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
 
-var Version = "dev"
+	"github.com/dfjay/princo/internal/version"
+)
 
 // Flags shared by every command that loads config + secrets.
 type globalFlags struct {
@@ -16,6 +18,7 @@ func NewRootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "princo",
 		Short:         "Declarative VPN fleet management",
+		Version:       version.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -36,7 +39,7 @@ func newVersionCommand() *cobra.Command {
 		Use:   "version",
 		Short: "Print the version",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := cmd.OutOrStdout().Write([]byte("princo " + Version + "\n"))
+			_, err := cmd.OutOrStdout().Write([]byte("princo " + version.String() + "\n"))
 			return err
 		},
 	}

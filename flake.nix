@@ -1,5 +1,5 @@
 {
-  description = "Declarative VPN fleet: one princo.yaml renders sing-box configs for every node";
+  description = "Declarative VPN fleet: one princo.yaml renders the configs of every node";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -13,16 +13,40 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      # The package, with the commit it's built from in `princo version`.
+      princo =
+        pkgs: pkgs.callPackage ./nix/package.nix { rev = self.shortRev or self.dirtyShortRev or null; };
     in
     {
       packages = forAllSystems (pkgs: {
-        princo = pkgs.callPackage ./nix/package.nix { };
+        princo = princo pkgs;
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.princo;
       });
 
-      overlays.default = final: _: { princo = final.callPackage ./nix/package.nix { }; };
+      # Tools for working on princo: `nix develop`, or direnv with .envrc.
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            go_1_27
+            golangci-lint
+            goreleaser
+            just
+            nixfmt
+            sing-box # the tests run `sing-box check` on rendered configs
+            age
+            sops
+          ];
+        };
+      });
 
-      nixosModules.default = ./nix/module.nix;
+      overlays.default = final: _: { princo = princo final; };
+
+      nixosModules.default =
+        { lib, pkgs, ... }:
+        {
+          imports = [ ./nix/module.nix ];
+          services.princo.package = lib.mkDefault (princo pkgs);
+        };
 
       checks = forAllSystems (
         pkgs:

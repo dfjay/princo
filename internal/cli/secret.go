@@ -2,7 +2,9 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -97,8 +99,12 @@ func newSecretListCommand(global *globalFlags) *cobra.Command {
 // (store, path-to-recipients-file, error). Recipients live in `.princo/recipients`
 // or `recipients` next to the config.
 func openSecretStore(global *globalFlags) (*secrets.Store, string, error) {
-	store, err := secrets.Open(secretsPath(global.ConfigPath), identityPath(global))
-	if err != nil {
+	path := secretsPath(global.ConfigPath)
+	var store *secrets.Store
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		// The first `secret set` creates it.
+		store = secrets.NewStore(map[string]any{})
+	} else if store, err = secrets.Open(path, identityPath(global)); err != nil {
 		return nil, "", err
 	}
 	dir := filepath.Dir(global.ConfigPath)

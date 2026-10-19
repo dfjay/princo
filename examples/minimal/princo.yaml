@@ -1,0 +1,30 @@
+# One node, two users. Their apps connect over VLESS-Reality or
+# Hysteria2 and pick up both from the subscription site.
+princo: v1
+
+defaults:
+  acme_email: you@example.com
+
+nodes:
+  nl:
+    address: nl.example.com
+    reality:
+      server_name: www.microsoft.com # a real HTTPS site the node imitates
+      short_id: 0123abcd # openssl rand -hex 4
+      public_key: <public key> # sing-box generate reality-keypair
+    hysteria2: {}
+
+users:
+  alice: {}
+  bob: {}
+
+client:
+  groups:
+    proxy: { nodes: all }
+  rules:
+    - { match: [ip:private], action: direct }
+  final: proxy
+
+subscription:
+  node: nl
+  domain: subs.example.com
