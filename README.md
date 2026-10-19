@@ -32,7 +32,9 @@ go install github.com/dfjay/princo/cmd/princo@latest
 nix run github:dfjay/princo -- --help
 ```
 
-or a binary from [Releases](https://github.com/dfjay/princo/releases).
+or a binary, `.deb` or `.rpm` from
+[Releases](https://github.com/dfjay/princo/releases), with shell
+completions and an SPDX SBOM.
 
 ## Quick start
 
@@ -175,7 +177,8 @@ rendered config. The NixOS VM test boots a node of the fixture fleet.
 Releases come from [release-please](https://github.com/googleapis/release-please):
 it keeps a release PR open that bumps `internal/version/VERSION` and
 `CHANGELOG.md` from the conventional commits on `main`. Merging it tags
-`vX.Y.Z` and creates the release, and GoReleaser attaches the binaries.
+`vX.Y.Z` and creates the release, and GoReleaser attaches the archives,
+`.deb` and `.rpm` packages and the SBOM.
 
 ## License
 

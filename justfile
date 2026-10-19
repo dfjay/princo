@@ -20,4 +20,4 @@ golden:
 
 # Release dry run into dist/
 snapshot:
-    goreleaser release --snapshot --clean --skip=publish
+    goreleaser release --snapshot --clean --skip=publish,sign

@@ -30,6 +30,7 @@
             go_1_27
             golangci-lint
             goreleaser
+            syft
             just
             nixfmt
             sing-box # the tests run `sing-box check` on rendered configs
