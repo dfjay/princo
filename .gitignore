@@ -1,6 +1,7 @@
 # build artifacts
 /princo
 /dist/
+/result*
 *.test
 
 # local generation

@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dfjay/princo/internal/engine"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/fleet/fleettest"
 )
@@ -86,7 +87,7 @@ func TestMux(t *testing.T) {
 		cfg := renderJSON(t, e.RenderServer, f, node)
 		return cfg["inbounds"].([]any)[0].(map[string]any)["listen_port"]
 	}
-	require.EqualValues(t, MuxRealityPort, listenPort("de"), "de shares 443 with naive and a site")
+	require.EqualValues(t, engine.MuxRealityPort, listenPort("de"), "de shares 443 with naive and a site")
 	require.EqualValues(t, 443, listenPort("us"), "us has only reality")
 }
 

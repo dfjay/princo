@@ -9,6 +9,23 @@ import (
 	"github.com/dfjay/princo/internal/fleet"
 )
 
+// Where a rendered server config expects things on the host. Whatever
+// deploys the node (the NixOS module, princo deploy) puts them there.
+const (
+	// RuleSetDir holds the geosite/geoip rule sets, one <tag>.srs each.
+	RuleSetDir = "/var/lib/princo/rules"
+	// CertDir holds one directory per domain with fullchain.pem and key.pem.
+	CertDir = "/var/lib/princo/certs"
+	// MuxRealityPort and MuxNaivePort are the loopback ports behind the
+	// SNI multiplexer on TCP 443.
+	MuxRealityPort = 8444
+	MuxNaivePort   = 8445
+)
+
+// ClientEngine renders client profiles whatever engine the servers run:
+// sing-box profiles are what the apps import.
+const ClientEngine = "sing-box"
+
 // Engine renders the fleet into one engine's config format.
 type Engine interface {
 	Name() string

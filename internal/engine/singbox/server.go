@@ -5,21 +5,8 @@ import (
 	"fmt"
 	"path"
 
+	"github.com/dfjay/princo/internal/engine"
 	"github.com/dfjay/princo/internal/fleet"
-)
-
-// Paths on the server that the rendered config refers to.
-const (
-	// RuleSetDir holds the geosite/geoip .srs files deploy ships.
-	RuleSetDir = "/var/lib/princo/rules"
-	// CertDir holds one directory per domain with fullchain.pem and key.pem.
-	CertDir = "/var/lib/princo/certs"
-)
-
-// Loopback ports behind the SNI multiplexer on TCP 443.
-const (
-	MuxRealityPort = 8444
-	MuxNaivePort   = 8445
 )
 
 // Cloudflare WARP's WireGuard peer.
@@ -84,7 +71,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 		}
 		listen, port := "::", 443
 		if n.Mux() {
-			listen, port = "127.0.0.1", MuxRealityPort
+			listen, port = "127.0.0.1", engine.MuxRealityPort
 		}
 		out = append(out, map[string]any{
 			"type":        "vless",
@@ -129,7 +116,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 			"type":        "naive",
 			"tag":         "naive-in",
 			"listen":      "127.0.0.1",
-			"listen_port": MuxNaivePort,
+			"listen_port": engine.MuxNaivePort,
 			"users":       accounts,
 			"tls":         serverTLS(nv.Domain),
 		})
@@ -141,8 +128,8 @@ func serverTLS(domain string) map[string]any {
 	return map[string]any{
 		"enabled":          true,
 		"server_name":      domain,
-		"certificate_path": path.Join(CertDir, domain, "fullchain.pem"),
-		"key_path":         path.Join(CertDir, domain, "key.pem"),
+		"certificate_path": path.Join(engine.CertDir, domain, "fullchain.pem"),
+		"key_path":         path.Join(engine.CertDir, domain, "key.pem"),
 	}
 }
 
@@ -197,7 +184,7 @@ func localRuleSets(tags []string) []any {
 			"tag":    tag,
 			"type":   "local",
 			"format": "binary",
-			"path":   path.Join(RuleSetDir, tag+".srs"),
+			"path":   path.Join(engine.RuleSetDir, tag+".srs"),
 		})
 	}
 	return out
