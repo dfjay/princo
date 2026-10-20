@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -30,8 +31,11 @@ func newFakeHost(t *testing.T) *fakeHost {
 	h := &fakeHost{dir: dir, fail: map[string]int{}}
 	h.Host = &Host{
 		Root: root,
-		Run: func(_ context.Context, name string, args ...string) error {
+		Run: func(ctx context.Context, name string, args ...string) error {
 			line := strings.Join(append([]string{name}, args...), " ")
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			h.calls = append(h.calls, line)
 			if h.fail[line] > 0 {
 				h.fail[line]--
@@ -277,6 +281,21 @@ func TestApply_StopsAfterRestart(t *testing.T) {
 	require.ErrorContains(t, err, "princo.service stopped after it restarted; see journalctl -u princo.service; the old files are back")
 	require.Equal(t, `{"a":1}`, h.file(t, config))
 	require.Equal(t, "systemctl restart princo.service", h.calls[len(h.calls)-1])
+}
+
+func TestApply_Cancelled(t *testing.T) {
+	h := newFakeHost(t)
+	_, err := h.Apply(t.Context(), node(`{"a":1}`, ""))
+	require.NoError(t, err)
+	h.calls = nil
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	h.Settle = time.Hour
+	_, err = h.Apply(ctx, node(`{"a":2}`, ""))
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, `{"a":1}`, h.file(t, config))
+	require.Equal(t, []string{"systemctl restart princo.service"}, h.calls, "the rollback runs all the same")
 }
 
 func TestApply_Locked(t *testing.T) {

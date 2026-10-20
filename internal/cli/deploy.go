@@ -39,6 +39,8 @@ names a directory holding them.`,
 			if nodeName == "" {
 				return fmt.Errorf("--node is required")
 			}
+			ctx, stop := interruptible(cmd.Context())
+			defer stop()
 			cfg, err := loadConfig(global)
 			if err != nil {
 				return err
@@ -76,7 +78,7 @@ names a directory holding them.`,
 				}
 			}
 			client := &http.Client{Timeout: time.Minute}
-			ruleSets, err := deploy.RuleSets(cmd.Context(), client, ruleSetDir, p.Engine, p.RuleSets)
+			ruleSets, err := deploy.RuleSets(ctx, client, ruleSetDir, p.Engine, p.RuleSets)
 			if err != nil {
 				return err
 			}
@@ -94,15 +96,15 @@ names a directory holding them.`,
 				}
 			}
 			ssh := &deploy.SSH{Target: target, Stderr: cmd.ErrOrStderr()}
-			if err := ssh.Open(cmd.Context()); err != nil {
+			if err := ssh.Open(ctx); err != nil {
 				return err
 			}
 			defer func() { _ = ssh.Close() }()
 			d.Remote = ssh
 			if dryRun {
-				return d.Check(cmd.Context(), p, files, ruleSets)
+				return d.Check(ctx, p, files, ruleSets)
 			}
-			return d.Deploy(cmd.Context(), p, files, ruleSets)
+			return d.Deploy(ctx, p, files, ruleSets)
 		},
 	}
 	cmd.Flags().StringVar(&nodeName, "node", "", "Node to deploy")

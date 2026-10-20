@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"context"
 	"encoding/json/v2"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -43,7 +47,9 @@ root; it prints what it changed.`,
 			if check {
 				changes, err = h.Diff(&b)
 			} else {
-				changes, err = h.Apply(cmd.Context(), &b)
+				ctx, stop := interruptible(cmd.Context())
+				defer stop()
+				changes, err = h.Apply(ctx, &b)
 			}
 			if err != nil {
 				return err
@@ -58,4 +64,11 @@ root; it prints what it changed.`,
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "Print what would change, and change nothing")
 	return cmd
+}
+
+// interruptible cancels ctx on a signal instead of exiting, so a deploy
+// still closes its ssh master and a host apply rolls back. Commands that
+// read a terminal must not use it: ^C would no longer stop them.
+func interruptible(ctx context.Context) (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 }

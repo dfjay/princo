@@ -30,7 +30,8 @@ func (s *SSH) Open(ctx context.Context) error {
 	}
 	s.controlDir = dir
 	// No pipes of ours in the backgrounded master, or commands wait on it.
-	cmd := exec.CommandContext(ctx, "ssh", s.args("-o", "ControlMaster=yes", "-o", "ControlPersist=yes", "-f", "-N", s.Target)...)
+	// It exits a minute after its last command, should Close never run.
+	cmd := exec.CommandContext(ctx, "ssh", s.args("-o", "ControlMaster=yes", "-o", "ControlPersist=60", "-f", "-N", s.Target)...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		_ = os.RemoveAll(dir)

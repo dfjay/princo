@@ -152,7 +152,8 @@ func (h *Host) Apply(ctx context.Context, b *Bundle) ([]Change, error) {
 		if uerr := h.undo(p.files); uerr != nil {
 			return nil, errors.Join(err, fmt.Errorf("putting the old files back: %w", uerr))
 		}
-		if rerr := h.restart(ctx, b.Units, changed); rerr != nil {
+		// Even when ctx is what failed the apply.
+		if rerr := h.restart(context.WithoutCancel(ctx), b.Units, changed); rerr != nil {
 			return nil, errors.Join(err, fmt.Errorf("the old files are back, but: %w", rerr))
 		}
 		return nil, fmt.Errorf("%w; the old files are back", err)

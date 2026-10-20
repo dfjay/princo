@@ -84,6 +84,13 @@ func (e *env) sh(t *testing.T, script string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// start runs command as a transient unit on the host until the test ends.
+func (e *env) start(t *testing.T, unit, command string) {
+	t.Helper()
+	e.sh(t, "systemd-run --collect --unit="+unit+" "+command+"\nsleep 1")
+	t.Cleanup(func() { _ = exec.Command("ssh", e.host, "sudo -n systemctl stop "+unit).Run() })
+}
+
 func (e *env) setConfig(t *testing.T, old, new string) {
 	t.Helper()
 	data, err := os.ReadFile(e.config)
@@ -112,9 +119,8 @@ func TestDeploy(t *testing.T) {
 	})
 
 	t.Run("engine stops after restart", func(t *testing.T) {
-		e.sh(t, `systemctl stop princo.service
-systemd-run --unit=princo-e2e-squatter systemd-socket-activate -l 443 cat
-sleep 1`)
+		e.sh(t, "systemctl stop princo.service")
+		e.start(t, "princo-e2e-squatter", "systemd-socket-activate -l 443 cat")
 		e.setConfig(t, "short_id: 2b4398e0", "short_id: 2b4398e1")
 		_, err := e.deploy(t, "us")
 		require.ErrorContains(t, err, "princo.service stopped after it restarted")
@@ -129,11 +135,9 @@ sleep 1`)
 	})
 
 	t.Run("locked", func(t *testing.T) {
-		e.sh(t, `systemd-run --unit=princo-e2e-locker flock /var/lib/princo/apply.lock sleep 300
-sleep 1`)
+		e.start(t, "princo-e2e-locker", "flock /var/lib/princo/apply.lock sleep 300")
 		_, err := e.deploy(t, "us")
 		require.ErrorContains(t, err, "another princo host apply is running")
-		e.sh(t, "systemctl stop princo-e2e-locker")
 	})
 
 	t.Run("other node refused", func(t *testing.T) {
