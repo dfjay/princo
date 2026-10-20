@@ -29,8 +29,8 @@ func (s *SSH) Open(ctx context.Context) error {
 		return err
 	}
 	s.controlDir = dir
-	// No pipes of ours in the backgrounded master, or commands wait on it.
-	// It exits a minute after its last command, should Close never run.
+	// No pipes of ours in the backgrounded master, or commands wait on it;
+	// it outlives a missed Close by a minute.
 	cmd := exec.CommandContext(ctx, "ssh", s.args("-o", "ControlMaster=yes", "-o", "ControlPersist=60", "-f", "-N", s.Target)...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

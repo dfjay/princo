@@ -66,9 +66,8 @@ root; it prints what it changed.`,
 	return cmd
 }
 
-// interruptible cancels ctx on a signal instead of exiting, so a deploy
-// still closes its ssh master and a host apply rolls back. Commands that
-// read a terminal must not use it: ^C would no longer stop them.
+// interruptible cancels ctx on a signal instead of exiting, for commands
+// that clean up; ^C wouldn't stop one reading a terminal.
 func interruptible(ctx context.Context) (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 }
