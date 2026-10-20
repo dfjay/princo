@@ -82,7 +82,7 @@ func node(cfg, html string) *Bundle {
 		},
 		Units: []Unit{
 			{Name: "nginx.service", Files: []string{site}, Reload: true, Check: []string{"nginx", "-t"}},
-			{Name: "princo.service", Enable: true, Files: []string{unitFile, config}},
+			{Name: "princo.service", Files: []string{unitFile, config}},
 		},
 	}
 	if html != "" {
@@ -109,6 +109,7 @@ func TestApply_Fresh(t *testing.T) {
 	require.Equal(t, fs.FileMode(0o751), h.mode(t, "/var/lib/princo/files"))
 	require.Equal(t, []string{
 		"systemctl daemon-reload",
+		"systemctl enable --quiet nginx.service",
 		"systemctl enable --quiet princo.service",
 		"nginx -t",
 		"systemctl reload-or-restart nginx.service",
@@ -136,6 +137,7 @@ func TestApply_Unchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, changes)
 	require.Equal(t, []string{
+		"systemctl enable --quiet nginx.service",
 		"systemctl enable --quiet princo.service",
 		"systemctl start nginx.service",
 		"systemctl start princo.service",
@@ -152,6 +154,7 @@ func TestApply_ChangedConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []Change{{Update, config}}, changes)
 	require.Equal(t, []string{
+		"systemctl enable --quiet nginx.service",
 		"systemctl enable --quiet princo.service",
 		"systemctl start nginx.service",
 		"systemctl restart princo.service",
@@ -222,6 +225,7 @@ func TestApply_CheckFails(t *testing.T) {
 	require.Equal(t, `{"a":1}`, h.file(t, config))
 	require.Equal(t, "<html>", h.file(t, page))
 	require.Equal(t, []string{
+		"systemctl enable --quiet nginx.service",
 		"systemctl enable --quiet princo.service",
 		"nginx -t",
 		"systemctl reload-or-restart nginx.service",
@@ -284,7 +288,6 @@ func TestValidate(t *testing.T) {
 		"duplicate": {func(b *Bundle) { b.Files[1].Path = b.Files[0].Path }, unitFile + " appears twice"},
 		"mode":      {func(b *Bundle) { b.Files[0].Mode = 0o4755 }, "only permission bits"},
 		"unit file": {func(b *Bundle) { b.Units[1].Files = []string{"/nope"} }, "unit princo.service runs from /nope, which the bundle lacks"},
-		"check":     {func(b *Bundle) { b.Units[0].Check = []string{""} }, "empty check command"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			b := node(`{}`, "")

@@ -12,35 +12,28 @@ import (
 	"strings"
 )
 
-// engineSpec is what a deploy needs to know about running an engine on a
-// Debian host, like nix/engines.nix for NixOS.
+// engineSpec is how a Debian host runs an engine, like nix/engines.nix.
 type engineSpec struct {
-	// command runs the engine on config, keeping its state in stateDir.
 	command func(config, stateDir string) []string
-	// check validates config before the engine restarts on it.
-	check func(config string) []string
+	check   func(config string) []string
 	// reloads tells whether SIGHUP reloads the config.
 	reloads bool
-	// repo is the apt repository of pkg, nil when the distribution has it.
+	// repo has pkg; nil when the distribution does.
 	repo *aptRepo
 	pkg  string
-	// pkgUnit is the systemd unit pkg brings, which princo.service replaces.
-	pkgUnit string
-	// ruleSetURL is where a file of the plan's rule sets is downloaded.
-	ruleSetURL func(file string) string
-	// ruleSetMagic starts every rule set file.
+	// pkgUnit comes with pkg; princo.service replaces it.
+	pkgUnit      string
+	ruleSetURL   func(file string) string
 	ruleSetMagic []byte
 }
 
-// aptRepo is an apt repository to add, in deb822 form, signed by Key.
 type aptRepo struct {
 	Name    string
 	Key     string
 	Sources string
 }
 
-// sagernetKey signs SagerNet's apt repository, from
-// https://sing-box.app/gpg.key: fingerprint
+// sagernetKey is https://sing-box.app/gpg.key, fingerprint
 // 2C31 7FBD 5D88 6B4E 89BA E8DA 6D91 5217 2A2B 2F0C.
 //
 //go:embed keys/sagernet.asc
@@ -49,7 +42,6 @@ var sagernetKey string
 var engines = map[string]engineSpec{
 	"sing-box": {
 		command: func(config, stateDir string) []string {
-			// Where SagerNet's Debian package installs it.
 			return []string{"/usr/bin/sing-box", "-D", stateDir, "-c", config, "run"}
 		},
 		check: func(config string) []string {
@@ -80,41 +72,29 @@ Signed-By: /etc/apt/keyrings/sagernet.asc
 	},
 }
 
-// FetchRuleSets downloads the latest of each rule set an engine's node
-// loads.
-func FetchRuleSets(ctx context.Context, client *http.Client, engineName string, files []string) (map[string][]byte, error) {
+// RuleSets reads each of the engine's rule sets from dir, or downloads the
+// latest when dir is empty.
+func RuleSets(ctx context.Context, client *http.Client, dir, engineName string, files []string) (map[string][]byte, error) {
 	e, ok := engines[engineName]
 	if !ok {
 		return nil, fmt.Errorf("princo deploy can't run engine %s yet", engineName)
 	}
 	out := map[string][]byte{}
 	for _, f := range files {
-		data, err := fetch(ctx, client, e.ruleSetURL(f))
+		src := filepath.Join(dir, f)
+		var data []byte
+		var err error
+		if dir == "" {
+			src = e.ruleSetURL(f)
+			data, err = fetch(ctx, client, src)
+		} else {
+			data, err = os.ReadFile(src)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("rule set %s: %w", f, err)
 		}
 		if !bytes.HasPrefix(data, e.ruleSetMagic) {
-			return nil, fmt.Errorf("rule set %s: %s isn't a %s rule set", f, e.ruleSetURL(f), engineName)
-		}
-		out[f] = data
-	}
-	return out, nil
-}
-
-// ReadRuleSets reads each rule set from dir instead, e.g. to pin them.
-func ReadRuleSets(dir, engineName string, files []string) (map[string][]byte, error) {
-	e, ok := engines[engineName]
-	if !ok {
-		return nil, fmt.Errorf("princo deploy can't run engine %s yet", engineName)
-	}
-	out := map[string][]byte{}
-	for _, f := range files {
-		data, err := os.ReadFile(filepath.Join(dir, f))
-		if err != nil {
-			return nil, fmt.Errorf("rule set %s: %w", f, err)
-		}
-		if !bytes.HasPrefix(data, e.ruleSetMagic) {
-			return nil, fmt.Errorf("rule set %s: %s isn't a %s rule set", f, filepath.Join(dir, f), engineName)
+			return nil, fmt.Errorf("rule set %s: %s isn't a %s rule set", f, src, engineName)
 		}
 		out[f] = data
 	}

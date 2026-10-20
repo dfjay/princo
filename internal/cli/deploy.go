@@ -76,12 +76,7 @@ names a directory holding them.`,
 				}
 			}
 			client := &http.Client{Timeout: time.Minute}
-			var ruleSets map[string][]byte
-			if ruleSetDir != "" {
-				ruleSets, err = deploy.ReadRuleSets(ruleSetDir, p.Engine, p.RuleSets)
-			} else {
-				ruleSets, err = deploy.FetchRuleSets(cmd.Context(), client, p.Engine, p.RuleSets)
-			}
+			ruleSets, err := deploy.RuleSets(cmd.Context(), client, ruleSetDir, p.Engine, p.RuleSets)
 			if err != nil {
 				return err
 			}

@@ -1,7 +1,5 @@
-// Package bundle is what princo deploy ships to a host, and how the host
-// applies it: files to write and the systemd units they belong to. It
-// knows nothing about engines or nginx; the deploy decides what goes in,
-// so a host's princo only has to understand the bundle's Format.
+// Package bundle is what princo deploy ships to a host: files and the
+// systemd units that run from them, and how the host applies them.
 package bundle
 
 import (
@@ -10,16 +8,13 @@ import (
 	"path"
 )
 
-// Format is the bundle format this princo writes and applies. It changes
-// only when an older princo would apply a newer bundle wrongly.
+// Format changes when an older princo would apply a newer bundle wrongly.
 const Format = 1
 
 type Bundle struct {
 	Format int    `json:"format"`
 	Node   string `json:"node"`
-	// Partial bundles only write: they remove no file and leave the record
-	// of the last apply alone, so the next whole bundle still knows what
-	// to remove.
+	// Partial bundles remove no files and aren't recorded as the last apply.
 	Partial bool   `json:"partial,omitempty"`
 	Dirs    []Dir  `json:"dirs"`
 	Files   []File `json:"files"`
@@ -27,8 +22,7 @@ type Bundle struct {
 	Units []Unit `json:"units"`
 }
 
-// Dir is a directory that needs a mode or group other than the 0755 root
-// one that parent directories get.
+// Dir is a directory whose mode or group isn't 0755 root's, as parents get.
 type Dir struct {
 	Path string      `json:"path"`
 	Mode fs.FileMode `json:"mode"`
@@ -44,16 +38,14 @@ type File struct {
 	Data  []byte `json:"data"`
 }
 
-// Unit is a systemd unit that runs from some of the bundle's files.
+// Unit is a systemd unit, enabled at boot, that runs from some of the
+// bundle's files.
 type Unit struct {
 	Name string `json:"name"`
-	// Enable starts the unit at boot.
-	Enable bool `json:"enable,omitempty"`
 	// Files restart the unit when they change, or reload it with Reload.
 	Files  []string `json:"files"`
 	Reload bool     `json:"reload,omitempty"`
-	// Check is a command that runs before the unit restarts or reloads,
-	// e.g. nginx -t. When it fails, the apply is undone.
+	// Check runs before the unit restarts; when it fails, the apply is undone.
 	Check []string `json:"check,omitempty"`
 }
 
@@ -88,16 +80,10 @@ func (b *Bundle) validate() error {
 		files[f.Path] = true
 	}
 	for _, u := range b.Units {
-		if u.Name == "" {
-			return fmt.Errorf("bundle: a unit has no name")
-		}
 		for _, f := range u.Files {
 			if !files[f] {
 				return fmt.Errorf("bundle: unit %s runs from %s, which the bundle lacks", u.Name, f)
 			}
-		}
-		if len(u.Check) > 0 && u.Check[0] == "" {
-			return fmt.Errorf("bundle: unit %s has an empty check command", u.Name)
 		}
 	}
 	return nil

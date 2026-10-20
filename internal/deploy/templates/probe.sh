@@ -1,4 +1,4 @@
-# Tells princo deploy about the host: one "<key> <value>" per line.
+# Prints "<key> <value>" lines.
 set -eu
 . /etc/os-release
 case " ${ID:-} ${ID_LIKE:-} " in

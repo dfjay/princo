@@ -20,35 +20,28 @@ type Remote interface {
 	Run(ctx context.Context, script string, stdin io.Reader, stdout io.Writer) error
 }
 
-// Deployer brings a node's host to the node's bundle.
 type Deployer struct {
 	Remote Remote
-	// Out gets what applying the bundle changed; Log a line per step and
-	// the output of the host's tools.
+	// Out gets the changes the bundle made; Log the steps and the host's
+	// tools' output.
 	Out, Log io.Writer
-	// Version is this princo's version.
+	// Version is this princo's.
 	Version string
-	// Deb, when set, is the princo .deb to install on the host, whatever
-	// princo it runs.
+	// Deb, when set, is installed on the host whatever princo it has.
 	Deb []byte
-	// Release gives the .deb of a released princo for a Debian
-	// architecture, e.g. ReleaseDeb.
+	// Release gives a released princo's .deb for a Debian architecture.
 	Release func(ctx context.Context, version, arch string) ([]byte, error)
 }
 
-// facts are what probe.sh tells about the host.
+// facts are what probe.sh tells; princo and node are empty when the host
+// has none.
 type facts struct {
-	arch string
-	// princo is the version the host runs, empty without princo.
-	princo string
-	// node is the node the host runs, empty before its first deploy.
-	node string
-	// missing are the plan's certificates the host lacks.
-	missing []string
+	arch, princo, node string
+	missing            []string
 }
 
-// Deploy installs the packages the node needs and princo on its host,
-// issues the certificates the host lacks, and applies the node's bundle.
+// Deploy installs the node's packages and princo, issues the certificates
+// the host lacks, and applies the node's bundle.
 func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map[string][]byte) error {
 	e, ok := engines[p.Engine]
 	if !ok {
@@ -98,8 +91,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 	return d.apply(ctx, b, false)
 }
 
-// Check prints what Deploy would change in the host's files, and changes
-// nothing. The host must run princo already.
+// Check prints what Deploy would change in the host's files.
 func (d *Deployer) Check(ctx context.Context, p *host.Plan, files, ruleSets map[string][]byte) error {
 	f, err := d.probe(ctx, p)
 	if err != nil {
@@ -161,7 +153,6 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan, e engineSpec) er
 		pkgs = append(pkgs, "libnginx-mod-stream")
 	}
 	if len(p.Certificates) > 0 {
-		// HTTP-01 challenges come on port 80.
 		pkgs = append(pkgs, "certbot")
 		tcp = append(tcp, 80)
 	}
@@ -185,9 +176,9 @@ cat >"$f"
 dpkg -i "$f" >/dev/null
 `
 
-// installPrinco puts this princo's release on the host, or Deb. A princo
-// between releases has no .deb, so it goes on with any princo the host
-// has: the bundle format guards against one too old.
+// installPrinco puts this princo's release or Deb on the host. A build
+// between releases has no .deb; it makes do with the host's princo, as the
+// bundle format refuses one too old.
 func (d *Deployer) installPrinco(ctx context.Context, f facts) error {
 	deb := d.Deb
 	switch {

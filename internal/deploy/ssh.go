@@ -9,30 +9,27 @@ import (
 	"strings"
 )
 
-// SSH runs scripts on a node's host with the system ssh, so the operator's
-// ~/.ssh/config, agent and known_hosts apply. Every script goes over one
-// connection, opened by Open.
+// SSH runs scripts on a host over one connection of the system ssh, so
+// ~/.ssh/config, the agent and known_hosts apply.
 type SSH struct {
-	// Target is user@host, or a Host of ~/.ssh/config.
+	// Target is user@host or a Host of ~/.ssh/config.
 	Target string
 	Stderr io.Writer
 
 	controlDir string
 }
 
-// Open connects to the host; Close disconnects.
 func (s *SSH) Open(ctx context.Context) error {
 	if s.Target == "" || strings.HasPrefix(s.Target, "-") {
 		return fmt.Errorf("bad ssh target %q", s.Target)
 	}
-	// Not in $TMPDIR: on macOS its path is too long for a socket.
+	// macOS's $TMPDIR is too long for a socket path.
 	dir, err := os.MkdirTemp("/tmp", "princo-ssh-")
 	if err != nil {
 		return err
 	}
 	s.controlDir = dir
-	// The master stays in the background without our stdout and stderr:
-	// were they pipes, every later command would wait for it to exit.
+	// No pipes of ours in the backgrounded master, or commands wait on it.
 	cmd := exec.CommandContext(ctx, "ssh", s.args("-o", "ControlMaster=yes", "-o", "ControlPersist=yes", "-f", "-N", s.Target)...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -47,11 +44,9 @@ func (s *SSH) Close() error {
 	return os.RemoveAll(s.controlDir)
 }
 
-// Run runs script with sh as root, through sudo -n when the SSH user
-// isn't root.
+// Run runs script as root, through sudo -n for other users.
 func (s *SSH) Run(ctx context.Context, script string, stdin io.Reader, stdout io.Writer) error {
-	// A script that reads no stdin goes there: through the control socket
-	// macOS refuses a command line of about 8 KB.
+	// Over the control socket, macOS refuses command lines of about 8 KB.
 	sh := "sh -s"
 	if stdin == nil {
 		stdin = strings.NewReader(script)

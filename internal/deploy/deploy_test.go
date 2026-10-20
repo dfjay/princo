@@ -74,7 +74,7 @@ func TestGolden(t *testing.T) {
 				}
 			}
 			for _, u := range b.Units {
-				fmt.Fprintf(&listing, "unit %s enable=%t reload=%t check=%q\n", u.Name, u.Enable, u.Reload, u.Check)
+				fmt.Fprintf(&listing, "unit %s reload=%t check=%q\n", u.Name, u.Reload, u.Check)
 				for _, f := range u.Files {
 					fmt.Fprintf(&listing, "  %s\n", f)
 				}
@@ -157,10 +157,10 @@ func TestReadRuleSets(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "geoip-ru.srs"), []byte("SRS\x01"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "geosite-x.srs"), []byte("<html>"), 0o644))
 
-	got, err := ReadRuleSets(dir, "sing-box", []string{"geoip-ru.srs"})
+	got, err := RuleSets(t.Context(), nil, dir, "sing-box", []string{"geoip-ru.srs"})
 	require.NoError(t, err)
 	require.Equal(t, map[string][]byte{"geoip-ru.srs": []byte("SRS\x01")}, got)
 
-	_, err = ReadRuleSets(dir, "sing-box", []string{"geosite-x.srs"})
+	_, err = RuleSets(t.Context(), nil, dir, "sing-box", []string{"geosite-x.srs"})
 	require.ErrorContains(t, err, "isn't a sing-box rule set")
 }

@@ -21,11 +21,10 @@ import (
 // directories it leaves empty, up to StateDir.
 const StateDir = "/var/lib/princo"
 
-// StateFile records the last apply, so the next one removes the files it
-// no longer has.
+// StateFile lists the files of the last apply, to remove those the next
+// one lacks.
 const StateFile = StateDir + "/applied.json"
 
-// Changes here need a daemon-reload.
 const systemdDir = "/etc/systemd/system/"
 
 type Op byte
@@ -36,8 +35,8 @@ const (
 	Remove Op = '-'
 )
 
-// Change is a file or directory an apply creates, updates or removes.
-// Directories' paths end in a slash.
+// Change is a file or directory, whose path ends in a slash, that an
+// apply creates, updates or removes.
 type Change struct {
 	Op   Op
 	Path string
@@ -117,11 +116,10 @@ func (h *Host) Diff(b *Bundle) ([]Change, error) {
 	return p.changes, nil
 }
 
-// Apply writes b's directories and files, removes the files the last apply
-// wrote that b lacks (unless b is Partial), and restarts or reloads the units whose files
-// changed; the other units are started if they aren't running. When a
-// check or a restart fails, Apply puts the old files back and restarts the
-// same units on them.
+// Apply writes b, removes the files of the last apply that b lacks, and
+// restarts the units whose files changed; it starts the others. When a
+// check or a restart fails, the old files go back and the units restart
+// on them.
 func (h *Host) Apply(ctx context.Context, b *Bundle) ([]Change, error) {
 	p, err := h.prepare(b)
 	if err != nil {
@@ -228,17 +226,13 @@ func (h *Host) prepare(b *Bundle) (*prepared, error) {
 	return p, nil
 }
 
-// activate enables the units, runs the checks of those whose files
-// changed, then restarts or reloads them and starts the rest.
 func (h *Host) activate(ctx context.Context, units []Unit, changed map[string]bool) error {
 	if err := h.daemonReload(ctx, changed); err != nil {
 		return err
 	}
 	for _, u := range units {
-		if u.Enable {
-			if err := h.Run(ctx, "systemctl", "enable", "--quiet", u.Name); err != nil {
-				return err
-			}
+		if err := h.Run(ctx, "systemctl", "enable", "--quiet", u.Name); err != nil {
+			return err
 		}
 	}
 	for _, u := range units {
@@ -250,13 +244,10 @@ func (h *Host) activate(ctx context.Context, units []Unit, changed map[string]bo
 	}
 	for _, u := range units {
 		var err error
-		switch {
-		case !touched(u, changed):
+		if touched(u, changed) {
+			err = h.restartUnit(ctx, u)
+		} else {
 			err = h.Run(ctx, "systemctl", "start", u.Name)
-		case u.Reload:
-			err = h.Run(ctx, "systemctl", "reload-or-restart", u.Name)
-		default:
-			err = h.Run(ctx, "systemctl", "restart", u.Name)
 		}
 		if err != nil {
 			return err
@@ -269,15 +260,18 @@ func (h *Host) activate(ctx context.Context, units []Unit, changed map[string]bo
 func (h *Host) restart(ctx context.Context, units []Unit, changed map[string]bool) error {
 	errs := []error{h.daemonReload(ctx, changed)}
 	for _, u := range units {
-		switch {
-		case !touched(u, changed):
-		case u.Reload:
-			errs = append(errs, h.Run(ctx, "systemctl", "reload-or-restart", u.Name))
-		default:
-			errs = append(errs, h.Run(ctx, "systemctl", "restart", u.Name))
+		if touched(u, changed) {
+			errs = append(errs, h.restartUnit(ctx, u))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (h *Host) restartUnit(ctx context.Context, u Unit) error {
+	if u.Reload {
+		return h.Run(ctx, "systemctl", "reload-or-restart", u.Name)
+	}
+	return h.Run(ctx, "systemctl", "restart", u.Name)
 }
 
 func (h *Host) daemonReload(ctx context.Context, changed map[string]bool) error {
@@ -334,7 +328,6 @@ func (h *Host) put(p string, e entry) error {
 	if err := h.Root.MkdirAll(path.Dir(r), 0o755); err != nil {
 		return err
 	}
-	// Written next to it and renamed over it, so readers never see half a file.
 	tmp := path.Join(path.Dir(r), "."+path.Base(r)+".princo-new")
 	f, err := h.Root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -381,7 +374,6 @@ func (h *Host) makeDir(d Dir) error {
 		return err
 	}
 	r := rel(d.Path)
-	// Parents get 0755, not d.Mode, like the parents of files.
 	if err := h.Root.MkdirAll(path.Dir(r), 0o755); err != nil {
 		return err
 	}
@@ -430,7 +422,7 @@ func OtherNodeError(running, node string) error {
 	return fmt.Errorf("this host runs node %s, not %s; remove %s to put another node here", running, node, StateFile)
 }
 
-// rel is p relative to the root; os.Root takes no absolute paths.
+// rel is p for os.Root, which takes no absolute paths.
 func rel(p string) string { return strings.TrimPrefix(p, "/") }
 
 func gidOf(fi fs.FileInfo) int {

@@ -4,7 +4,7 @@ file 0600 root     /var/lib/princo/files/sing-box.json
 file 0644 root     /var/lib/princo/rules/geoip-ru.srs
 file 0644 root     /var/lib/princo/rules/geosite-category-ru.srs
 file 0644 root     /etc/systemd/system/princo.service
-unit princo.service enable=true reload=false check=["/usr/bin/sing-box" "check" "-c" "/var/lib/princo/files/sing-box.json"]
+unit princo.service reload=false check=["/usr/bin/sing-box" "check" "-c" "/var/lib/princo/files/sing-box.json"]
   /etc/systemd/system/princo.service
   /var/lib/princo/files/sing-box.json
   /var/lib/princo/rules/geoip-ru.srs

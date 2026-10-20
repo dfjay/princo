@@ -1,4 +1,3 @@
-# Installs what the node needs and opens its ports.
 set -eu
 export DEBIAN_FRONTEND=noninteractive
 {{- with .Repo}}
@@ -19,7 +18,7 @@ if [ -n "$missing" ]; then
 	apt-get install -y -q $missing
 fi
 {{- with .PackageUnit}}
-# The engine's package brings a unit of its own; princo.service runs it.
+# princo.service runs the engine instead.
 systemctl disable --now {{q .}} >/dev/null 2>&1 || true
 {{- end}}
 {{- if or .TCP .UDP}}

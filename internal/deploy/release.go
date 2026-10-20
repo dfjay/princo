@@ -15,19 +15,16 @@ import (
 	"strings"
 )
 
-// ReleaseURL is where princo's releases are downloaded from.
 const ReleaseURL = "https://github.com/dfjay/princo/releases/download"
 
-// Who signs princo's releases: its release workflow, keyless through
-// Sigstore (.goreleaser.yaml).
+// princo's release workflow signs releases through Sigstore.
 const (
 	signerIdentity = `^https://github\.com/dfjay/princo/\.github/workflows/release\.yml@`
 	signerIssuer   = "https://token.actions.githubusercontent.com"
 )
 
-// ReleaseDeb downloads the .deb of princo version for a Debian
-// architecture from baseURL (ReleaseURL), and checks it against the
-// release's checksums.txt after cosign verifies that file's signature.
+// ReleaseDeb downloads princo version's .deb for a Debian architecture
+// and checks it against checksums.txt, once cosign has verified that.
 func ReleaseDeb(ctx context.Context, client *http.Client, baseURL, version, arch string) ([]byte, error) {
 	if _, err := exec.LookPath("cosign"); err != nil {
 		return nil, errors.New("cosign is needed to verify princo's release before it goes on the host; install it, or pass --princo-deb")
@@ -77,7 +74,7 @@ func ReleaseDeb(ctx context.Context, client *http.Client, baseURL, version, arch
 	return deb, nil
 }
 
-// checksum finds name's in a sha256sum listing.
+// checksum is name's in a sha256sum listing.
 func checksum(sums []byte, name string) (string, bool) {
 	sc := bufio.NewScanner(bytes.NewReader(sums))
 	for sc.Scan() {

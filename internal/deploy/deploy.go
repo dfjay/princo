@@ -1,9 +1,5 @@
-// Package deploy runs a node on a Debian or Ubuntu host over SSH. Build
-// turns the node's plan and rendered files into the bundle the host
-// applies (bundle.Host): the files, a systemd unit running the engine,
-// nginx for the SNI multiplexer, ACME challenges and the subscription
-// site, and a certbot hook. Deployer prepares the host, issues the
-// certificates it lacks with a Bootstrap bundle, and applies the node's.
+// Package deploy runs a node on a Debian or Ubuntu host over SSH: Build
+// makes the node's bundle, and Deployer prepares the host and applies it.
 package deploy
 
 import (
@@ -23,21 +19,18 @@ import (
 
 // Paths on the host.
 const (
-	// FilesDir holds the node's rendered files.
 	FilesDir = "/var/lib/princo/files"
-	// ACMEDir is the webroot certbot answers HTTP-01 challenges from.
+	// ACMEDir is certbot's webroot for HTTP-01 challenges.
 	ACMEDir  = "/var/lib/princo/acme"
 	UnitFile = "/etc/systemd/system/princo.service"
-	// StreamConf is in modules-enabled because Debian's nginx.conf includes
-	// that at the top level, the only place for a stream block short of
-	// editing nginx.conf.
-	StreamConf = "/etc/nginx/modules-enabled/99-princo-stream.conf"
-	SiteConf   = "/etc/nginx/sites-enabled/princo.conf"
-	// CertbotHook links the certificates certbot renews into engine.CertDir.
+	// Debian's nginx.conf includes modules-enabled at the top level, where
+	// a stream block must be.
+	StreamConf  = "/etc/nginx/modules-enabled/99-princo-stream.conf"
+	SiteConf    = "/etc/nginx/sites-enabled/princo.conf"
 	CertbotHook = "/etc/letsencrypt/renewal-hooks/deploy/princo"
 )
 
-// stateDir is passed through by nginx to the site and the ACME webroot.
+// nginx passes through stateDir to the site and the ACME webroot.
 var stateDir = bundle.Dir{Path: bundle.StateDir, Mode: 0o755}
 
 // webGroup is the group Debian's nginx runs as.
@@ -48,9 +41,8 @@ var templateFS embed.FS
 
 var templates = template.Must(template.New("").Funcs(template.FuncMap{"q": shellQuote}).ParseFS(templateFS, "templates/*"))
 
-// Build is the bundle of node p.Node: files are its rendered files
-// (host.Files) and ruleSets the content of each of p.RuleSets. It needs
-// the host to have the plan's certificates (see Bootstrap).
+// Build is the bundle of node p.Node from its rendered files (host.Files)
+// and rule sets. The host must have the plan's certificates (Bootstrap).
 func Build(p *host.Plan, files, ruleSets map[string][]byte) (*bundle.Bundle, error) {
 	e, ok := engines[p.Engine]
 	if !ok {
@@ -60,7 +52,6 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte) (*bundle.Bundle, err
 
 	filesDir := bundle.Dir{Path: FilesDir, Mode: 0o700}
 	if p.Subscription != nil {
-		// nginx passes through to the site.
 		filesDir.Mode = 0o751
 	}
 	b.Dirs = append(b.Dirs, filesDir)
@@ -100,9 +91,9 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte) (*bundle.Bundle, err
 		return nil, err
 	}
 	b.Files = append(b.Files, bundle.File{Path: UnitFile, Mode: 0o644, Data: unit})
-	// The engine goes first: when the node gains the multiplexer, it holds
-	// TCP 443 until it restarts on the new config.
-	b.Units = append(b.Units, bundle.Unit{Name: "princo.service", Enable: true, Files: engineFiles, Check: e.check(config)})
+	// Before nginx: a node gaining the multiplexer has the engine on TCP 443
+	// until it restarts.
+	b.Units = append(b.Units, bundle.Unit{Name: "princo.service", Files: engineFiles, Check: e.check(config)})
 
 	var nginxFiles []string
 	if p.Mux != nil {
@@ -126,8 +117,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte) (*bundle.Bundle, err
 }
 
 // Bootstrap is the partial bundle that has nginx answer the ACME
-// challenges for the certificates the host lacks, missing, and leaves the
-// rest of the node as it is.
+// challenges for the missing certificates, leaving the rest of the node.
 func Bootstrap(p *host.Plan, missing []string) (*bundle.Bundle, error) {
 	b := &bundle.Bundle{Format: bundle.Format, Node: p.Node, Partial: true, Dirs: []bundle.Dir{stateDir}}
 	siteTLS := p.Subscription != nil && !slices.Contains(missing, p.Subscription.Domain)
@@ -138,8 +128,8 @@ func Bootstrap(p *host.Plan, missing []string) (*bundle.Bundle, error) {
 	return b, nil
 }
 
-// addSite adds nginx's sites, the ACME webroot and the certbot hook; with
-// siteTLS, the subscription site over HTTPS, which needs its certificate.
+// addSite adds nginx's sites, the ACME webroot and the certbot hook;
+// siteTLS serves the subscription site, which needs its certificate.
 func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 	var engineDomains []string
 	for _, d := range p.Certificates {
@@ -174,13 +164,7 @@ func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 }
 
 func nginxUnit(files []string) bundle.Unit {
-	return bundle.Unit{
-		Name:   "nginx.service",
-		Enable: true,
-		Files:  files,
-		Reload: true,
-		Check:  []string{"nginx", "-t", "-q"},
-	}
+	return bundle.Unit{Name: "nginx.service", Files: files, Reload: true, Check: []string{"nginx", "-t", "-q"}}
 }
 
 func execute(name string, data any) ([]byte, error) {
