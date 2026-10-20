@@ -75,6 +75,10 @@ subscription domain, and nothing else listening on port 443.
   SNI multiplexer, certificates, rule sets, secrets), without decrypting
   anything.
 - `princo secret get/set/list`.
+- `princo host apply [--check]` — on a host, as root: apply a bundle from
+  stdin (files and the systemd units they restart), undoing it if a check
+  or a restart fails. `princo deploy` will build the bundle and run this
+  over SSH.
 
 ## Secrets
 
