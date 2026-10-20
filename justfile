@@ -14,6 +14,11 @@ lint:
 test:
     go test ./...
 
+# Deploy the fixture fleet to a throwaway host that has this princo
+e2e host:
+    go build -o "${TMPDIR:-/tmp}/princo-e2e" ./cmd/princo
+    PRINCO_E2E_BIN="${TMPDIR:-/tmp}/princo-e2e" PRINCO_E2E_HOST={{host}} go test -tags e2e ./e2e -count=1 -v
+
 # Accept changed golden configs
 golden:
     go test ./internal/engine/singbox -update
