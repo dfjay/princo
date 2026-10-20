@@ -19,7 +19,7 @@ const ReleaseURL = "https://github.com/dfjay/princo/releases/download"
 
 // princo's release workflow signs releases through Sigstore.
 const (
-	signerIdentity = `^https://github\.com/dfjay/princo/\.github/workflows/release\.yml@`
+	signerIdentity = "https://github.com/dfjay/princo/.github/workflows/release.yml@refs/heads/main"
 	signerIssuer   = "https://token.actions.githubusercontent.com"
 )
 
@@ -51,7 +51,7 @@ func ReleaseDeb(ctx context.Context, client *http.Client, baseURL, version, arch
 	}
 	out, err := exec.CommandContext(ctx, "cosign", "verify-blob",
 		"--bundle", filepath.Join(dir, "checksums.txt.sigstore.json"),
-		"--certificate-identity-regexp", signerIdentity,
+		"--certificate-identity", signerIdentity,
 		"--certificate-oidc-issuer", signerIssuer,
 		filepath.Join(dir, "checksums.txt"),
 	).CombinedOutput()

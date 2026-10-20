@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -125,6 +126,17 @@ func TestApply_DirParents(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fs.FileMode(0o700), h.mode(t, "/var/lib/princo/files"))
 	require.Equal(t, fs.FileMode(0o755), h.mode(t, "/var/lib/princo"), "others pass through to the rest of it")
+}
+
+func TestApply_Umask(t *testing.T) {
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	h := newFakeHost(t)
+	_, err := h.Apply(t.Context(), node(`{"a":1}`, "<html>"))
+	require.NoError(t, err)
+	require.Equal(t, fs.FileMode(0o755), h.mode(t, "/var/lib/princo/files/subscription/tok"))
+	require.Equal(t, fs.FileMode(0o640), h.mode(t, page))
+	require.Equal(t, fs.FileMode(0o600), h.mode(t, StateFile), "the site's paths hold the users' tokens")
 }
 
 func TestApply_Unchanged(t *testing.T) {

@@ -155,6 +155,16 @@ func TestCheck(t *testing.T) {
 	require.ErrorContains(t, d.Check(t.Context(), p, files, ruleSets), "the host has no princo yet")
 }
 
+func TestProbe_Certificates(t *testing.T) {
+	var script string
+	d, _ := newDeployer(nil, "0.2.0")
+	d.Remote = remoteFunc(func(s string) { script = s })
+	p, _, _ := plan(t, "de")
+	_, err := d.probe(t.Context(), p)
+	require.ErrorContains(t, err, "didn't tell its architecture")
+	require.Contains(t, script, "[ -s '/var/lib/princo/certs/subs.example.com/fullchain.pem' ] && [ -s '/var/lib/princo/certs/subs.example.com/key.pem' ] || echo missing 'subs.example.com'")
+}
+
 func TestProvision(t *testing.T) {
 	r := &fakeRemote{t: t}
 	d, _ := newDeployer(r, "0.2.0")
@@ -167,6 +177,7 @@ func TestProvision(t *testing.T) {
 	require.Contains(t, script, "ufw allow 80/tcp")
 	require.Contains(t, script, "ufw allow 443/udp")
 	require.Contains(t, script, "-----END PGP PUBLIC KEY BLOCK-----\nPRINCO_EOF\n")
+	require.Contains(t, script, "chmod 0644 /etc/apt/keyrings/sagernet.asc /etc/apt/sources.list.d/sagernet.sources")
 	require.NoError(t, exec.Command("sh", "-n", "-c", script).Run())
 
 	p, _, _ = plan(t, "us")

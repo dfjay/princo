@@ -151,7 +151,15 @@ func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 	if err != nil {
 		return err
 	}
-	hook, err := execute("certbot-hook", map[string]any{"Domains": p.Certificates, "CertDir": engine.CertDir})
+	var siteDomain string
+	if p.Subscription != nil {
+		siteDomain = p.Subscription.Domain
+	}
+	hook, err := execute("certbot-hook", map[string]any{
+		"SiteDomain":    siteDomain,
+		"EngineDomains": engineDomains,
+		"CertDir":       engine.CertDir,
+	})
 	if err != nil {
 		return err
 	}

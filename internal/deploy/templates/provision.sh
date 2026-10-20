@@ -8,6 +8,7 @@ PRINCO_EOF
 cat >/etc/apt/sources.list.d/{{.Name}}.sources <<'PRINCO_EOF'
 {{.Sources -}}
 PRINCO_EOF
+chmod 0644 /etc/apt/keyrings/{{.Name}}.asc /etc/apt/sources.list.d/{{.Name}}.sources
 {{- end}}
 missing=
 for p in{{range .Packages}} {{q .}}{{end}}; do

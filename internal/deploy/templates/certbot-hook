@@ -4,12 +4,18 @@
 set -eu
 d=$(basename "$RENEWED_LINEAGE")
 case "$d" in
-{{- range .Domains}}
-{{q .}}) ;;
+{{- with .SiteDomain}}
+{{q .}}) unit=nginx.service ;;
+{{- end}}
+{{- range .EngineDomains}}
+{{q .}}) unit=princo.service ;;
 {{- end}}
 *) exit 0 ;;
 esac
 mkdir -p {{.CertDir}}/"$d"
 ln -sfn "$RENEWED_LINEAGE/fullchain.pem" {{.CertDir}}/"$d"/fullchain.pem
 ln -sfn "$RENEWED_LINEAGE/privkey.pem" {{.CertDir}}/"$d"/key.pem
-systemctl try-reload-or-restart nginx.service princo.service
+# Not yet there on the first deploy.
+if systemctl -q is-active "$unit"; then
+	systemctl reload-or-restart "$unit"
+fi

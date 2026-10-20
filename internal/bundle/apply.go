@@ -325,7 +325,7 @@ func (h *Host) put(p string, e entry) error {
 		return h.remove(p)
 	}
 	r := rel(p)
-	if err := h.Root.MkdirAll(path.Dir(r), 0o755); err != nil {
+	if err := h.mkdirs(path.Dir(r)); err != nil {
 		return err
 	}
 	tmp := path.Join(path.Dir(r), "."+path.Base(r)+".princo-new")
@@ -374,7 +374,7 @@ func (h *Host) makeDir(d Dir) error {
 		return err
 	}
 	r := rel(d.Path)
-	if err := h.Root.MkdirAll(path.Dir(r), 0o755); err != nil {
+	if err := h.mkdirs(path.Dir(r)); err != nil {
 		return err
 	}
 	if err := h.Root.Mkdir(r, d.Mode); err != nil && !errors.Is(err, fs.ErrExist) {
@@ -384,6 +384,20 @@ func (h *Host) makeDir(d Dir) error {
 		return err
 	}
 	return h.Root.Chown(r, -1, gid)
+}
+
+// mkdirs makes dir and its missing parents 0755, whatever the umask.
+func (h *Host) mkdirs(dir string) error {
+	if _, err := h.Root.Lstat(dir); err == nil || dir == "." {
+		return nil
+	}
+	if err := h.mkdirs(path.Dir(dir)); err != nil {
+		return err
+	}
+	if err := h.Root.Mkdir(dir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	return h.Root.Chmod(dir, 0o755)
 }
 
 func (h *Host) loadState() (state, error) {
@@ -414,7 +428,8 @@ func (h *Host) saveState(b *Bundle) error {
 	if err != nil {
 		return err
 	}
-	return h.put(StateFile, entry{exists: true, data: append(data, '\n'), mode: 0o644, gid: gid})
+	// The site's paths hold the users' tokens.
+	return h.put(StateFile, entry{exists: true, data: append(data, '\n'), mode: 0o600, gid: gid})
 }
 
 // OtherNodeError refuses to put node on a host that runs another.
