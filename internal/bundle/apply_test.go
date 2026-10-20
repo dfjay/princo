@@ -115,6 +115,8 @@ func TestApply_Fresh(t *testing.T) {
 		"nginx -t",
 		"systemctl reload-or-restart nginx.service",
 		"systemctl restart princo.service",
+		"systemctl is-active --quiet nginx.service",
+		"systemctl is-active --quiet princo.service",
 	}, h.calls)
 }
 
@@ -170,6 +172,7 @@ func TestApply_ChangedConfig(t *testing.T) {
 		"systemctl enable --quiet princo.service",
 		"systemctl start nginx.service",
 		"systemctl restart princo.service",
+		"systemctl is-active --quiet princo.service",
 	}, h.calls, "no daemon-reload, and nginx's check runs only when its files change")
 }
 
@@ -261,6 +264,35 @@ func TestApply_RestartFails(t *testing.T) {
 	changes, err := h.Diff(node(`{"a":1}`, ""))
 	require.NoError(t, err)
 	require.Empty(t, changes, "the failed apply left no state behind")
+}
+
+func TestApply_StopsAfterRestart(t *testing.T) {
+	h := newFakeHost(t)
+	_, err := h.Apply(t.Context(), node(`{"a":1}`, ""))
+	require.NoError(t, err)
+	h.calls = nil
+	h.fail["systemctl is-active --quiet princo.service"] = 1
+
+	_, err = h.Apply(t.Context(), node(`{"port":"taken"}`, ""))
+	require.ErrorContains(t, err, "princo.service stopped after it restarted; see journalctl -u princo.service; the old files are back")
+	require.Equal(t, `{"a":1}`, h.file(t, config))
+	require.Equal(t, "systemctl restart princo.service", h.calls[len(h.calls)-1])
+}
+
+func TestApply_Locked(t *testing.T) {
+	h := newFakeHost(t)
+	unlock, err := h.lock()
+	require.NoError(t, err)
+
+	other := newFakeHost(t)
+	other.Root = h.Root
+	_, err = other.Apply(t.Context(), node(`{"a":1}`, ""))
+	require.ErrorContains(t, err, "another princo host apply is running")
+	require.False(t, h.exists(config))
+
+	unlock()
+	_, err = other.Apply(t.Context(), node(`{"a":1}`, ""))
+	require.NoError(t, err)
 }
 
 func TestApply_OtherNode(t *testing.T) {

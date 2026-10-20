@@ -126,7 +126,9 @@ and known_hosts apply, as root or as a user with passwordless sudo. It
   certbot's timer renews them;
 - writes the node's files, `princo.service` and nginx's configs, and
   restarts what they changed. If `nginx -t`, `sing-box check` or a restart
-  fails, the old files go back and the services restart on them.
+  fails, or a restarted service stops within seconds, the old files go
+  back and the services restart on them. One deploy runs on a host at a
+  time.
 
 The host needs DNS records for the node's domains and ports 80 and 443
 open in any firewall in front of it. Rule sets are downloaded from

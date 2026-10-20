@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // StateDir is princo's directory on a host. Removing a file prunes the
@@ -51,6 +52,8 @@ type Host struct {
 	Run func(ctx context.Context, name string, args ...string) error
 	// GroupID resolves a group name; "" is root.
 	GroupID func(name string) (int, error)
+	// Settle is how long restarted units must stay up.
+	Settle time.Duration
 }
 
 func NewHost() (*Host, error) {
@@ -58,7 +61,7 @@ func NewHost() (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Host{Root: root, Run: run, GroupID: groupID}, nil
+	return &Host{Root: root, Run: run, GroupID: groupID, Settle: 3 * time.Second}, nil
 }
 
 func run(ctx context.Context, name string, args ...string) error {
@@ -121,6 +124,14 @@ func (h *Host) Diff(b *Bundle) ([]Change, error) {
 // check or a restart fails, the old files go back and the units restart
 // on them.
 func (h *Host) Apply(ctx context.Context, b *Bundle) ([]Change, error) {
+	if err := b.validate(); err != nil {
+		return nil, err
+	}
+	unlock, err := h.lock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	p, err := h.prepare(b)
 	if err != nil {
 		return nil, err
@@ -242,15 +253,31 @@ func (h *Host) activate(ctx context.Context, units []Unit, changed map[string]bo
 			}
 		}
 	}
+	var restarted []Unit
 	for _, u := range units {
 		var err error
 		if touched(u, changed) {
 			err = h.restartUnit(ctx, u)
+			restarted = append(restarted, u)
 		} else {
 			err = h.Run(ctx, "systemctl", "start", u.Name)
 		}
 		if err != nil {
 			return err
+		}
+	}
+	if len(restarted) == 0 {
+		return nil
+	}
+	// A unit that fails to bind its ports exits after systemctl returns.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(h.Settle):
+	}
+	for _, u := range restarted {
+		if h.Run(ctx, "systemctl", "is-active", "--quiet", u.Name) != nil {
+			return fmt.Errorf("%s stopped after it restarted; see journalctl -u %s", u.Name, u.Name)
 		}
 	}
 	return nil
@@ -384,6 +411,25 @@ func (h *Host) makeDir(d Dir) error {
 		return err
 	}
 	return h.Root.Chown(r, -1, gid)
+}
+
+// lock keeps other applies off the host until unlock.
+func (h *Host) lock() (unlock func(), err error) {
+	if err := h.mkdirs(rel(StateDir)); err != nil {
+		return nil, err
+	}
+	f, err := h.Root.OpenFile(rel(StateDir+"/apply.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errors.New("another princo host apply is running on this host")
+		}
+		return nil, err
+	}
+	return func() { f.Close() }, nil
 }
 
 // mkdirs makes dir and its missing parents 0755, whatever the umask.
