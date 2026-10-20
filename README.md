@@ -75,10 +75,13 @@ subscription domain, and nothing else listening on port 443.
   SNI multiplexer, certificates, rule sets, secrets), without decrypting
   anything.
 - `princo secret get/set/list`.
+- `princo deploy --node N --dry-run` — build the node's bundle (its files,
+  rule sets, a systemd unit for the engine, nginx for the multiplexer and
+  the subscription site) and show over SSH what applying it would change
+  on its Debian or Ubuntu host. Deploying for real is next.
 - `princo host apply [--check]` — on a host, as root: apply a bundle from
   stdin (files and the systemd units they restart), undoing it if a check
-  or a restart fails. `princo deploy` will build the bundle and run this
-  over SSH.
+  or a restart fails. `princo deploy` runs it over SSH.
 
 ## Secrets
 

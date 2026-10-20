@@ -69,7 +69,7 @@ protocol when it has its own block, even an empty one (`hysteria2: {}`).
 | `ipv6` | `false` when the node has no IPv6: the client then refuses IPv6 destinations and AAAA answers for traffic routed through it |
 | `passthrough` | other TLS sites on 443: `host: target` (see below) |
 | `dns`, `rules`, `engine`, `acme_email` | override `defaults` |
-| `ssh` | `user@host` for `princo deploy` (planned) |
+| `ssh` | `user@host` or a `~/.ssh/config` Host that `princo deploy` connects to |
 
 A node needs at least one protocol. All of them share port 443: Reality
 and Naive over TCP, Hysteria2 over UDP.
