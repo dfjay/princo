@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/dfjay/princo/compare/v0.1.0...v0.1.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* hidden secret input, refuse vhosts on the mux port, strict names ([#12](https://github.com/dfjay/princo/issues/12)) ([88e03a2](https://github.com/dfjay/princo/commit/88e03a2c4ec6bc4d6bba557d86733f51d582c5e3))
+
 ## 0.1.0 (2026-10-19)
 
 
