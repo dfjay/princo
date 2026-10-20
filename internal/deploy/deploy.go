@@ -95,8 +95,6 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 	units := []bundle.Unit{{Name: "princo.service", Files: engineFiles, Check: e.check(config)}}
 
 	var nginxFiles []string
-	// Without a multiplexer, nginx still reloads on an emptied StreamConf
-	// to let go of TCP 443.
 	if p.Mux != nil || hostStream {
 		conf, err := execute("stream.conf", p)
 		if err != nil {
@@ -114,8 +112,9 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 	if len(nginxFiles) > 0 {
 		units = append(units, nginxUnit(nginxFiles))
 	}
-	// Whichever of them leaves TCP 443 goes first. A reloaded nginx's old
-	// workers keep it a while; a restarted one is gone.
+	// Whichever leaves TCP 443 goes first. Losing the multiplexer, nginx
+	// restarts on the emptied StreamConf: reloaded, its old workers would
+	// hold the port a while.
 	if p.Mux == nil && hostStream {
 		units[1].Reload = false
 		slices.Reverse(units)
@@ -159,12 +158,8 @@ func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 	if err != nil {
 		return err
 	}
-	var siteDomain string
-	if p.Subscription != nil {
-		siteDomain = p.Subscription.Domain
-	}
 	hook, err := execute("certbot-hook", map[string]any{
-		"SiteDomain":    siteDomain,
+		"Site":          p.Subscription,
 		"EngineDomains": engineDomains,
 		"CertDir":       engine.CertDir,
 	})

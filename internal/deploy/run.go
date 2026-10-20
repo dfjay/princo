@@ -38,8 +38,7 @@ type Deployer struct {
 type facts struct {
 	arch, princo, node string
 	missing            []string
-	// stream tells that the host has a StreamConf.
-	stream bool
+	stream             bool
 }
 
 // Deploy installs the node's packages and princo, issues the certificates

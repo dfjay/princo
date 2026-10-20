@@ -30,8 +30,6 @@ jobs:
         with:
           version: v2.15.0
 
-  # Deploys the fixture fleet to this runner over ssh to localhost, as a
-  # user with passwordless sudo.
   e2e:
     runs-on: ubuntu-latest
     steps:

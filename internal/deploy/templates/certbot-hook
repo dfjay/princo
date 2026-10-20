@@ -4,8 +4,8 @@
 set -eu
 d=$(basename "$RENEWED_LINEAGE")
 case "$d" in
-{{- with .SiteDomain}}
-{{q .}}) unit=nginx.service ;;
+{{- with .Site}}
+{{q .Domain}}) unit=nginx.service ;;
 {{- end}}
 {{- range .EngineDomains}}
 {{q .}}) unit=princo.service ;;

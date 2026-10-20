@@ -434,7 +434,7 @@ func (h *Host) lock() (unlock func(), err error) {
 
 // mkdirs makes dir and its missing parents 0755, whatever the umask.
 func (h *Host) mkdirs(dir string) error {
-	if _, err := h.Root.Lstat(dir); err == nil || dir == "." {
+	if _, err := h.Root.Lstat(dir); err == nil {
 		return nil
 	}
 	if err := h.mkdirs(path.Dir(dir)); err != nil {
