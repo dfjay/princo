@@ -20,13 +20,11 @@
       ../cmd
       ../internal
       ../testdata
-      ../vendor
       ../examples
     ];
   };
 
-  # Dependencies are vendored in the repository.
-  vendorHash = null;
+  vendorHash = "sha256-SByJU1Nf1P95ikwA0/95YrSCNRWXUez2CE3rBG+PfH4=";
 
   ldflags = [
     "-s"

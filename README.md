@@ -168,10 +168,12 @@ Go, golangci-lint, sing-box, GoReleaser and just. Then:
 just test          # go test ./...
 just check         # everything CI runs, the NixOS VM test included
 just golden        # accept changed golden configs
+just vendor-hash   # update nix/package.nix after go.mod changes
 ```
 
-Dependencies are vendored: after changing `go.mod`, run `go mod vendor`
-(Dependabot does it in its PRs). With `sing-box` in `PATH`, the tests also run `sing-box check` on every
+After changing `go.mod`, run `just vendor-hash` to update the Nix
+package's `vendorHash`; on Dependabot's PRs CI does it. With `sing-box` in
+`PATH`, the tests also run `sing-box check` on every
 rendered config. The NixOS VM test boots a node of the fixture fleet.
 
 Releases come from [release-please](https://github.com/googleapis/release-please):
