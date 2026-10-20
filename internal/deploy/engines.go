@@ -3,6 +3,7 @@ package deploy
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,13 +17,34 @@ import (
 type engineSpec struct {
 	// command runs the engine on config, keeping its state in stateDir.
 	command func(config, stateDir string) []string
+	// check validates config before the engine restarts on it.
+	check func(config string) []string
 	// reloads tells whether SIGHUP reloads the config.
 	reloads bool
+	// repo is the apt repository of pkg, nil when the distribution has it.
+	repo *aptRepo
+	pkg  string
+	// pkgUnit is the systemd unit pkg brings, which princo.service replaces.
+	pkgUnit string
 	// ruleSetURL is where a file of the plan's rule sets is downloaded.
 	ruleSetURL func(file string) string
 	// ruleSetMagic starts every rule set file.
 	ruleSetMagic []byte
 }
+
+// aptRepo is an apt repository to add, in deb822 form, signed by Key.
+type aptRepo struct {
+	Name    string
+	Key     string
+	Sources string
+}
+
+// sagernetKey signs SagerNet's apt repository, from
+// https://sing-box.app/gpg.key: fingerprint
+// 2C31 7FBD 5D88 6B4E 89BA E8DA 6D91 5217 2A2B 2F0C.
+//
+//go:embed keys/sagernet.asc
+var sagernetKey string
 
 var engines = map[string]engineSpec{
 	"sing-box": {
@@ -30,7 +52,23 @@ var engines = map[string]engineSpec{
 			// Where SagerNet's Debian package installs it.
 			return []string{"/usr/bin/sing-box", "-D", stateDir, "-c", config, "run"}
 		},
+		check: func(config string) []string {
+			return []string{"/usr/bin/sing-box", "check", "-c", config}
+		},
 		reloads: true,
+		repo: &aptRepo{
+			Name: "sagernet",
+			Key:  sagernetKey,
+			Sources: `Types: deb
+URIs: https://deb.sagernet.org/
+Suites: *
+Components: *
+Enabled: yes
+Signed-By: /etc/apt/keyrings/sagernet.asc
+`,
+		},
+		pkg:     "sing-box",
+		pkgUnit: "sing-box.service",
 		ruleSetURL: func(file string) string {
 			repo := "sing-geosite"
 			if strings.HasPrefix(file, "geoip-") {

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Written by princo deploy; changes here are overwritten.
+# certbot runs this after it renews a certificate (princo deploy, after it
+# issues one): link it where princo's configs read it, and reload what
+# serves it.
+set -eu
+d=$(basename "$RENEWED_LINEAGE")
+case "$d" in
+'de.example.com') ;;
+'naive-de.example.com') ;;
+'subs.example.com') ;;
+*) exit 0 ;;
+esac
+mkdir -p /var/lib/princo/certs/"$d"
+ln -sfn "$RENEWED_LINEAGE/fullchain.pem" /var/lib/princo/certs/"$d"/fullchain.pem
+ln -sfn "$RENEWED_LINEAGE/privkey.pem" /var/lib/princo/certs/"$d"/key.pem
+systemctl try-reload-or-restart nginx.service princo.service

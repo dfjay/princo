@@ -1,3 +1,4 @@
+dir  0755 root     /var/lib/princo
 dir  0751 root     /var/lib/princo/files
 dir  0750 www-data /var/lib/princo/files/subscription
 dir  0755 root     /var/lib/princo/acme
@@ -18,11 +19,12 @@ file 0644 root     /var/lib/princo/rules/geosite-category-ru.srs
 file 0644 root     /etc/systemd/system/princo.service
 file 0644 root     /etc/nginx/modules-enabled/99-princo-stream.conf
 file 0644 root     /etc/nginx/sites-enabled/princo.conf
-unit nginx.service enable=true reload=true check=["nginx" "-t" "-q"]
-  /etc/nginx/modules-enabled/99-princo-stream.conf
-  /etc/nginx/sites-enabled/princo.conf
-unit princo.service enable=true reload=false check=[]
+file 0755 root     /etc/letsencrypt/renewal-hooks/deploy/princo
+unit princo.service enable=true reload=false check=["/usr/bin/sing-box" "check" "-c" "/var/lib/princo/files/sing-box.json"]
   /etc/systemd/system/princo.service
   /var/lib/princo/files/sing-box.json
   /var/lib/princo/rules/geoip-ru.srs
   /var/lib/princo/rules/geosite-category-ru.srs
+unit nginx.service enable=true reload=true check=["nginx" "-t" "-q"]
+  /etc/nginx/modules-enabled/99-princo-stream.conf
+  /etc/nginx/sites-enabled/princo.conf

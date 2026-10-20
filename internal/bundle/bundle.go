@@ -17,8 +17,12 @@ const Format = 1
 type Bundle struct {
 	Format int    `json:"format"`
 	Node   string `json:"node"`
-	Dirs   []Dir  `json:"dirs"`
-	Files  []File `json:"files"`
+	// Partial bundles only write: they remove no file and leave the record
+	// of the last apply alone, so the next whole bundle still knows what
+	// to remove.
+	Partial bool   `json:"partial,omitempty"`
+	Dirs    []Dir  `json:"dirs"`
+	Files   []File `json:"files"`
 	// Units restart in this order.
 	Units []Unit `json:"units"`
 }

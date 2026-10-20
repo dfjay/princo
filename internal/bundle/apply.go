@@ -21,9 +21,9 @@ import (
 // directories it leaves empty, up to StateDir.
 const StateDir = "/var/lib/princo"
 
-// stateFile records the last apply, so the next one removes the files it
+// StateFile records the last apply, so the next one removes the files it
 // no longer has.
-const stateFile = StateDir + "/applied.json"
+const StateFile = StateDir + "/applied.json"
 
 // Changes here need a daemon-reload.
 const systemdDir = "/etc/systemd/system/"
@@ -118,7 +118,7 @@ func (h *Host) Diff(b *Bundle) ([]Change, error) {
 }
 
 // Apply writes b's directories and files, removes the files the last apply
-// wrote that b lacks, and restarts or reloads the units whose files
+// wrote that b lacks (unless b is Partial), and restarts or reloads the units whose files
 // changed; the other units are started if they aren't running. When a
 // check or a restart fails, Apply puts the old files back and restarts the
 // same units on them.
@@ -148,8 +148,10 @@ func (h *Host) Apply(ctx context.Context, b *Bundle) ([]Change, error) {
 		}
 		return nil, fmt.Errorf("%w; the old files are back", err)
 	}
-	if err := h.saveState(b); err != nil {
-		return nil, err
+	if !b.Partial {
+		if err := h.saveState(b); err != nil {
+			return nil, err
+		}
 	}
 	return p.changes, nil
 }
@@ -163,7 +165,7 @@ func (h *Host) prepare(b *Bundle) (*prepared, error) {
 		return nil, err
 	}
 	if st.Node != "" && st.Node != b.Node {
-		return nil, fmt.Errorf("this host runs node %s, not %s; remove %s to put another node here", st.Node, b.Node, stateFile)
+		return nil, OtherNodeError(st.Node, b.Node)
 	}
 
 	p := &prepared{}
@@ -206,6 +208,9 @@ func (h *Host) prepare(b *Bundle) (*prepared, error) {
 		}
 		p.changes = append(p.changes, Change{op, f.Path})
 		p.files = append(p.files, fileChange{f.Path, old, want})
+	}
+	if b.Partial {
+		return p, nil
 	}
 	for _, f := range st.Files {
 		if wanted[f] {
@@ -376,7 +381,11 @@ func (h *Host) makeDir(d Dir) error {
 		return err
 	}
 	r := rel(d.Path)
-	if err := h.Root.MkdirAll(r, d.Mode); err != nil {
+	// Parents get 0755, not d.Mode, like the parents of files.
+	if err := h.Root.MkdirAll(path.Dir(r), 0o755); err != nil {
+		return err
+	}
+	if err := h.Root.Mkdir(r, d.Mode); err != nil && !errors.Is(err, fs.ErrExist) {
 		return err
 	}
 	if err := h.Root.Chmod(r, d.Mode); err != nil {
@@ -387,7 +396,7 @@ func (h *Host) makeDir(d Dir) error {
 
 func (h *Host) loadState() (state, error) {
 	var st state
-	data, err := h.Root.ReadFile(rel(stateFile))
+	data, err := h.Root.ReadFile(rel(StateFile))
 	if errors.Is(err, fs.ErrNotExist) {
 		return st, nil
 	}
@@ -395,7 +404,7 @@ func (h *Host) loadState() (state, error) {
 		return st, err
 	}
 	if err := json.Unmarshal(data, &st); err != nil {
-		return st, fmt.Errorf("%s: %w", stateFile, err)
+		return st, fmt.Errorf("%s: %w", StateFile, err)
 	}
 	return st, nil
 }
@@ -413,7 +422,12 @@ func (h *Host) saveState(b *Bundle) error {
 	if err != nil {
 		return err
 	}
-	return h.put(stateFile, entry{exists: true, data: append(data, '\n'), mode: 0o644, gid: gid})
+	return h.put(StateFile, entry{exists: true, data: append(data, '\n'), mode: 0o644, gid: gid})
+}
+
+// OtherNodeError refuses to put node on a host that runs another.
+func OtherNodeError(running, node string) error {
+	return fmt.Errorf("this host runs node %s, not %s; remove %s to put another node here", running, node, StateFile)
 }
 
 // rel is p relative to the root; os.Root takes no absolute paths.

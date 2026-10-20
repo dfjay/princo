@@ -5,9 +5,9 @@ Declarative CLI for sing-box (and, later, xray) VPN fleets.
 One `princo.yaml` describes the whole VPN: nodes and the protocols they
 serve, users and which nodes they may use, chains of nodes, server and
 client routing, and subscriptions. princo renders it into sing-box configs
-(xray later). NixOS hosts run their node through princo's NixOS module and
-whatever deploy tool you use; `princo deploy` over SSH for Ubuntu/Debian is
-planned.
+(xray later). Debian and Ubuntu hosts get their node with `princo deploy`
+over SSH; NixOS hosts run it through princo's NixOS module and whatever
+deploy tool you use.
 
 ## Status
 
@@ -20,10 +20,10 @@ Alpha: schema v1 may still change. Works today:
 - a subscription site: share links for most apps, the profile for
   sing-box apps, a QR page;
 - secrets in an age file or in sops files you already have;
-- running nodes on NixOS with the NixOS module and any deploy tool.
+- running nodes on Debian and Ubuntu with `princo deploy`, and on NixOS
+  with the NixOS module and any deploy tool.
 
-Not yet: `princo deploy` for Ubuntu/Debian (until then, run
-`princo render --node N --out DIR` and sing-box yourself), the xray engine.
+Not yet: the xray engine.
 
 ## Install
 
@@ -75,10 +75,9 @@ subscription domain, and nothing else listening on port 443.
   SNI multiplexer, certificates, rule sets, secrets), without decrypting
   anything.
 - `princo secret get/set/list`.
-- `princo deploy --node N --dry-run` — build the node's bundle (its files,
-  rule sets, a systemd unit for the engine, nginx for the multiplexer and
-  the subscription site) and show over SSH what applying it would change
-  on its Debian or Ubuntu host. Deploying for real is next.
+- `princo deploy --node N [--dry-run]` — run the node on its Debian or
+  Ubuntu host over SSH (see below); `--dry-run` shows what would change in
+  the host's files.
 - `princo host apply [--check]` — on a host, as root: apply a bundle from
   stdin (files and the systemd units they restart), undoing it if a check
   or a restart fails. `princo deploy` runs it over SSH.
@@ -107,6 +106,32 @@ also point anywhere with `!secret sops:file.yaml#key`. `princo secret get
 On a host, `--secrets-dir DIR` reads secrets from files instead, one per
 path (`DIR/users/alice`), the way sops-nix or agenix lay them out. Only the
 secrets the node's files need have to be there; `princo plan` lists them.
+
+## Debian and Ubuntu
+
+```bash
+princo deploy --node fr              # to the ssh: of node fr, or --host user@host
+princo deploy --node fr --dry-run    # what would change in the host's files
+```
+
+princo deploy goes over the system ssh, so your `~/.ssh/config`, agent
+and known_hosts apply, as root or as a user with passwordless sudo. It
+
+- installs sing-box from SagerNet's apt repository (princo carries its
+  key), and nginx with its stream module and certbot when the node needs
+  them; opens the node's ports if ufw is active;
+- installs princo of its own version from the release, once cosign has
+  verified the release's signature (or the `.deb` of `--princo-deb`);
+- issues the certificates the host lacks with certbot over HTTP-01;
+  certbot's timer renews them;
+- writes the node's files, `princo.service` and nginx's configs, and
+  restarts what they changed. If `nginx -t`, `sing-box check` or a restart
+  fails, the old files go back and the services restart on them.
+
+The host needs DNS records for the node's domains and ports 80 and 443
+open in any firewall in front of it. Rule sets are downloaded from
+SagerNet unless `--rule-sets DIR` holds them. As on NixOS, other HTTPS
+sites go behind the multiplexer with `passthrough:`.
 
 ## NixOS
 

@@ -116,6 +116,16 @@ func TestApply_Fresh(t *testing.T) {
 	}, h.calls)
 }
 
+func TestApply_DirParents(t *testing.T) {
+	h := newFakeHost(t)
+	b := node(`{"a":1}`, "")
+	b.Dirs[0].Mode = 0o700
+	_, err := h.Apply(t.Context(), b)
+	require.NoError(t, err)
+	require.Equal(t, fs.FileMode(0o700), h.mode(t, "/var/lib/princo/files"))
+	require.Equal(t, fs.FileMode(0o755), h.mode(t, "/var/lib/princo"), "others pass through to the rest of it")
+}
+
 func TestApply_Unchanged(t *testing.T) {
 	h := newFakeHost(t)
 	_, err := h.Apply(t.Context(), node(`{"a":1}`, "<html>"))
@@ -176,6 +186,28 @@ func TestApply_RemovesDropped(t *testing.T) {
 	require.False(t, h.exists(page))
 	require.False(t, h.exists("/var/lib/princo/files/subscription"), "empty directories are pruned")
 	require.True(t, h.exists("/var/lib/princo/files"))
+}
+
+func TestApply_Partial(t *testing.T) {
+	h := newFakeHost(t)
+	_, err := h.Apply(t.Context(), node(`{"a":1}`, "<html>"))
+	require.NoError(t, err)
+
+	partial := &Bundle{
+		Format:  Format,
+		Node:    "de",
+		Partial: true,
+		Files:   []File{{Path: site, Mode: 0o644, Data: []byte("server { acme }\n")}},
+		Units:   []Unit{{Name: "nginx.service", Files: []string{site}, Reload: true}},
+	}
+	changes, err := h.Apply(t.Context(), partial)
+	require.NoError(t, err)
+	require.Equal(t, []Change{{Update, site}}, changes)
+	require.True(t, h.exists(page), "a partial bundle removes nothing")
+
+	changes, err = h.Diff(node(`{"a":1}`, ""))
+	require.NoError(t, err)
+	require.Equal(t, []Change{{Update, site}, {Remove, page}}, changes, "the whole bundle before it is still on record")
 }
 
 func TestApply_CheckFails(t *testing.T) {
