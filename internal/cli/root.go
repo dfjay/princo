@@ -31,6 +31,8 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newRenderCommand(flags))
 	root.AddCommand(newPlanCommand(flags))
 	root.AddCommand(newSecretCommand(flags))
+	root.AddCommand(newDeployCommand(flags))
+	root.AddCommand(newHostCommand())
 	return root
 }
 

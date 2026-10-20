@@ -1,0 +1,21 @@
+# Written by princo deploy; changes here are overwritten.
+[Unit]
+Description=princo node us (sing-box)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/sing-box -D /var/lib/princo-sing-box -c /var/lib/princo/files/sing-box.json run
+ExecReload=/bin/kill -HUP $MAINPID
+DynamicUser=yes
+StateDirectory=princo-sing-box
+StateDirectoryMode=0700
+# CAP_DAC_READ_SEARCH reads the rendered config and the certificates, both root's.
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_DAC_READ_SEARCH
+Restart=on-failure
+RestartSec=10s
+LimitNOFILE=infinity
+
+[Install]
+WantedBy=multi-user.target
