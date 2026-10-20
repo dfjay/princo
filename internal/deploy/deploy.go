@@ -43,7 +43,8 @@ var templates = template.Must(template.New("").Funcs(template.FuncMap{"q": shell
 
 // Build is the bundle of node p.Node from its rendered files (host.Files)
 // and rule sets. The host must have the plan's certificates (Bootstrap).
-func Build(p *host.Plan, files, ruleSets map[string][]byte) (*bundle.Bundle, error) {
+// hostStream tells that the host has a StreamConf from an earlier deploy.
+func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*bundle.Bundle, error) {
 	e, ok := engines[p.Engine]
 	if !ok {
 		return nil, fmt.Errorf("princo deploy can't run engine %s yet", p.Engine)
@@ -91,12 +92,12 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte) (*bundle.Bundle, err
 		return nil, err
 	}
 	b.Files = append(b.Files, bundle.File{Path: UnitFile, Mode: 0o644, Data: unit})
-	// Before nginx: a node gaining the multiplexer has the engine on TCP 443
-	// until it restarts.
-	b.Units = append(b.Units, bundle.Unit{Name: "princo.service", Files: engineFiles, Check: e.check(config)})
+	units := []bundle.Unit{{Name: "princo.service", Files: engineFiles, Check: e.check(config)}}
 
 	var nginxFiles []string
-	if p.Mux != nil {
+	// Without a multiplexer, nginx still reloads on an emptied StreamConf
+	// to let go of TCP 443.
+	if p.Mux != nil || hostStream {
 		conf, err := execute("stream.conf", p)
 		if err != nil {
 			return nil, err
@@ -111,8 +112,15 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte) (*bundle.Bundle, err
 		nginxFiles = append(nginxFiles, SiteConf)
 	}
 	if len(nginxFiles) > 0 {
-		b.Units = append(b.Units, nginxUnit(nginxFiles))
+		units = append(units, nginxUnit(nginxFiles))
 	}
+	// Whichever of them leaves TCP 443 goes first. A reloaded nginx's old
+	// workers keep it a while; a restarted one is gone.
+	if p.Mux == nil && hostStream {
+		units[1].Reload = false
+		slices.Reverse(units)
+	}
+	b.Units = units
 	return b, nil
 }
 

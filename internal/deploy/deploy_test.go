@@ -47,7 +47,7 @@ func plan(t *testing.T, node string) (*host.Plan, map[string][]byte, map[string]
 func build(t *testing.T, node string) *bundle.Bundle {
 	t.Helper()
 	p, files, ruleSets := plan(t, node)
-	b, err := Build(p, files, ruleSets)
+	b, err := Build(p, files, ruleSets, false)
 	require.NoError(t, err)
 	return b
 }
@@ -141,14 +141,29 @@ func unitNames(b *bundle.Bundle) []string {
 	return out
 }
 
+func TestBuild_MuxRemoved(t *testing.T) {
+	p, files, ruleSets := plan(t, "us")
+	b, err := Build(p, files, ruleSets, true)
+	require.NoError(t, err)
+	require.Equal(t, "# Written by princo deploy; changes here are overwritten.\n# Node us has no multiplexer.\n", string(file(t, b, StreamConf)))
+	require.Equal(t, []string{"nginx.service", "princo.service"}, unitNames(b), "nginx lets go of TCP 443 first")
+	require.False(t, b.Units[0].Reload, "and is gone from it after a restart")
+
+	p, files, ruleSets = plan(t, "de")
+	b, err = Build(p, files, ruleSets, true)
+	require.NoError(t, err)
+	require.Contains(t, string(file(t, b, StreamConf)), "stream {")
+	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(b))
+}
+
 func TestBuild_MissingRuleSet(t *testing.T) {
 	p := &host.Plan{Node: "de", Engine: "sing-box", Config: "sing-box.json", RuleSets: []string{"geoip-ru.srs"}}
-	_, err := Build(p, map[string][]byte{"sing-box.json": nil}, nil)
+	_, err := Build(p, map[string][]byte{"sing-box.json": nil}, nil, false)
 	require.ErrorContains(t, err, "rule set geoip-ru.srs is missing")
 }
 
 func TestBuild_UnknownEngine(t *testing.T) {
-	_, err := Build(&host.Plan{Node: "de", Engine: "xray"}, nil, nil)
+	_, err := Build(&host.Plan{Node: "de", Engine: "xray"}, nil, nil, false)
 	require.ErrorContains(t, err, "can't run engine xray yet")
 }
 

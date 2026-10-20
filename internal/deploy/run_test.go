@@ -141,6 +141,14 @@ func TestDeploy_OtherNode(t *testing.T) {
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 }
 
+func TestDeploy_MuxRemoved(t *testing.T) {
+	r := &fakeRemote{t: t, probe: "arch amd64\nnode us\nstream\nprinco 0.2.0\n"}
+	d, _ := newDeployer(r, "0.2.0")
+	p, files, ruleSets := plan(t, "us")
+	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
+	require.Equal(t, []string{"nginx.service", "princo.service"}, unitNames(r.bundles[0]))
+}
+
 func TestCheck(t *testing.T) {
 	p, files, ruleSets := plan(t, "de")
 

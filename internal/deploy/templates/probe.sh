@@ -12,6 +12,9 @@ echo "arch $(dpkg --print-architecture)"
 if [ -f {{.StateFile}} ]; then
 	echo "node $(sed -n 's/.*"node":"\([^"]*\)".*/\1/p' {{.StateFile}})"
 fi
+if [ -e {{.StreamConf}} ]; then
+	echo stream
+fi
 if command -v princo >/dev/null; then
 	echo "princo $(princo version | cut -d' ' -f2)"
 fi

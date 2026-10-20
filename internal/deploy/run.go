@@ -38,6 +38,8 @@ type Deployer struct {
 type facts struct {
 	arch, princo, node string
 	missing            []string
+	// stream tells that the host has a StreamConf.
+	stream bool
 }
 
 // Deploy installs the node's packages and princo, issues the certificates
@@ -83,7 +85,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 			}
 		}
 	}
-	b, err := Build(p, files, ruleSets)
+	b, err := Build(p, files, ruleSets, f.stream)
 	if err != nil {
 		return err
 	}
@@ -100,7 +102,7 @@ func (d *Deployer) Check(ctx context.Context, p *host.Plan, files, ruleSets map[
 	if f.princo == "" {
 		return errors.New("the host has no princo yet; deploying without --dry-run installs it")
 	}
-	b, err := Build(p, files, ruleSets)
+	b, err := Build(p, files, ruleSets, f.stream)
 	if err != nil {
 		return err
 	}
@@ -112,6 +114,7 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 		"Certificates": p.Certificates,
 		"CertDir":      engine.CertDir,
 		"StateFile":    bundle.StateFile,
+		"StreamConf":   StreamConf,
 	})
 	if err != nil {
 		return facts{}, err
@@ -132,6 +135,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.node = value
 		case "missing":
 			f.missing = append(f.missing, value)
+		case "stream":
+			f.stream = true
 		}
 	}
 	if f.arch == "" {
