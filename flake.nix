@@ -32,6 +32,7 @@
             goreleaser
             syft
             just
+            nix-update
             nixfmt
             sing-box # the tests run `sing-box check` on rendered configs
             age

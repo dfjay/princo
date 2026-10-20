@@ -1,0 +1,35 @@
+name: vendor-hash
+on:
+  pull_request:
+    paths: [go.mod, go.sum]
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app.outputs.token }}
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+      - run: nix run --inputs-from . nixpkgs#nix-update -- --flake --version=skip princo
+      - name: Push the new hash
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BOT: ${{ steps.app.outputs.app-slug }}[bot]
+        run: |
+          git diff --quiet && exit 0
+          id=$(gh api "/users/$BOT" --jq .id)
+          git config user.name "$BOT"
+          git config user.email "$id+$BOT@users.noreply.github.com"
+          git commit -am "build(deps): update vendorHash"
+          git push
