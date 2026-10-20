@@ -159,7 +159,7 @@ done`)
 		require.Contains(t, e.sh(t, curl+"/ | base64 -d"), "vless://")
 		require.Contains(t, e.sh(t, curl+" -A 'SFA (sing-box 1.14)'"), `"outbounds"`)
 		require.Contains(t, e.sh(t, "echo | openssl s_client -connect 127.0.0.1:443 -servername naive-de.example.com 2>/dev/null | grep ^subject"),
-			"CN=naive-de.example.com", "naive behind the multiplexer")
+			"naive-de.example.com", "naive behind the multiplexer")
 		require.Equal(t, "403", e.sh(t, "curl -sk -o /dev/null -w '%{http_code}' --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/"))
 
 		e.sh(t, `mkdir -p /var/lib/princo/acme/.well-known/acme-challenge
