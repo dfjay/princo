@@ -132,6 +132,27 @@ subscription: { node: zz }
 	}
 }
 
+func TestBuild_Names(t *testing.T) {
+	values := conventionalSecrets()
+	values["users"].(map[string]any)["Bad.User"] = "uuid"
+	_, err := build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "01", public_key: p } }
+  "../b": { address: b.example.com, naive: { domain: b.example.com } }
+users:
+  u: {}
+  Bad.User: {}
+client:
+  groups:
+    "my group": { nodes: all }
+`, values)
+	require.ErrorContains(t, err, `nodes.../b: name "../b"`)
+	require.ErrorContains(t, err, `users.Bad.User: name "Bad.User"`)
+	require.ErrorContains(t, err, `client.groups.my group: name "my group"`)
+	require.NotContains(t, err.Error(), `name "a"`)
+	require.NotContains(t, err.Error(), `name "u"`)
+}
+
 func TestParseMatcher(t *testing.T) {
 	for _, ok := range []string{"geosite:category-ru", "geoip:ru", "ip:private", "ip:10.0.0.0/8", "port:443", "network:icmp", "domain_suffix:example.com"} {
 		_, err := ParseMatcher(ok)

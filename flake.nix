@@ -58,6 +58,7 @@
         // {
           # On darwin the VM runs natively and the Linux side builds on a remote or linux-builder machine.
           nixos = pkgs.testers.runNixOSTest (import ./nix/test.nix { inherit self; });
+          assertions = import ./nix/assertions.nix { inherit self nixpkgs pkgs; };
         }
       );
 

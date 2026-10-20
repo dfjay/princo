@@ -75,6 +75,37 @@ let
       port = 80;
     }
   ];
+  # The TCP ports an nginx virtual host listens on, the way the nginx module
+  # works them out.
+  vhostPorts =
+    vhost:
+    let
+      nginx = config.services.nginx;
+      hasSSL = vhost.onlySSL || vhost.addSSL || vhost.forceSSL;
+      orDefault = v: d: if v == null then d else v;
+      tcp = lines: lib.filter (l: !lib.hasPrefix "unix:" (l.addr or "")) lines;
+      defaultPorts =
+        line:
+        lib.optional ((hasSSL || vhost.rejectSSL) && orDefault (line.ssl or null) true) (
+          orDefault (line.port or null) nginx.defaultSSLListenPort
+        )
+        ++ lib.optional (!vhost.onlySSL && !(orDefault (line.ssl or null) false)) (
+          orDefault (line.port or null) nginx.defaultHTTPListenPort
+        );
+    in
+    if vhost.listen != [ ] then
+      map (l: orDefault l.port 80) (tcp vhost.listen)
+    else
+      lib.concatMap defaultPorts (
+        if nginx.defaultListen != [ ] then tcp nginx.defaultListen else [ { } ]
+      );
+  # Other virtual hosts on the multiplexer's port would take it from it.
+  muxConflicts = lib.optionals (mux != null) (
+    lib.attrNames (
+      lib.filterAttrs (_: v: lib.elem mux.port (vhostPorts v)) config.services.nginx.virtualHosts
+    )
+  );
+
   parseAddr =
     addr:
     let
@@ -156,6 +187,14 @@ in
         services.princo.plan = plan;
 
         assertions = [
+          {
+            assertion = muxConflicts == [ ];
+            message = ''
+              services.princo: these nginx virtual hosts listen on port ${toString mux.port}, which node ${cfg.node}'s multiplexer owns:
+                ${lib.concatStringsSep "\n  " muxConflicts}
+              Have them listen on 127.0.0.1:8443 and route their domains there with `passthrough:` in princo.yaml.
+            '';
+          }
           {
             assertion = !useSops || options ? sops;
             message = "services.princo: import sops-nix, or set services.princo.secretsDir.";
