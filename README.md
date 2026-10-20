@@ -48,7 +48,7 @@ age-keygen -y ~/.config/princo/key.txt > recipients
 
 # the node's Reality key pair: the private key is a secret...
 sing-box generate reality-keypair       # prints PrivateKey and PublicKey
-princo secret set nodes/nl/reality      # paste the PrivateKey, then Enter
+princo secret set nodes/nl/reality      # paste the PrivateKey (not echoed), then Enter
 # ...the public one goes into princo.yaml, with your domains and ACME email
 $EDITOR princo.yaml
 
@@ -138,8 +138,9 @@ without a builder for it, plan on the machine you deploy from:
 services.princo.planPkgs = inputs.nixpkgs.legacyPackages.aarch64-darwin;
 ```
 
-Other HTTPS sites on the host must not listen on 443 themselves: route them
-through the multiplexer with `passthrough:` and listen on its target, e.g.
+Other HTTPS sites on the host must not listen on 443 themselves, and the
+module refuses nginx virtual hosts that do: route them through the
+multiplexer with `passthrough:` and listen on its target, e.g.
 `127.0.0.1:8443`.
 
 ## Repository layout

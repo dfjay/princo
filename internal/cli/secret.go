@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/dfjay/princo/internal/secrets"
 )
@@ -52,26 +53,50 @@ func newSecretGetCommand(global *globalFlags) *cobra.Command {
 func newSecretSetCommand(global *globalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <path>",
-		Short: "Set a secret value (reads from stdin)",
+		Short: "Set a secret value: typed without echo, or the first line of stdin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, recipientsPath, err := openSecretStore(global)
 			if err != nil {
 				return err
 			}
-			scanner := bufio.NewScanner(cmd.InOrStdin())
-			if !scanner.Scan() {
-				if err := scanner.Err(); err != nil {
-					return fmt.Errorf("read stdin: %w", err)
-				}
-				return fmt.Errorf("no value on stdin")
+			value, err := readValue(cmd, args[0])
+			if err != nil {
+				return err
 			}
-			if err := store.Set(args[0], scanner.Text()); err != nil {
+			if err := store.Set(args[0], value); err != nil {
 				return err
 			}
 			return secrets.Save(secretsPath(global.ConfigPath), recipientsPath, store.Values())
 		},
 	}
+}
+
+// readValue reads a secret's value: from the terminal without echoing it,
+// or the first line of piped stdin.
+func readValue(cmd *cobra.Command, path string) (string, error) {
+	if f, ok := cmd.InOrStdin().(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "%s: ", path); err != nil {
+			return "", err
+		}
+		value, err := term.ReadPassword(int(f.Fd()))
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr()) // end the prompt's line
+		if err != nil {
+			return "", fmt.Errorf("read terminal: %w", err)
+		}
+		if len(value) == 0 {
+			return "", fmt.Errorf("no value entered")
+		}
+		return string(value), nil
+	}
+	scanner := bufio.NewScanner(cmd.InOrStdin())
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return "", fmt.Errorf("read stdin: %w", err)
+		}
+		return "", fmt.Errorf("no value on stdin")
+	}
+	return scanner.Text(), nil
 }
 
 func newSecretListCommand(global *globalFlags) *cobra.Command {

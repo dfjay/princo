@@ -18,7 +18,8 @@ secrets: {}         # where secrets live
 ```
 
 Names of nodes, users and client groups appear in links, tags and file
-paths; keep them short, like `fr` or `alice`.
+paths, so they are lowercase letters, digits, `-` and `_`, starting and
+ending with a letter or digit; keep them short, like `fr` or `alice`.
 
 ## Secrets
 
@@ -116,6 +117,10 @@ sites on the same host join through `passthrough`:
 passthrough:
   example.com: 127.0.0.1:8443   # the site listens there, not on 443
 ```
+
+The multiplexer passes connections on as they are, so Reality and Naive
+see every client as `127.0.0.1`; sing-box no longer accepts the PROXY
+protocol that would carry the address. Hysteria2 is UDP and bypasses it.
 
 ## `users.<name>`
 

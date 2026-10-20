@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +25,16 @@ func secretWarp(node, field string) string { return "nodes/" + node + "/warp/" +
 func secretChainUUID(node string) string   { return "nodes/" + node + "/chain" }
 
 var supportedEngines = []string{"sing-box"}
+
+// nameRe is what names of nodes, users and client groups may be: they end
+// up in file and secret paths, outbound tags and links.
+var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
+
+func (b *builder) checkName(where, name string) {
+	if !nameRe.MatchString(name) {
+		b.errorf("%s: name %q: use lowercase letters, digits, - and _, starting and ending with a letter or digit", where, name)
+	}
+}
 
 // Build applies defaults, resolves secrets through sec and checks every
 // reference, reporting all problems at once.
@@ -72,6 +83,7 @@ func (b *builder) nodes() {
 	for _, name := range slices.Sorted(slices.Values(b.cfg.Nodes.Keys())) {
 		c, _ := b.cfg.Nodes.Get(name)
 		where := "nodes." + name
+		b.checkName(where, name)
 		n := &Node{
 			Name:      name,
 			SSH:       c.SSH,
@@ -190,6 +202,7 @@ func (b *builder) users() {
 	for _, name := range slices.Sorted(slices.Values(b.cfg.Users.Keys())) {
 		c, _ := b.cfg.Users.Get(name)
 		where := "users." + name
+		b.checkName(where, name)
 		u := &User{Name: name, UUID: b.secret(where+".uuid", c.UUID, secretUserUUID(name))}
 		if c.Nodes == nil {
 			u.Nodes = b.f.Nodes
@@ -229,6 +242,7 @@ func (b *builder) client() {
 	groups := c.Groups.Keys()
 	for name, g := range c.Groups.All() {
 		where := "client.groups." + name
+		b.checkName(where, name)
 		if name == "direct" {
 			b.errorf("%s: \"direct\" is reserved", where)
 		}
