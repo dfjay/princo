@@ -1,236 +1,210 @@
 # princo
 
-Declarative CLI for sing-box and xray VPN fleets.
+**Your VPN fleet, in one YAML file.**
 
-One `princo.yaml` describes the whole VPN: nodes and the protocols they
-serve, users and which nodes they may use, chains of nodes, server and
-client routing, and subscriptions. princo renders it into sing-box or
-xray configs, node by node. Debian and Ubuntu hosts get their node with `princo deploy`
-over SSH; NixOS hosts run it through princo's NixOS module and whatever
-deploy tool you use.
+[![CI](https://github.com/dfjay/princo/actions/workflows/ci.yml/badge.svg)](https://github.com/dfjay/princo/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/dfjay/princo)](https://github.com/dfjay/princo/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Status
+princo is a declarative CLI for managing VPN servers powered by sing-box and
+xray. Describe your servers, users and routing once; generate server configs,
+client profiles and subscription links from the same source.
 
-Alpha: schema v1 may still change. Works today:
+Deploy to Debian or Ubuntu over SSH, or run each node through the NixOS module.
+Keep credentials in encrypted age or sops files, separate from your fleet config.
 
-- nodes with VLESS-Reality, Hysteria2 and Naive sharing port 443, egress
-  direct, through WARP or through another node (chains);
-- nodes running xray, with VLESS over XHTTP behind VLESS-Reality on the
-  same port and keys;
-- server and client routing rules, client groups selected by node tags,
-  DNS on both sides;
-- a subscription site: share links for most apps, the profile for
-  sing-box apps, a QR page;
-- secrets in an age file or in sops files you already have;
-- running nodes on Debian and Ubuntu with `princo deploy`, and on NixOS
-  with the NixOS module and any deploy tool.
+[Quick start](#quick-start) · [Configuration](docs/config.md) ·
+[Deployment](docs/deployment.md) · [Contributing](docs/development.md)
+
+> **Alpha:** princo is under active development. The `v1` configuration schema
+> may still change. See the [changelog](CHANGELOG.md) for release history.
+
+- **Manage a fleet together.** Define shared defaults, per-user access and node
+  groups in one `princo.yaml`.
+- **Offer several protocols on port 443.** Use VLESS-Reality, Hysteria2 and
+  Naive on sing-box, or VLESS-Reality and XHTTP on xray.
+- **Choose where traffic exits.** Route directly, through Cloudflare WARP or
+  through another node. Set routing and DNS for both servers and clients.
+- **Give each user one subscription.** Publish share links, a sing-box profile
+  and a page with QR codes.
+- **Inspect before deploying.** Render configs locally and inspect a node's
+  host requirements without decrypting secrets.
+
+```text
+princo.yaml + encrypted secrets
+                 │
+                 ├── Server configs → SSH deploy / NixOS module
+                 └── Client profiles + share links + subscription site
+```
 
 ## Install
 
+Download a binary or a `.deb` / `.rpm` package from
+[Releases](https://github.com/dfjay/princo/releases). Release archives support
+Linux (amd64, arm64) and macOS (Apple Silicon), and include shell completions.
+Releases also provide checksums, a Sigstore signature bundle and SPDX SBOMs.
+
+Or install with Go (see [go.mod](go.mod) for the required version):
+
 ```bash
 go install github.com/dfjay/princo/cmd/princo@latest
+princo --help
+```
+
+With Nix, run the CLI directly:
+
+```bash
 nix run github:dfjay/princo -- --help
 ```
 
-or a binary, `.deb` or `.rpm` from
-[Releases](https://github.com/dfjay/princo/releases), with shell
-completions and an SPDX SBOM.
-
 ## Quick start
+
+This example creates one sing-box node, two users and a subscription site.
+Both users can connect over VLESS-Reality or Hysteria2.
+
+You need `princo`, `age-keygen`, `sing-box`, `openssl` and `uuidgen` locally.
+To deploy, prepare a Debian or Ubuntu server with SSH access as root or a user
+with passwordless sudo. Point `nl.example.com` and `subs.example.com` at its
+public IP, replacing these example domains with your own. Allow TCP 80 and
+443, and UDP 443; port 443 must be available for princo.
+
+### 1. Create your fleet config
 
 ```bash
 mkdir my-vpn && cd my-vpn
 curl -fsSLO https://raw.githubusercontent.com/dfjay/princo/main/examples/minimal/princo.yaml
-
-# an age identity for yourself; secrets.age is encrypted to it
-mkdir -p ~/.config/princo && age-keygen -o ~/.config/princo/key.txt
-age-keygen -y ~/.config/princo/key.txt > recipients
-
-# the node's Reality key pair: the private key is a secret...
-sing-box generate reality-keypair       # prints PrivateKey and PublicKey
-princo secret set nodes/nl/reality      # paste the PrivateKey (not echoed), then Enter
-# ...the public one goes into princo.yaml, with your domains and ACME email
-$EDITOR princo.yaml
-
-openssl rand -hex 16 | princo secret set shared/hy2_obfs
-for u in alice bob; do uuidgen | princo secret set users/$u; done
-
-princo render --node nl               # the node's sing-box config
-princo render --user alice            # alice's sing-box profile
-princo render --user alice --links    # her subscription links
 ```
 
-[docs/config.md](docs/config.md) describes every field of `princo.yaml`.
-The node's host needs DNS records for its `address`, `naive.domain` and the
-subscription domain, and nothing else listening on port 443.
-
-## Commands
-
-- `princo render --node N` — the node's engine config.
-- `princo render --user U [--uris | --links]` — the user's sing-box
-  profile, share links, or subscription links.
-- `princo render --node N --out DIR` — every file the node runs from: its
-  config and, on the subscription node, the subscription site.
-- `princo plan --node N` — what a deploy sets up around those files (ports,
-  SNI multiplexer, certificates, rule sets, secrets), without decrypting
-  anything.
-- `princo secret get/set/list`.
-- `princo deploy --node N [--dry-run]` — run the node on its Debian or
-  Ubuntu host over SSH (see below); `--dry-run` shows what would change in
-  the host's files.
-- `princo host apply [--check]` — on a host, as root: apply a bundle from
-  stdin (files and the systemd units they restart), undoing it if a check
-  or a restart fails. `princo deploy` runs it over SSH.
-
-## Secrets
-
-princo asks for secrets by logical path: `users/<name>` (the user's UUID),
-`shared/hy2_obfs`, `nodes/<node>/reality`, `nodes/<node>/warp/{private_key,ipv4,ipv6}`,
-`nodes/<node>/chain`. By default they live in `secrets.age` next to
-`princo.yaml`. A `secrets:` block sends them elsewhere — for example to
-existing sops files, decrypted with the `sops` CLI and whatever keys it
-knows (age, PGP on a YubiKey, cloud KMS):
+The [example](examples/minimal/princo.yaml) has this structure:
 
 ```yaml
-secrets:
-  users/*: sops:../secrets/shared.yaml#vless_uuid_*   # users/alice → vless_uuid_alice
-  shared/hy2_obfs: sops:../secrets/shared.yaml#hy2_obfs_password
-  nodes/fr/*: sops:../secrets/fr.yaml                 # nodes/fr/reality → reality
+princo: v1
+
+defaults:
+  acme_email: you@example.com
+
+nodes:
+  nl:
+    address: nl.example.com
+    reality:
+      server_name: www.microsoft.com
+      short_id: 0123abcd
+      public_key: <public key>
+    hysteria2: {}
+
+users:
+  alice: {}
+  bob: {}
+
+client:
+  groups:
+    proxy: { nodes: all }
+  rules:
+    - { match: [ip:private], action: direct }
+  final: proxy
+
+subscription:
+  node: nl
+  domain: subs.example.com
 ```
 
-The first matching pattern wins; `*` may only end a pattern, and in the
-target key it stands for what the pattern's `*` matched. A single field can
-also point anywhere with `!secret sops:file.yaml#key`. `princo secret get
-<path>` shows what a path resolves to.
+Set your domains and ACME email in `princo.yaml`. The `reality.server_name`
+is an existing HTTPS site reachable from your server; it does not need to be
+a domain you own. Generate a short ID with `openssl rand -hex 4` and replace
+the example `short_id`.
 
-On a host, `--secrets-dir DIR` reads secrets from files instead, one per
-path (`DIR/users/alice`), the way sops-nix or agenix lay them out. Only the
-secrets the node's files need have to be there; `princo plan` lists them.
+### 2. Create and store credentials
 
-## Debian and Ubuntu
+Create an age identity, or reuse an existing identity at the default path:
 
 ```bash
-princo deploy --node fr              # to the ssh: of node fr, or --host user@host
-princo deploy --node fr --dry-run    # what would change in the host's files
+# Run once; keep this private key outside your fleet repository.
+mkdir -p ~/.config/princo
+age-keygen -o ~/.config/princo/key.txt
 ```
 
-princo deploy goes over the system ssh, so your `~/.ssh/config`, agent
-and known_hosts apply, as root or as a user with passwordless sudo. It
-
-- installs the engine at the release this princo renders for, from
-  SagerNet's or XTLS's GitHub release into
-  `/usr/local/lib/princo/<engine>-<version>` (neither signs releases, so
-  princo pins their checksums), and nginx with its stream module and
-  certbot when the node needs them; opens the node's ports if ufw is
-  active;
-- installs princo of its own version from the release, once cosign has
-  verified the release's signature (or the `.deb` of `--princo-deb`);
-- issues the certificates the host lacks with certbot over HTTP-01;
-  certbot's timer renews them;
-- writes the node's files, `princo.service` and nginx's configs, and
-  restarts what they changed. If `nginx -t`, `sing-box check` or a restart
-  fails, or a restarted service stops within seconds, the old files go
-  back and the services restart on them, and on the engine release they
-  ran with. One deploy runs on a host at a time. xray can't reload, so
-  changing its node restarts it.
-
-The host needs DNS records for the node's domains and ports 80 and 443
-open in any firewall in front of it. Rule sets are downloaded from
-SagerNet for sing-box, and from Loyalsoldier/v2ray-rules-dat for xray,
-cut down to the codes the node uses, unless `--rule-sets DIR` holds them. As on NixOS, other HTTPS
-sites go behind the multiplexer with `passthrough:`.
-
-## NixOS
-
-```nix
-# flake.nix
-inputs.princo.url = "github:dfjay/princo";
-
-# the host's configuration
-imports = [
-  inputs.sops-nix.nixosModules.sops   # or set services.princo.secretsDir
-  inputs.princo.nixosModules.default
-];
-services.princo = {
-  enable = true;
-  config = ./vpn/princo.yaml;   # a Nix path: secret files are relative to it
-  node = "fr";
-};
-```
-
-Deploy it like any other NixOS configuration: `nixos-rebuild --target-host`,
-colmena, deploy-rs, … At build time the module runs `princo plan` and sets
-up the firewall, an nginx stream map on 443 for the multiplexer, ACME
-certificates (HTTP-01, so port 80 is opened too) and the subscription site.
-Secrets come from sops-nix, using the sops files of princo.yaml's
-`secrets:` block (so every secret the node needs must be in one), or from
-files under `services.princo.secretsDir`. On the host,
-`princo-render.service` renders the node's files into `/run/princo/files`
-and `princo.service` runs the engine on them, so no secret reaches the Nix
-store. The engine comes from the host's nixpkgs
-(`services.princo.enginePackage`); the module refuses one older than the
-node's config needs.
-
-The plan is read while the system is evaluated (import from derivation),
-by default with a princo built for the host's platform. To evaluate
-without a builder for it, plan on the machine you deploy from:
-
-```nix
-services.princo.planPkgs = inputs.nixpkgs.legacyPackages.aarch64-darwin;
-```
-
-Other HTTPS sites on the host must not listen on 443 themselves, and the
-module refuses nginx virtual hosts that do: route them through the
-multiplexer with `passthrough:` and listen on its target, e.g.
-`127.0.0.1:8443`.
-
-## Repository layout
-
-```
-cmd/princo/        # CLI entrypoint
-internal/cli/      # cobra commands
-internal/config/   # princo.yaml as written (strict YAML decoding)
-internal/fleet/    # resolved model: defaults, secrets, validation
-internal/engine/   # Engine interface + sing-box and xray renderers
-internal/host/     # a node's files and the plan around them
-internal/subscription/ # share links and the subscription site
-internal/secrets/  # age and sops secrets, secrets dirs
-nix/               # package, NixOS module (engines.nix: per-engine bits), VM test
-testdata/fleet/    # fixture fleet and golden configs
-examples/          # fleets to start from
-docs/              # princo.yaml reference
-```
-
-## Development
-
-`nix develop`, or direnv with the committed `.envrc`, gives a shell with
-Go, golangci-lint, sing-box, xray, GoReleaser and just. Then:
+Write its public recipient next to `princo.yaml`, then generate the node's
+Reality key pair:
 
 ```bash
-just test          # go test ./...
-just check         # everything CI runs, the NixOS VM test included
-just golden        # accept changed golden configs
-just vendor-hash   # update nix/package.nix after go.mod changes
+age-keygen -y ~/.config/princo/key.txt > recipients
+sing-box generate reality-keypair
 ```
 
-After changing `go.mod`, run `just vendor-hash` to update the Nix
-package's `vendorHash`; on Dependabot's PRs CI does it. With `sing-box` and
-`xray` in `PATH`, the tests also run `sing-box check` and `xray run -test`
-on every rendered config. The NixOS VM test boots a node of the fixture fleet.
+Copy the generated **PublicKey** into `nodes.nl.reality.public_key` in
+`princo.yaml`. Store the **PrivateKey** with the following command; paste it
+at the prompt and press Enter (input is hidden):
 
-`princo deploy` installs the engine releases pinned in
-`internal/deploy/engines.go`. To move to a new one, put its version and
-the checksums `just engine-digests sing-box 1.14.4` prints there, then
-accept the changed bundles with `just golden`. The
-engines workflow checks the rendered configs on those releases and on
-nixos-unstable's.
+```bash
+princo secret set nodes/nl/reality
+```
 
-Releases come from [release-please](https://github.com/googleapis/release-please):
-it keeps a release PR open that bumps `internal/version/VERSION` and
-`CHANGELOG.md` from the conventional commits on `main`. Merging it tags
-`vX.Y.Z` and creates the release, and GoReleaser attaches the archives,
-`.deb` and `.rpm` packages and the SBOM.
+Create the shared Hysteria2 password and a UUID for each user:
 
-## License
+```bash
+openssl rand -hex 16 | princo secret set shared/hy2_obfs
+for user in alice bob; do
+  uuidgen | princo secret set users/$user
+done
+```
 
-MIT, see [LICENSE](LICENSE).
+These commands create `secrets.age` beside your config, encrypted to
+`recipients`. See the [secrets reference](docs/config.md#secrets) to use
+existing sops files instead.
+
+### 3. Inspect and deploy
+
+```bash
+princo plan --node nl                 # Ports, certificates and required secrets
+princo render --node nl               # Generated sing-box server config
+princo render --user alice            # Alice's sing-box client profile
+princo deploy --node nl --host root@nl.example.com
+```
+
+The deploy command installs the required software, obtains TLS certificates
+and starts the node. It uses your system SSH configuration. For NixOS, follow
+the [module setup](docs/deployment.md#nixos) instead.
+
+### 4. Connect a client
+
+```bash
+princo render --user alice --links
+```
+
+Import the **Universal** link into a compatible client, use the **sing-box**
+import link, or open the **QR page** on another device. Protocol support
+depends on the client; XHTTP is available through share links, while generated
+client profiles use sing-box.
+
+After changing the fleet config or credentials, deploy again to publish the
+updated server configs and subscriptions.
+
+## Everyday commands
+
+| Task | Command |
+| --- | --- |
+| Inspect host requirements without decrypting secrets | `princo plan --node nl` |
+| Print a server config | `princo render --node nl` |
+| Write all runtime files, including the subscription site | `princo render --node nl --out ./out` |
+| Print a sing-box client profile | `princo render --user alice` |
+| Print individual protocol share links | `princo render --user alice --uris` |
+| Print subscription and QR links | `princo render --user alice --links` |
+| Deploy using the node's `ssh:` setting | `princo deploy --node nl` |
+| Preview file changes on a host with princo installed | `princo deploy --node nl --dry-run` |
+| List paths in the local age store | `princo secret list` |
+
+Use `--config PATH` (`-c`) to select another fleet config, `--key PATH` (`-k`)
+for another age identity, and `princo <command> --help` for command options.
+`render --out` replaces its destination directory. Rendered configs and
+subscription links contain credentials; share them only with their intended users.
+
+## Contributing
+
+Bug reports, documentation improvements and pull requests are welcome.
+For a bug, include your princo version, the command you ran and a minimal
+config with credentials removed in a
+[GitHub issue](https://github.com/dfjay/princo/issues).
+
+To work on the code, start with the [development guide](docs/development.md).
+
+Licensed under the [MIT License](LICENSE).
