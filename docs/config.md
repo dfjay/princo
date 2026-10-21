@@ -241,10 +241,14 @@ rules:
   - { match: [geosite:category-ru, geoip:ru], action: direct }
 ```
 
-Before a node's rules, princo refuses users' connections to private and
-loopback addresses, so they can't reach the node's own services or network.
-On nodes exiting directly, domains are resolved first and their addresses
-checked too.
+Users can't connect to the node's private and loopback addresses, so they
+can't reach its own services or network: sing-box nodes refuse them before
+the node's rules, and xray's freedom outbound refuses them itself.
+
+`ip:` and `geoip:` match the addresses of domains too, except on sing-box
+nodes chaining to another: they leave domains to the upstream, so their IP
+rules match only connections to IP addresses. Domains they send `direct`
+are still resolved there and refused if private.
 
 Client rules can route through a group defined in `client.groups`:
 

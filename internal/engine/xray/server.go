@@ -43,7 +43,13 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 		rules = append(rules, compileMatch(r.Match, tag)...)
 	}
 	if len(rules) > 0 {
-		cfg["routing"] = map[string]any{"rules": rules}
+		routing := map[string]any{"rules": rules}
+		if slices.ContainsFunc(n.Rules, matchesIP) {
+			// IP rules see domains' addresses, resolved as rules are matched in
+			// order; connections still go to the domain.
+			routing["domainStrategy"] = "IPOnDemand"
+		}
+		cfg["routing"] = routing
 	}
 
 	return json.MarshalIndent(cfg, "", "  ")

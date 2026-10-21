@@ -32,11 +32,11 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	}
 
 	route := map[string]any{"final": egressTag(n)}
-	// Users mustn't reach the node's own services and network. Exiting
-	// directly, domains are resolved first so the check sees their
-	// addresses; the direct outbound then dials those. Other nodes resolve
-	// just the domains their rules send direct.
-	resolved := n.Egress.Kind == fleet.EgressDirect
+	// Users mustn't reach the node's own network. Domains the node resolves
+	// anyway are resolved first, so this and IP rules see their addresses;
+	// a chained node leaves domains to its upstream, but resolves those it
+	// sends direct.
+	resolved := n.Egress.Kind != fleet.EgressNode
 	private := map[string]any{"ip_is_private": true, "action": "reject"}
 	var rules []any
 	if resolved {
