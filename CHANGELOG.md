@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.0](https://github.com/dfjay/princo/compare/v0.1.1...v0.2.0) (2026-10-21)
+
+
+### Features
+
+* pin the engines' versions ([#18](https://github.com/dfjay/princo/issues/18)) ([77fb639](https://github.com/dfjay/princo/commit/77fb6391bc58fef20497105464c136ed6ec8b621))
+* princo deploy for Debian and Ubuntu ([#15](https://github.com/dfjay/princo/issues/15)) ([7fd5758](https://github.com/dfjay/princo/commit/7fd57589a2f7a42eb4afd64ca8f0d3fd1f1eaec6))
+* xray engine with VLESS over XHTTP ([#17](https://github.com/dfjay/princo/issues/17)) ([1d5e5da](https://github.com/dfjay/princo/commit/1d5e5da65be49e2a2102324b0bbb35fc47968803))
+
 ## [0.1.1](https://github.com/dfjay/princo/compare/v0.1.0...v0.1.1) (2026-10-20)
 
 
