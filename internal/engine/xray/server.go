@@ -44,7 +44,7 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	}
 	if len(rules) > 0 {
 		routing := map[string]any{"rules": rules}
-		if slices.ContainsFunc(n.Rules, matchesIP) {
+		if slices.ContainsFunc(n.Rules, func(r fleet.Rule) bool { return slices.ContainsFunc(r.Match, fleet.Matcher.IsIP) }) {
 			// IP rules see domains' addresses, resolved as rules are matched in
 			// order; connections still go to the domain.
 			routing["domainStrategy"] = "IPOnDemand"

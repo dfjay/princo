@@ -274,6 +274,17 @@ Conditions are `kind:value`:
 | `ip` | `ip:10.0.0.0/8`, or `ip:private` for private and loopback ranges |
 | `port` | `port:443` |
 | `network` | `network:udp` (`tcp`, `udp`, `icmp`) |
+| `protocol` | `protocol:bittorrent` (`tls`, `http`, `quic`, `bittorrent`); on nodes, after a `sniff` rule |
+
+Hosting providers act on abuse complaints, which torrents shared through a
+node attract. To refuse the torrent traffic sniffing recognizes (encrypted
+or obfuscated BitTorrent can get past it):
+
+```yaml
+rules:
+  - { action: sniff }
+  - { match: [protocol:bittorrent], action: reject }
+```
 
 ## DNS
 

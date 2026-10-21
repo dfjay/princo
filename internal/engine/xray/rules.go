@@ -1,7 +1,6 @@
 package xray
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/dfjay/princo/internal/fleet"
@@ -11,7 +10,7 @@ import (
 // ANDs the fields of a rule, so each field gets a rule of its own.
 func compileMatch(match []fleet.Matcher, tag string) []any {
 	domains := domainsOf(match)
-	var ips, ports, networks []string
+	var ips, ports, networks, protocols []string
 	for _, m := range match {
 		switch m.Kind {
 		case fleet.MatchGeoIP:
@@ -26,6 +25,8 @@ func compileMatch(match []fleet.Matcher, tag string) []any {
 			ports = append(ports, m.Value)
 		case fleet.MatchNetwork:
 			networks = append(networks, m.Value)
+		case fleet.MatchProtocol:
+			protocols = append(protocols, m.Value)
 		}
 	}
 	var out []any
@@ -43,6 +44,9 @@ func compileMatch(match []fleet.Matcher, tag string) []any {
 	}
 	if len(networks) > 0 {
 		add("network", strings.Join(networks, ","))
+	}
+	if len(protocols) > 0 {
+		add("protocol", protocols)
 	}
 	return out
 }
@@ -63,8 +67,4 @@ func domainsOf(match []fleet.Matcher) []string {
 		}
 	}
 	return out
-}
-
-func matchesIP(r fleet.Rule) bool {
-	return slices.ContainsFunc(r.Match, fleet.Matcher.IsIP)
 }

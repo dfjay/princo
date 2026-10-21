@@ -49,8 +49,7 @@ func ruleSetTag(m fleet.Matcher) string { return string(m.Kind) + "-" + m.Value 
 // of them get the same action.
 func compileMatch(match []fleet.Matcher, sets *ruleSets) []map[string]any {
 	dest := map[string]any{}
-	var ports []any
-	var networks []any
+	var ports, networks, protocols []any
 	appendTo := func(key string, v any) {
 		list, _ := dest[key].([]any)
 		dest[key] = append(list, v)
@@ -78,6 +77,8 @@ func compileMatch(match []fleet.Matcher, sets *ruleSets) []map[string]any {
 			ports = append(ports, p)
 		case fleet.MatchNetwork:
 			networks = append(networks, m.Value)
+		case fleet.MatchProtocol:
+			protocols = append(protocols, m.Value)
 		}
 	}
 	var out []map[string]any
@@ -89,6 +90,9 @@ func compileMatch(match []fleet.Matcher, sets *ruleSets) []map[string]any {
 	}
 	for _, n := range networks {
 		out = append(out, map[string]any{"network": n})
+	}
+	if len(protocols) > 0 {
+		out = append(out, map[string]any{"protocol": protocols})
 	}
 	if len(out) == 0 {
 		out = append(out, map[string]any{})

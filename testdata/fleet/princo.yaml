@@ -19,6 +19,7 @@ defaults:
   rules:
     - { match: [port:25, port:465, port:587], action: reject }
     - { action: sniff }
+    - { match: [protocol:bittorrent], action: reject }
     - { match: [geosite:category-ru, geoip:ru], action: reject }
 
 nodes:

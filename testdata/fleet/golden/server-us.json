@@ -105,6 +105,12 @@
       },
       {
         "action": "reject",
+        "protocol": [
+          "bittorrent"
+        ]
+      },
+      {
+        "action": "reject",
         "rule_set": [
           "geosite-category-ru",
           "geoip-ru"

@@ -203,7 +203,7 @@ func (b *builder) nodes() {
 		if c.Rules != nil {
 			rules = c.Rules
 		}
-		n.Rules = b.rules(where+".rules", rules, []string{ActionDirect, ActionReject, ActionSniff}, nil)
+		n.Rules = b.rules(where+".rules", rules, []string{ActionDirect, ActionReject, ActionSniff}, nil, false)
 		if n.Engine == "xray" {
 			b.xrayLimits(where, n)
 		}
@@ -345,7 +345,8 @@ func (b *builder) client() {
 	if c.DNS != nil {
 		b.f.Client.DNS = b.dns("client.dns", c.DNS, groups)
 	}
-	b.f.Client.Rules = b.rules("client.rules", c.Rules, []string{ActionDirect, ActionReject}, groups)
+	// Client profiles sniff before any rule.
+	b.f.Client.Rules = b.rules("client.rules", c.Rules, []string{ActionDirect, ActionReject}, groups, true)
 	b.f.Client.Final = cmp.Or(c.Final, "direct")
 	if b.f.Client.Final != "direct" && !slices.Contains(groups, b.f.Client.Final) {
 		b.errorf("client.final: want direct or a group, got %q", b.f.Client.Final)
@@ -353,8 +354,9 @@ func (b *builder) client() {
 }
 
 // rules converts rules allowing the given actions; groups, if non-nil,
-// enables `via: <group>`.
-func (b *builder) rules(where string, in []config.Rule, actions, groups []string) []Rule {
+// enables `via: <group>`, and sniffed tells that traffic is sniffed before
+// the first rule.
+func (b *builder) rules(where string, in []config.Rule, actions, groups []string, sniffed bool) []Rule {
 	out := make([]Rule, 0, len(in))
 	for i, r := range in {
 		w := fmt.Sprintf("%s[%d]", where, i)
@@ -362,6 +364,10 @@ func (b *builder) rules(where string, in []config.Rule, actions, groups []string
 		if err != nil {
 			b.errorf("%s: %w", w, err)
 		}
+		if !sniffed && slices.ContainsFunc(match, func(m Matcher) bool { return m.Kind == MatchProtocol }) {
+			b.errorf("%s: protocol: needs a sniff rule before it", w)
+		}
+		sniffed = sniffed || r.Action == ActionSniff
 		rule := Rule{Match: match, Action: r.Action, Via: r.Via}
 		switch {
 		case r.Via != "" && r.Action != "":

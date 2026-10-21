@@ -249,6 +249,25 @@ nodes:
 	}
 }
 
+func TestBuild_ProtocolNeedsSniff(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    rules:
+      - { match: [protocol:bittorrent], action: reject }
+      - { action: sniff }
+      - { match: [protocol:quic], action: reject }
+      - { match: [protocol:ssh], action: reject }
+users:
+  u: {}
+`, conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.rules[0]: protocol: needs a sniff rule before it")
+	require.NotContains(t, err.Error(), "rules[2]")
+	require.ErrorContains(t, err, "protocol must be one of tls, http, quic, bittorrent")
+}
+
 func TestBuild_EngineLimits(t *testing.T) {
 	_, err := build(t, `
 nodes:
@@ -287,4 +306,18 @@ users:
 	} {
 		require.ErrorContains(t, err, want)
 	}
+}
+
+func TestBuild_ClientProtocolWithoutGroups(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+client:
+  rules:
+    - { match: [protocol:bittorrent], action: reject }
+  final: direct
+`, conventionalSecrets())
+	require.NoError(t, err)
 }
