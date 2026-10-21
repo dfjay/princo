@@ -31,12 +31,12 @@ type Deployer struct {
 	Deb []byte
 	// Release gives a released princo's .deb for a Debian architecture.
 	Release func(ctx context.Context, version, arch string) ([]byte, error)
-	// Fetch downloads a URL, for engines without a package.
+	// Fetch downloads an engine without a package.
 	Fetch func(ctx context.Context, url string) ([]byte, error)
 }
 
-// facts are what probe.sh tells; princo, engine (the version of the
-// engine's binary) and node are empty when the host has none.
+// facts are what probe.sh tells; princo, engine (its binary's version)
+// and node are empty when the host has none.
 type facts struct {
 	arch, princo, engine, node string
 	missing                    []string
@@ -188,7 +188,7 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan, e engineSpec) er
 	return d.Remote.Run(ctx, string(script), nil, d.Log)
 }
 
-// installBinary writes stdin to the executable at bin, replacing it whole.
+// installBinary replaces the executable bin with stdin.
 const installBinary = `set -eu
 bin=%s
 install -d -m 0755 "$(dirname "$bin")"
@@ -199,8 +199,7 @@ chmod 0755 "$f"
 mv -f "$f" "$bin"
 `
 
-// installEngine puts the engine's pinned binary on the host, unless it
-// has that version.
+// installEngine puts the engine's binary on the host, unless it has it.
 func (d *Deployer) installEngine(ctx context.Context, f facts, e engineSpec) error {
 	b := e.binary
 	if b == nil || f.engine == b.Version {

@@ -3,14 +3,14 @@ package xray
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/dfjay/princo/internal/engine"
 	"github.com/dfjay/princo/internal/fleet"
 )
 
-// xhttpSocket is the abstract socket the Reality inbound falls back to
-// for XHTTP: whatever isn't VLESS over RAW goes there.
+// xhttpSocket is where the Reality inbound falls back to for XHTTP.
 const xhttpSocket = "@princo-xhttp"
 
 const vision = "xtls-rprx-vision"
@@ -30,7 +30,6 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	if n.DNS != nil {
 		cfg["dns"] = renderDNS(n.DNS)
 	}
-	routing := map[string]any{"domainStrategy": "AsIs"}
 	var rules []any
 	for _, r := range n.Rules {
 		if r.Action == fleet.ActionSniff {
@@ -40,31 +39,25 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 		if r.Action == fleet.ActionReject {
 			tag = "block"
 		}
-		rules = append(rules, withOutbound(compileMatch(r.Match), tag)...)
+		rules = append(rules, compileMatch(r.Match, tag)...)
 	}
 	if len(rules) > 0 {
-		routing["rules"] = rules
+		cfg["routing"] = map[string]any{"rules": rules}
 	}
-	cfg["routing"] = routing
 
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
+// serverInbounds needs n.Reality: fleet.Build refuses xray nodes without.
 func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	r := n.Reality
-	if r == nil {
-		return []any{}
-	}
 	users := f.UsersOf(n)
 	var sniffing map[string]any
-	for _, rule := range n.Rules {
-		if rule.Action == fleet.ActionSniff {
-			sniffing = map[string]any{
-				"enabled":      true,
-				"destOverride": []any{"http", "tls", "quic"},
-				"routeOnly":    true,
-			}
-			break
+	if slices.ContainsFunc(n.Rules, func(r fleet.Rule) bool { return r.Action == fleet.ActionSniff }) {
+		sniffing = map[string]any{
+			"enabled":      true,
+			"destOverride": []any{"http", "tls", "quic"},
+			"routeOnly":    true,
 		}
 	}
 

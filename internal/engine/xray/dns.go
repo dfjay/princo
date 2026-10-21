@@ -10,9 +10,9 @@ import (
 	"github.com/dfjay/princo/internal/fleet"
 )
 
-// renderDNS renders a node's resolver. Its servers are queried directly
-// (the +local schemes), as sing-box nodes do, and their host names are
-// resolved by the system: xray has no per-server resolver.
+// renderDNS renders a node's resolver. Servers are queried directly, as
+// on sing-box nodes; xray has no resolver per server, so the system
+// resolves their host names.
 func renderDNS(d *fleet.DNS) map[string]any {
 	server := func(name string) fleet.DNSServer {
 		i := slices.IndexFunc(d.Servers, func(s fleet.DNSServer) bool { return s.Name == name })
@@ -20,15 +20,9 @@ func renderDNS(d *fleet.DNS) map[string]any {
 	}
 	var servers []any
 	for _, r := range d.Rules {
-		var domains []string
-		for _, b := range compileMatch(r.Match) {
-			if v, ok := b["domain"].([]string); ok {
-				domains = append(domains, v...)
-			}
-		}
 		servers = append(servers, map[string]any{
 			"address":      dnsAddress(server(r.Server)),
-			"domains":      domains,
+			"domains":      domainsOf(r.Match),
 			"skipFallback": true,
 		})
 	}
@@ -46,8 +40,8 @@ func renderDNS(d *fleet.DNS) map[string]any {
 	return out
 }
 
-// dnsAddress is a server's address in xray's syntax; fleet.Build has
-// refused DNS over TLS on xray nodes.
+// dnsAddress is a server's address in xray's syntax, but for tls, which
+// fleet.Build refuses.
 func dnsAddress(s fleet.DNSServer) string {
 	host := s.Server
 	if s.Port != 0 {

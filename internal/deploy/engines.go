@@ -30,21 +30,19 @@ type engineSpec struct {
 	pkg  string
 	// pkgUnit comes with pkg; princo.service replaces it.
 	pkgUnit string
-	// binary is the engine when it has no package (pkg is empty).
+	// binary is the engine when it has no package.
 	binary       *release
 	ruleSetURL   func(file string) string
 	ruleSetMagic []byte
-	// trim, if set, cuts a rule set down to what config uses.
+	// trim cuts a rule set down to what the config uses.
 	trim func(file string, data, config []byte) ([]byte, error)
 }
 
-// release is an engine binary, pinned by checksum: an executable in a
-// zip per Debian architecture.
+// release is an engine's executable, in a zip per Debian architecture.
 type release struct {
 	Path    string
 	Version string
-	// Zips are each architecture's download and its SHA-256.
-	Zips map[string]download
+	Zips    map[string]download
 	// Member is the executable's name in the zip.
 	Member string
 }
@@ -106,7 +104,6 @@ Signed-By: /etc/apt/keyrings/sagernet.asc
 		},
 		environment: []string{"XRAY_LOCATION_ASSET=" + engine.RuleSetDir},
 		binary:      xrayRelease,
-		// Loyalsoldier's, which Xray-core's releases bundle.
 		ruleSetURL: func(file string) string {
 			return "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/" + file
 		},
@@ -116,7 +113,7 @@ Signed-By: /etc/apt/keyrings/sagernet.asc
 	},
 }
 
-// extract checks data, z's download, and returns the executable in it.
+// extract checks data, downloaded from z, and returns the executable in it.
 func (b *release) extract(z download, data []byte) ([]byte, error) {
 	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != z.SHA256 {
 		return nil, fmt.Errorf("%s doesn't match its pinned SHA-256", z.URL)
@@ -133,12 +130,10 @@ func (b *release) extract(z download, data []byte) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
-// xrayBin is where princo deploy installs xray.
 const xrayBin = "/usr/local/lib/princo/xray"
 
-// xrayRelease is the Xray-core the xray engine renders for
-// (xray.MinVersion). XTLS signs no releases, so princo pins the
-// checksums of its .dgst files.
+// xrayRelease is xray.MinVersion. XTLS signs no releases, so the
+// checksums are pinned.
 var xrayRelease = &release{
 	Path:    xrayBin,
 	Version: "26.3.27",
@@ -156,7 +151,7 @@ var xrayRelease = &release{
 }
 
 // RuleSets reads each of the engine's rule sets from dir, or downloads the
-// latest when dir is empty, keeping what config, the node's, uses.
+// latest when dir is empty, keeping what config uses.
 func RuleSets(ctx context.Context, client *http.Client, dir, engineName string, files []string, config []byte) (map[string][]byte, error) {
 	e, ok := engines[engineName]
 	if !ok {

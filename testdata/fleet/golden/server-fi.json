@@ -119,7 +119,6 @@
     }
   ],
   "routing": {
-    "domainStrategy": "AsIs",
     "rules": [
       {
         "outboundTag": "block",

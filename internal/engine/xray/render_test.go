@@ -47,8 +47,8 @@ func TestRuleSets(t *testing.T) {
 	require.Empty(t, New().RuleSets([]byte(`{"routing": {}}`)))
 }
 
-// TestXrayCheck runs `xray run -test` on every rendered node; xray finds
-// geoip.dat and geosite.dat where its package put them.
+// TestXrayCheck runs `xray run -test` on every rendered node, with the
+// geodata of xray's package.
 func TestXrayCheck(t *testing.T) {
 	bin, err := exec.LookPath("xray")
 	if err != nil {

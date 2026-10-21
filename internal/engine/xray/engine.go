@@ -28,8 +28,7 @@ func (e *Engine) RenderClient(*fleet.Fleet, string) ([]byte, error) {
 	return nil, errors.New("xray renders no client profiles")
 }
 
-// RuleSets lists the geodata files a rendered config loads: xray reads
-// geosite:* from geosite.dat and geoip:* from geoip.dat.
+// RuleSets lists the geodata files a rendered config loads.
 func (e *Engine) RuleSets(config []byte) []string {
 	out := []string{}
 	if bytes.Contains(config, []byte(`"geoip:`)) {

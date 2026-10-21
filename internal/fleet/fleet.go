@@ -64,8 +64,7 @@ type Node struct {
 	Reality   *Reality
 	Hysteria2 *Hysteria2
 	Naive     *Naive
-	// XHTTP is VLESS over XHTTP, behind the Reality inbound.
-	XHTTP *XHTTP
+	XHTTP     *XHTTP
 
 	Egress Egress
 	// Warp holds the WARP credentials when Egress is EgressWarp.
