@@ -14,8 +14,8 @@ func TestSecrets(t *testing.T) {
 defaults:
   reality: { server_name: www.example.com, short_id: 01 }
 nodes:
-  b: { address: b.example.com, reality: {}, hysteria2: {}, egress: a }
-  a: { address: a.example.com, reality: { public_key: p }, hysteria2: {}, egress: warp, warp: { ipv6: "::2" } }
+  b: { address: b.example.com, reality: {}, hysteria2: { obfs: salamander }, egress: a }
+  a: { address: a.example.com, reality: { public_key: p }, hysteria2: { obfs: salamander }, egress: warp, warp: { ipv6: "::2" } }
 users:
   u: {}
   v: { uuid: !secret keys/v }
@@ -24,9 +24,9 @@ users:
 	require.NoError(t, err)
 	require.Equal(t, []SecretUse{
 		{"nodes/a/reality", "nodes.a.reality.private_key", SecretRealityKey},
-		{"shared/hy2_obfs", "nodes.a.hysteria2.obfs_password", SecretPassword},
+		{"shared/hysteria2_obfs", "nodes.a.hysteria2.obfs_password", SecretPassword},
 		{"nodes/b/reality", "nodes.b.reality.private_key", SecretRealityKey},
-		{"shared/hy2_obfs", "nodes.b.hysteria2.obfs_password", SecretPassword},
+		{"shared/hysteria2_obfs", "nodes.b.hysteria2.obfs_password", SecretPassword},
 		{"nodes/a/warp/private_key", "nodes.a.warp.private_key", SecretExternal},
 		{"nodes/a/warp/ipv4", "nodes.a.warp.ipv4", SecretExternal},
 		{"nodes/b/chain", "nodes.b.egress", SecretUUID},

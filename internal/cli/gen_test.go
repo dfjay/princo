@@ -46,7 +46,7 @@ func TestInit(t *testing.T) {
 
 	out, _, err := runIn(t, dir, "secret", "list")
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"nodes/nl/reality", "shared/hy2_obfs", "users/alice", "users/bob"},
+	require.ElementsMatch(t, []string{"nodes/nl/reality", "users/alice", "users/bob"},
 		strings.Fields(out))
 
 	data, err := os.ReadFile(filepath.Join(dir, "princo.yaml"))

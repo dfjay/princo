@@ -85,11 +85,7 @@
         "type": "proxy",
         "url": "https://example.com"
       },
-      "obfs": {
-        "password": "obfs-password",
-        "type": "salamander"
-      },
-      "tag": "hy2-in",
+      "tag": "hysteria2-in",
       "tls": {
         "certificate_path": "/var/lib/princo/certs/de.example.com/fullchain.pem",
         "enabled": true,

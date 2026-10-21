@@ -76,7 +76,7 @@ princo init
 
 `princo init` writes a `princo.yaml` like the
 [example](examples/minimal/princo.yaml) and generates its credentials: the
-node's Reality key pair, the Hysteria2 password and a UUID for each user. They
+node's Reality key pair and a UUID for each user. They
 go into `secrets.age`, encrypted to the age public key in `recipients`. Unless
 it already exists, init also creates the private key at
 `~/.config/princo/key.txt`; keep it outside your fleet repository and back it up.

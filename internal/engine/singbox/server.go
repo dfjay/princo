@@ -89,16 +89,20 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 		for _, u := range users {
 			accounts = append(accounts, map[string]any{"name": u.Name, "password": u.UUID})
 		}
-		out = append(out, map[string]any{
+		in := map[string]any{
 			"type":        "hysteria2",
-			"tag":         "hy2-in",
+			"tag":         "hysteria2-in",
 			"listen":      "::",
 			"listen_port": 443,
-			"obfs":        map[string]any{"type": "salamander", "password": h.ObfsPassword},
-			"masquerade":  map[string]any{"type": "proxy", "url": h.Masquerade, "rewrite_host": true},
 			"users":       accounts,
 			"tls":         serverTLS(n.Address),
-		})
+		}
+		if h.Obfs != "" {
+			in["obfs"] = map[string]any{"type": h.Obfs, "password": h.ObfsPassword}
+		} else {
+			in["masquerade"] = map[string]any{"type": "proxy", "url": h.Masquerade, "rewrite_host": true}
+		}
+		out = append(out, in)
 	}
 	if nv := n.Naive; nv != nil {
 		accounts := make([]any, 0, len(users))

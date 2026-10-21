@@ -20,7 +20,7 @@ func build(t *testing.T, src string, values map[string]any) (*Fleet, error) {
 func conventionalSecrets() map[string]any {
 	return map[string]any{
 		"users":  map[string]any{"u": "uuid-u"},
-		"shared": map[string]any{"hy2_obfs": "obfs"},
+		"shared": map[string]any{"hysteria2_obfs": "obfs"},
 		"nodes": map[string]any{
 			"a": map[string]any{
 				"reality": "key-a",
@@ -58,7 +58,8 @@ users:
 	require.Equal(t, "www.example.com", a.Reality.ServerName)
 	require.Equal(t, "key-a", a.Reality.PrivateKey)
 	require.Equal(t, "https://www.example.com", a.Hysteria2.Masquerade, "masquerade defaults to the Reality site")
-	require.Equal(t, "obfs", a.Hysteria2.ObfsPassword)
+	require.Empty(t, a.Hysteria2.Obfs)
+	require.Empty(t, a.Hysteria2.ObfsPassword)
 	require.Equal(t, EgressWarp, a.Egress.Kind)
 	require.Equal(t, &Warp{PrivateKey: "wk", IPv4: "v4", IPv6: "v6"}, a.Warp)
 	require.Len(t, a.Rules, 1)
@@ -197,6 +198,53 @@ users:
 	a, _ := f.Node("a")
 	require.Equal(t, &XHTTP{Path: "/shared", Mode: "auto"}, a.XHTTP)
 	require.Equal(t, []string{"reality", "xhttp"}, a.Protocols())
+}
+
+func TestBuild_Hysteria2Obfs(t *testing.T) {
+	f, err := build(t, `
+defaults:
+  hysteria2: { obfs: salamander }
+nodes:
+  a:
+    address: a.example.com
+    hysteria2: {}
+users:
+  u: {}
+`, conventionalSecrets())
+	require.NoError(t, err)
+	a, _ := f.Node("a")
+	require.Equal(t, &Hysteria2{Obfs: "salamander", ObfsPassword: "obfs"}, a.Hysteria2)
+
+	f, err = build(t, `
+defaults:
+  hysteria2: { obfs: salamander, masquerade: https://example.com, obfs_password: !secret shared/hysteria2_obfs }
+nodes:
+  a: { address: a.example.com, hysteria2: {} }
+  b: { address: b.example.com, hysteria2: { obfs: none } }
+users:
+  u: {}
+`, conventionalSecrets())
+	require.NoError(t, err)
+	a, _ = f.Node("a")
+	require.Equal(t, &Hysteria2{Obfs: "salamander", ObfsPassword: "obfs"}, a.Hysteria2)
+	b, _ := f.Node("b")
+	require.Equal(t, &Hysteria2{Masquerade: "https://example.com"}, b.Hysteria2)
+
+	_, err = build(t, `
+nodes:
+  a: { address: a.example.com, hysteria2: { obfs: salamander, masquerade: https://example.com } }
+  b: { address: b.example.com, hysteria2: { obfs: brutal } }
+  c: { address: c.example.com, hysteria2: { masquerade: https://example.com, obfs_password: x } }
+  d: { address: d.example.com, hysteria2: {} }
+`, conventionalSecrets())
+	for _, want := range []string{
+		"nodes.a.hysteria2.masquerade: has no effect with obfs",
+		`nodes.b.hysteria2.obfs: want none, salamander or gecko, got "brutal"`,
+		"nodes.c.hysteria2.obfs_password: needs obfs",
+		"nodes.d.hysteria2: masquerade is required",
+	} {
+		require.ErrorContains(t, err, want)
+	}
 }
 
 func TestBuild_EngineLimits(t *testing.T) {
