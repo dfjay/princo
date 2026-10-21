@@ -14,6 +14,7 @@ import (
 
 	"github.com/dfjay/princo/internal/engine"
 	_ "github.com/dfjay/princo/internal/engine/singbox"
+	_ "github.com/dfjay/princo/internal/engine/xray"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/secrets"
 	"github.com/dfjay/princo/internal/subscription"
@@ -136,10 +137,7 @@ type Source struct {
 	Key  string `json:"key"`
 }
 
-var (
-	ruleSetRe = regexp.MustCompile(regexp.QuoteMeta(engine.RuleSetDir) + `/([^/"]+)`)
-	certRe    = regexp.MustCompile(regexp.QuoteMeta(engine.CertDir) + `/([^/"]+)/`)
-)
+var certRe = regexp.MustCompile(regexp.QuoteMeta(engine.CertDir) + `/([^/"]+)/`)
 
 // NewPlan plans node. f must be built with secrets.AllPlaceholders: the
 // plan reads the secrets, rule sets and certificates off the rendered
@@ -151,6 +149,10 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 		return nil, err
 	}
 	n, _ := f.Node(node)
+	e, err := engine.Lookup(n.Engine)
+	if err != nil {
+		return nil, err
+	}
 	p := &Plan{
 		Node:         node,
 		Engine:       n.Engine,
@@ -159,7 +161,7 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 		UDPPorts:     []int{},
 		Certificates: []string{},
 		ACMEEmail:    n.ACMEEmail,
-		RuleSets:     []string{},
+		RuleSets:     e.RuleSets(files[ConfigFile(n.Engine)]),
 		Secrets:      []Secret{},
 	}
 	if n.Reality != nil || n.Mux() {
@@ -180,9 +182,6 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 	for _, name := range slices.Sorted(maps.Keys(files)) {
 		data := files[name]
 		secretPaths = append(secretPaths, secrets.Placeholders(data)...)
-		for _, m := range ruleSetRe.FindAllSubmatch(data, -1) {
-			p.RuleSets = append(p.RuleSets, string(m[1]))
-		}
 		for _, m := range certRe.FindAllSubmatch(data, -1) {
 			p.Certificates = append(p.Certificates, string(m[1]))
 		}

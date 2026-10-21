@@ -20,6 +20,11 @@ func URIs(u *fleet.User) []string {
 			out = append(out, fmt.Sprintf(
 				"vless://%s@%s:443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
 				u.UUID, n.Address, r.ServerName, r.PublicKey, r.ShortID, name("reality")))
+			if x := n.XHTTP; x != nil {
+				out = append(out, fmt.Sprintf(
+					"vless://%s@%s:443?encryption=none&type=xhttp&path=%s&mode=%s&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
+					u.UUID, n.Address, url.QueryEscape(x.Path), x.Mode, r.ServerName, r.PublicKey, r.ShortID, name("xhttp")))
+			}
 		}
 		if h := n.Hysteria2; h != nil {
 			out = append(out, fmt.Sprintf("hysteria2://%s@%s:443?sni=%s&obfs=salamander&obfs-password=%s#%s",

@@ -104,3 +104,17 @@ func TestFiles_Subscription(t *testing.T) {
 	require.Len(t, us, 1, "only the subscription node gets the site")
 	require.Contains(t, us, "sing-box.json")
 }
+
+func TestPlan_Xray(t *testing.T) {
+	p := plan(t, "fi")
+	require.Equal(t, "xray", p.Engine)
+	require.Equal(t, "xray.json", p.Config)
+	require.Equal(t, []int{443}, p.TCPPorts)
+	require.Empty(t, p.UDPPorts)
+	require.Nil(t, p.Mux)
+	require.Empty(t, p.Certificates)
+	require.Equal(t, []string{"geoip.dat", "geosite.dat"}, p.RuleSets)
+	require.Equal(t, []string{
+		"nodes/fi/reality", "nodes/fi/warp/ipv4", "nodes/fi/warp/ipv6", "nodes/fi/warp/private_key", "users/alice",
+	}, secretPaths(p))
+}

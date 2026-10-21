@@ -9,13 +9,6 @@ import (
 	"github.com/dfjay/princo/internal/fleet"
 )
 
-// Cloudflare WARP's WireGuard peer.
-const (
-	warpPeer          = "engage.cloudflareclient.com"
-	warpPeerPort      = 2408
-	warpPeerPublicKey = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
-)
-
 // RenderServer renders the sing-box config of one node.
 func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	n, ok := f.Node(name)
@@ -169,9 +162,9 @@ func warpEndpoint(w *fleet.Warp) map[string]any {
 		"address":     []any{w.IPv4, w.IPv6},
 		"private_key": w.PrivateKey,
 		"peers": []any{map[string]any{
-			"address":     warpPeer,
-			"port":        warpPeerPort,
-			"public_key":  warpPeerPublicKey,
+			"address":     engine.WarpPeer,
+			"port":        engine.WarpPeerPort,
+			"public_key":  engine.WarpPeerPublicKey,
 			"allowed_ips": []any{"0.0.0.0/0", "::/0"},
 		}},
 	}

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
 	"slices"
@@ -24,7 +25,16 @@ func secretReality(node string) string     { return "nodes/" + node + "/reality"
 func secretWarp(node, field string) string { return "nodes/" + node + "/warp/" + field }
 func secretChainUUID(node string) string   { return "nodes/" + node + "/chain" }
 
-var supportedEngines = []string{"sing-box"}
+// engineProtocols are the protocols each engine serves.
+var engineProtocols = map[string][]string{
+	"sing-box": {"reality", "hysteria2", "naive"},
+	"xray":     {"reality", "xhttp"},
+}
+
+var xhttpModes = []string{"auto", "packet-up", "stream-up", "stream-one"}
+
+// xhttpPathRe keeps XHTTP paths safe in URLs and share links.
+var xhttpPathRe = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
 
 // nameRe is what names of nodes, users and client groups may be: they end
 // up in file and secret paths, outbound tags and links.
@@ -93,8 +103,8 @@ func (b *builder) nodes() {
 			Tags:      c.Tags,
 			IPv6:      c.IPv6 == nil || *c.IPv6,
 		}
-		if !slices.Contains(supportedEngines, n.Engine) {
-			b.errorf("%s: engine %q is not supported (have: %s)", where, n.Engine, strings.Join(supportedEngines, ", "))
+		if _, ok := engineProtocols[n.Engine]; !ok {
+			b.errorf("%s: engine %q is not supported (have: %s)", where, n.Engine, strings.Join(slices.Sorted(maps.Keys(engineProtocols)), ", "))
 		}
 
 		if c.Reality != nil {
@@ -129,8 +139,32 @@ func (b *builder) nodes() {
 			}
 			n.Naive = &Naive{Domain: c.Naive.Domain}
 		}
-		if n.Reality == nil && n.Hysteria2 == nil && n.Naive == nil {
-			b.errorf("%s: enable at least one protocol (reality, hysteria2, naive)", where)
+		if c.XHTTP != nil {
+			def := deref(d.XHTTP)
+			n.XHTTP = &XHTTP{
+				Path: cmp.Or(c.XHTTP.Path, def.Path),
+				Mode: cmp.Or(c.XHTTP.Mode, def.Mode, "auto"),
+			}
+			if !xhttpPathRe.MatchString(n.XHTTP.Path) {
+				b.errorf("%s.xhttp.path: want a path such as /a1b2c3 (letters, digits, ., _, ~, -), got %q", where, n.XHTTP.Path)
+			}
+			if !slices.Contains(xhttpModes, n.XHTTP.Mode) {
+				b.errorf("%s.xhttp.mode: want one of %s, got %q", where, strings.Join(xhttpModes, ", "), n.XHTTP.Mode)
+			}
+			if n.Reality == nil {
+				b.errorf("%s.xhttp: needs reality, whose inbound serves it", where)
+			}
+		}
+		protocols := n.Protocols()
+		if len(protocols) == 0 {
+			b.errorf("%s: enable at least one protocol (reality, xhttp, hysteria2, naive)", where)
+		}
+		if served, ok := engineProtocols[n.Engine]; ok {
+			for _, p := range protocols {
+				if !slices.Contains(served, p) {
+					b.errorf("%s.%s: engine %s doesn't serve it", where, p, n.Engine)
+				}
+			}
 		}
 		if n.Address == "" && (n.Reality != nil || n.Hysteria2 != nil) {
 			b.errorf("%s: address is required", where)
@@ -144,12 +178,33 @@ func (b *builder) nodes() {
 			rules = c.Rules
 		}
 		n.Rules = b.rules(where+".rules", rules, []string{ActionDirect, ActionReject, ActionSniff}, nil)
+		if n.Engine == "xray" {
+			b.xrayLimits(where, n)
+		}
 		for host, target := range c.Passthrough.All() {
 			n.Passthrough = append(n.Passthrough, Passthrough{Host: host, Target: target})
 		}
 
 		b.f.Nodes = append(b.f.Nodes, n)
 		b.f.nodes[name] = n
+	}
+}
+
+// xrayLimits reports what an xray node can't do that sing-box can.
+func (b *builder) xrayLimits(where string, n *Node) {
+	if n.DNS != nil {
+		for _, s := range n.DNS.Servers {
+			if s.Type == "tls" {
+				b.errorf("%s.dns.servers.%s: xray has no DNS over TLS; use https:// or quic://", where, s.Name)
+			}
+		}
+	}
+	for i, r := range n.Rules {
+		for _, m := range r.Match {
+			if m.Kind == MatchNetwork && m.Value == "icmp" {
+				b.errorf("%s.rules[%d]: xray doesn't route ICMP", where, i)
+			}
+		}
 	}
 }
 

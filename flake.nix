@@ -35,6 +35,7 @@
             nix-update
             nixfmt
             sing-box # the tests run `sing-box check` on rendered configs
+            xray # and `xray run -test`
             age
             sops
           ];

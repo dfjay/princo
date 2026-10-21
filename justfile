@@ -21,7 +21,7 @@ e2e host:
 
 # Accept changed golden configs
 golden:
-    go test ./internal/engine/singbox -update
+    go test ./internal/engine/singbox ./internal/engine/xray -update
 
 # Update vendorHash in nix/package.nix after go.mod changes
 vendor-hash:

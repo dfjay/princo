@@ -33,6 +33,9 @@ func TestGolden(t *testing.T) {
 	f := fleettest.Load(t, fixture)
 	e := New()
 	for _, n := range f.Nodes {
+		if n.Engine != e.Name() {
+			continue
+		}
 		t.Run("server-"+n.Name, func(t *testing.T) {
 			got, err := e.RenderServer(f, n.Name)
 			require.NoError(t, err)
@@ -147,6 +150,9 @@ func TestSingBoxCheck(t *testing.T) {
 		require.NoError(t, err, string(out))
 	}
 	for _, n := range f.Nodes {
+		if n.Engine != e.Name() {
+			continue
+		}
 		t.Run("server-"+n.Name, func(t *testing.T) { check(t, renderJSON(t, e.RenderServer, f, n.Name)) })
 	}
 	for _, u := range f.Users {

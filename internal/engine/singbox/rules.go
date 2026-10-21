@@ -2,10 +2,25 @@ package singbox
 
 import (
 	"maps"
+	"regexp"
+	"slices"
 	"strconv"
 
+	"github.com/dfjay/princo/internal/engine"
 	"github.com/dfjay/princo/internal/fleet"
 )
+
+var ruleSetRe = regexp.MustCompile(regexp.QuoteMeta(engine.RuleSetDir) + `/([^/"]+)`)
+
+// RuleSets lists the local rule sets a rendered config loads, sorted.
+func (e *Engine) RuleSets(config []byte) []string {
+	out := []string{}
+	for _, m := range ruleSetRe.FindAllSubmatch(config, -1) {
+		out = append(out, string(m[1]))
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
 
 // ruleSets collects the geosite/geoip rule sets rules refer to, in order of
 // first use.

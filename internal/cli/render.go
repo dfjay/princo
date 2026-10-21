@@ -13,6 +13,7 @@ import (
 	"github.com/dfjay/princo/internal/config"
 	"github.com/dfjay/princo/internal/engine"
 	_ "github.com/dfjay/princo/internal/engine/singbox"
+	_ "github.com/dfjay/princo/internal/engine/xray"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/host"
 	"github.com/dfjay/princo/internal/secrets"
