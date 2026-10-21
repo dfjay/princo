@@ -13,8 +13,7 @@ func init() {
 	engine.Register("xray", func() engine.Engine { return New() })
 }
 
-// MinVersion is the oldest Xray-core the rendered configs are tested with.
-const MinVersion = "26.3.27"
+const minVersion = "26.3.27"
 
 // Engine is the xray renderer.
 type Engine struct{}
@@ -22,6 +21,8 @@ type Engine struct{}
 func New() *Engine { return &Engine{} }
 
 func (e *Engine) Name() string { return "xray" }
+
+func (e *Engine) MinVersion() string { return minVersion }
 
 // RenderClient fails: users' apps get sing-box profiles and share links.
 func (e *Engine) RenderClient(*fleet.Fleet, string) ([]byte, error) {

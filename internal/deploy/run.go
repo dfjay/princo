@@ -35,12 +35,14 @@ type Deployer struct {
 	Fetch func(ctx context.Context, url string) ([]byte, error)
 }
 
-// facts are what probe.sh tells; princo, engine (its binary's version)
-// and node are empty when the host has none.
+// facts are what probe.sh tells; princo and node are empty when the host
+// has none.
 type facts struct {
-	arch, princo, engine, node string
-	missing                    []string
-	stream                     bool
+	arch, princo, node string
+	// engine tells that the host has the engine's release.
+	engine  bool
+	missing []string
+	stream  bool
 }
 
 // Deploy installs the node's packages and princo, issues the certificates
@@ -55,7 +57,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 		return err
 	}
 	d.logf("installing packages")
-	if err := d.provision(ctx, p, e); err != nil {
+	if err := d.provision(ctx, p); err != nil {
 		return err
 	}
 	if err := d.installEngine(ctx, f, e); err != nil {
@@ -94,7 +96,10 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 		return err
 	}
 	d.logf("applying node %s", p.Node)
-	return d.apply(ctx, b, false)
+	if err := d.apply(ctx, b, false); err != nil {
+		return err
+	}
+	return d.Remote.Run(ctx, fmt.Sprintf(pruneReleases, shellQuote(engineRoot), shellQuote(e.dir())), nil, d.Log)
 }
 
 // Check prints what Deploy would change in the host's files.
@@ -114,12 +119,8 @@ func (d *Deployer) Check(ctx context.Context, p *host.Plan, files, ruleSets map[
 }
 
 func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
-	var bin string
-	if b := engines[p.Engine].binary; b != nil {
-		bin = b.Path
-	}
 	script, err := execute("probe.sh", map[string]any{
-		"Binary":       bin,
+		"Engine":       engines[p.Engine].bin(),
 		"Certificates": p.Certificates,
 		"CertDir":      engine.CertDir,
 		"StateFile":    bundle.StateFile,
@@ -141,7 +142,7 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 		case "princo":
 			f.princo = value
 		case "engine":
-			f.engine = value
+			f.engine = true
 		case "node":
 			f.node = value
 		case "missing":
@@ -159,11 +160,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 	return f, nil
 }
 
-func (d *Deployer) provision(ctx context.Context, p *host.Plan, e engineSpec) error {
+func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 	var pkgs []string
-	if e.pkg != "" {
-		pkgs = append(pkgs, e.pkg)
-	}
 	tcp := slices.Clone(p.TCPPorts)
 	if p.Mux != nil || len(p.Certificates) > 0 {
 		pkgs = append(pkgs, "nginx")
@@ -176,11 +174,9 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan, e engineSpec) er
 		tcp = append(tcp, 80)
 	}
 	script, err := execute("provision.sh", map[string]any{
-		"Repo":        e.repo,
-		"Packages":    pkgs,
-		"PackageUnit": e.pkgUnit,
-		"TCP":         tcp,
-		"UDP":         p.UDPPorts,
+		"Packages": pkgs,
+		"TCP":      tcp,
+		"UDP":      p.UDPPorts,
 	})
 	if err != nil {
 		return err
@@ -188,37 +184,46 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan, e engineSpec) er
 	return d.Remote.Run(ctx, string(script), nil, d.Log)
 }
 
-// installBinary replaces the executable bin with stdin.
-const installBinary = `set -eu
-bin=%s
-install -d -m 0755 "$(dirname "$bin")"
-f=$(mktemp "$bin.XXXXXX")
-trap 'rm -f "$f"' EXIT
-cat >"$f"
-chmod 0755 "$f"
-mv -f "$f" "$bin"
+// installRelease unpacks the tar on stdin into dir, whole or not at all.
+const installRelease = `set -eu
+dir=%s
+install -d -m 0755 "$(dirname "$dir")"
+tmp=$(mktemp -d "$dir.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+tar -x -C "$tmp" --no-same-owner
+chmod 0755 "$tmp"
+rm -rf "$dir"
+mv "$tmp" "$dir"
 `
 
-// installEngine puts the engine's binary on the host, unless it has it.
+// pruneReleases removes the engine releases but the one at keep, once
+// the node no longer needs them to roll back.
+const pruneReleases = `set -eu
+for dir in %s/*; do
+	[ "$dir" = %s ] || rm -rf "$dir"
+done
+`
+
+// installEngine puts the engine's release on the host, unless it has it.
 func (d *Deployer) installEngine(ctx context.Context, f facts, e engineSpec) error {
-	b := e.binary
-	if b == nil || f.engine == b.Version {
+	if f.engine {
 		return nil
 	}
-	z, ok := b.Zips[f.arch]
+	name := e.release.Files[0]
+	a, ok := e.archive(f.arch)
 	if !ok {
-		return fmt.Errorf("there's no %s %s for %s", b.Member, b.Version, f.arch)
+		return fmt.Errorf("there's no %s %s for %s", name, e.version, f.arch)
 	}
-	data, err := d.Fetch(ctx, z.URL)
+	data, err := d.Fetch(ctx, a.URL)
 	if err != nil {
 		return err
 	}
-	exe, err := b.extract(z, data)
+	files, err := e.release.extract(a, data)
 	if err != nil {
 		return err
 	}
-	d.logf("installing %s %s on the host", b.Member, b.Version)
-	return d.Remote.Run(ctx, fmt.Sprintf(installBinary, shellQuote(b.Path)), bytes.NewReader(exe), d.Log)
+	d.logf("installing %s %s on the host", name, e.version)
+	return d.Remote.Run(ctx, fmt.Sprintf(installRelease, shellQuote(e.dir())), bytes.NewReader(files), d.Log)
 }
 
 const installDeb = `set -eu

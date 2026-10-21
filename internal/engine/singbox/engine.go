@@ -13,3 +13,5 @@ type Engine struct{}
 func New() *Engine { return &Engine{} }
 
 func (e *Engine) Name() string { return "sing-box" }
+
+func (e *Engine) MinVersion() string { return "1.14.0" }

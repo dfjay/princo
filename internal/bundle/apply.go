@@ -258,7 +258,7 @@ func (h *Host) activate(ctx context.Context, units []Unit, changed map[string]bo
 	for _, u := range units {
 		var err error
 		if touched(u, changed) {
-			err = h.restartUnit(ctx, u)
+			err = h.restartUnit(ctx, u, changed)
 			restarted = append(restarted, u)
 		} else {
 			err = h.Run(ctx, "systemctl", "start", u.Name)
@@ -289,14 +289,16 @@ func (h *Host) restart(ctx context.Context, units []Unit, changed map[string]boo
 	errs := []error{h.daemonReload(ctx, changed)}
 	for _, u := range units {
 		if touched(u, changed) {
-			errs = append(errs, h.restartUnit(ctx, u))
+			errs = append(errs, h.restartUnit(ctx, u, changed))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (h *Host) restartUnit(ctx context.Context, u Unit) error {
-	if u.Reload {
+// restartUnit reloads u if it can, unless its unit file changed: a reload
+// keeps the old process, binary and command line.
+func (h *Host) restartUnit(ctx context.Context, u Unit, changed map[string]bool) error {
+	if u.Reload && !changed[path.Join(systemdDir, u.Name)] {
 		return h.Run(ctx, "systemctl", "reload-or-restart", u.Name)
 	}
 	return h.Run(ctx, "systemctl", "restart", u.Name)

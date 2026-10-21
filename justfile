@@ -19,9 +19,13 @@ e2e host:
     go build -o "${TMPDIR:-/tmp}/princo-e2e" ./cmd/princo
     PRINCO_E2E_BIN="${TMPDIR:-/tmp}/princo-e2e" PRINCO_E2E_HOST={{host}} go test -tags e2e ./e2e -count=1 -v
 
-# Accept changed golden configs
+# Accept changed golden configs and deploy bundles
 golden:
-    go test ./internal/engine/singbox ./internal/engine/xray -update
+    go test ./internal/engine/singbox ./internal/engine/xray ./internal/deploy -update
+
+# SHA-256s to pin in internal/deploy/engines.go for a new engine release
+engine-digests engine version:
+    go run ./internal/tools/engines digests {{engine}} {{version}}
 
 # Update vendorHash in nix/package.nix after go.mod changes
 vendor-hash:

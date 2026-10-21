@@ -223,7 +223,7 @@ echo token >/var/lib/princo/acme/.well-known/acme-challenge/t`)
 			require.NoError(t, err)
 			config := "/tmp/princo-e2e-" + c.name + ".json"
 			e.sh(t, "cat >"+config+" <<'EOF'\n"+string(client)+"\nEOF")
-			e.start(t, "princo-e2e-"+c.name, "/usr/local/lib/princo/xray run -c "+config)
+			e.start(t, "princo-e2e-"+c.name, "/usr/local/lib/princo/xray-26.3.27/xray run -c "+config)
 			require.Equal(t, "200", e.sh(t, fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' --socks5-hostname 127.0.0.1:%d http://127.0.0.1:18080/", port)),
 				"alice gets through over %s", c.name)
 		}

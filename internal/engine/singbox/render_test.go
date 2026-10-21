@@ -125,6 +125,9 @@ func TestClientGroups(t *testing.T) {
 func TestSingBoxCheck(t *testing.T) {
 	bin, err := exec.LookPath("sing-box")
 	if err != nil {
+		if os.Getenv("PRINCO_ENGINES") != "" {
+			t.Fatal("sing-box not in PATH")
+		}
 		t.Skip("sing-box not in PATH")
 	}
 	dir := t.TempDir()

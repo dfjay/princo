@@ -37,6 +37,8 @@ const ClientEngine = "sing-box"
 // Engine renders the fleet into one engine's config format.
 type Engine interface {
 	Name() string
+	// MinVersion is the oldest release of the engine its configs work on.
+	MinVersion() string
 	// RenderServer renders the config of the named node.
 	RenderServer(f *fleet.Fleet, node string) ([]byte, error)
 	// RenderClient renders the profile the named user imports into their app.

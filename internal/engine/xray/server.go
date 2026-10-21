@@ -22,7 +22,7 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 		return nil, fmt.Errorf("no node named %q", name)
 	}
 	cfg := map[string]any{
-		"version":   map[string]any{"min": MinVersion},
+		"version":   map[string]any{"min": minVersion},
 		"log":       map[string]any{"loglevel": "warning"},
 		"inbounds":  serverInbounds(f, n),
 		"outbounds": serverOutbounds(n),
