@@ -30,7 +30,10 @@ let
     ''
   );
 
-  engines = import ./engines.nix { inherit lib pkgs; };
+  engines = import ./engines.nix {
+    inherit lib;
+    pkgs = cfg.enginePkgs;
+  };
   engine =
     engines.${plan.engine}
       or (throw "services.princo: node ${cfg.node} uses engine ${plan.engine}, which the module can't run yet (nix/engines.nix).");
@@ -165,10 +168,22 @@ in
       '';
     };
 
+    enginePkgs = lib.mkOption {
+      type = lib.types.pkgs;
+      default = pkgs;
+      defaultText = lib.literalExpression "princo's nixpkgs input with its flake, else pkgs";
+      example = lib.literalExpression "inputs.nixpkgs-unstable.legacyPackages.x86_64-linux";
+      description = ''
+        The nixpkgs the engine and its rule sets come from. princo's flake
+        sets its own nixpkgs input, nixos-unstable, which follows engine
+        releases more closely than a stable channel.
+      '';
+    };
+
     enginePackage = lib.mkOption {
       type = lib.types.package;
       default = engine.package;
-      defaultText = lib.literalExpression "the package of the node's engine, e.g. pkgs.sing-box";
+      defaultText = lib.literalExpression "the package of the node's engine from enginePkgs, e.g. enginePkgs.sing-box";
       description = "The package of the engine the node runs.";
     };
 

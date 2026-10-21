@@ -192,6 +192,8 @@ echo token >/var/lib/princo/acme/.well-known/acme-challenge/t`)
 		require.Contains(t, e.sh(t, "ss -Htlnp sport = :443"), "xray")
 
 		e.start(t, "princo-e2e-site", "python3 -m http.server 18080 --bind 127.0.0.1 --directory /var/lib/princo/rules")
+		status := "curl -s -o /dev/null -w '%{http_code}' "
+		require.Equal(t, "200", e.sh(t, status+"http://127.0.0.1:18080/"))
 		reality := map[string]any{
 			"serverName":  "www.samsung.com",
 			"fingerprint": "chrome",
@@ -223,9 +225,12 @@ echo token >/var/lib/princo/acme/.well-known/acme-challenge/t`)
 			require.NoError(t, err)
 			config := "/tmp/princo-e2e-" + c.name + ".json"
 			e.sh(t, "cat >"+config+" <<'EOF'\n"+string(client)+"\nEOF")
-			e.start(t, "princo-e2e-"+c.name, "/usr/local/lib/princo/xray-26.3.27/xray run -c "+config)
-			require.Equal(t, "200", e.sh(t, fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' --socks5-hostname 127.0.0.1:%d http://127.0.0.1:18080/", port)),
+			e.start(t, "princo-e2e-"+c.name, "/usr/local/lib/princo/xray-26.10.21/xray run -c "+config)
+			proxy := fmt.Sprintf("--socks5-hostname 127.0.0.1:%d ", port)
+			require.Equal(t, "204", e.sh(t, status+proxy+"http://www.gstatic.com/generate_204"),
 				"alice gets through over %s", c.name)
+			require.Equal(t, "000", e.sh(t, status+proxy+"http://127.0.0.1:18080/ || true"),
+				"the node's loopback is out of reach over %s", c.name)
 		}
 	})
 }

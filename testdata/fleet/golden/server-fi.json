@@ -112,8 +112,10 @@
     },
     {
       "protocol": "freedom",
-      "settings": {
-        "domainStrategy": "UseIPv4v6"
+      "streamSettings": {
+        "sockopt": {
+          "domainStrategy": "UseIPv4v6"
+        }
       },
       "tag": "direct"
     },
@@ -149,6 +151,6 @@
     ]
   },
   "version": {
-    "min": "26.3.27"
+    "min": "26.9.8"
   }
 }

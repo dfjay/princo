@@ -131,7 +131,7 @@ func serverOutbounds(n *fleet.Node) []any {
 	if n.DNS != nil {
 		// Resolve with the node's DNS rather than the system's.
 		ip = ipStrategy(n.DNS.Strategy)
-		direct["settings"] = map[string]any{"domainStrategy": "Use" + ip}
+		direct["streamSettings"] = map[string]any{"sockopt": map[string]any{"domainStrategy": "Use" + ip}}
 	}
 	block := map[string]any{"protocol": "blackhole", "tag": "block"}
 	switch n.Egress.Kind {

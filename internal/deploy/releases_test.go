@@ -41,7 +41,7 @@ func TestInstallReleases(t *testing.T) {
 func TestReleaseURL(t *testing.T) {
 	a, ok := engines["xray"].archive("arm64")
 	require.True(t, ok)
-	require.Equal(t, "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-arm64-v8a.zip", a.URL)
+	require.Equal(t, "https://github.com/XTLS/Xray-core/releases/download/v26.10.21/Xray-linux-arm64-v8a.zip", a.URL)
 	a, _ = engines["sing-box"].archive("amd64")
 	require.Equal(t, "https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-amd64.tar.gz", a.URL)
 }
