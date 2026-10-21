@@ -1,12 +1,12 @@
 # Written by princo deploy; changes here are overwritten.
 [Unit]
-Description=princo node fi (xray 26.3.27)
+Description=princo node fi (xray)
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Environment=XRAY_LOCATION_ASSET=/var/lib/princo/rules
-ExecStart=/usr/local/lib/princo/xray run -c /var/lib/princo/files/xray.json
+ExecStart=/usr/local/lib/princo/xray-26.3.27/xray run -c /var/lib/princo/files/xray.json
 DynamicUser=yes
 StateDirectory=princo-xray
 StateDirectoryMode=0700

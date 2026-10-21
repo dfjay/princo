@@ -117,11 +117,12 @@ princo deploy --node fr --dry-run    # what would change in the host's files
 princo deploy goes over the system ssh, so your `~/.ssh/config`, agent
 and known_hosts apply, as root or as a user with passwordless sudo. It
 
-- installs sing-box from SagerNet's apt repository (princo carries its
-  key), or xray from XTLS's release into `/usr/local/lib/princo` (XTLS
-  signs none, so princo pins its checksums), and nginx with its stream
-  module and certbot when the node needs them; opens the node's ports if
-  ufw is active;
+- installs the engine at the release this princo renders for, from
+  SagerNet's or XTLS's GitHub release into
+  `/usr/local/lib/princo/<engine>-<version>` (neither signs releases, so
+  princo pins their checksums), and nginx with its stream module and
+  certbot when the node needs them; opens the node's ports if ufw is
+  active;
 - installs princo of its own version from the release, once cosign has
   verified the release's signature (or the `.deb` of `--princo-deb`);
 - issues the certificates the host lacks with certbot over HTTP-01;
@@ -129,8 +130,9 @@ and known_hosts apply, as root or as a user with passwordless sudo. It
 - writes the node's files, `princo.service` and nginx's configs, and
   restarts what they changed. If `nginx -t`, `sing-box check` or a restart
   fails, or a restarted service stops within seconds, the old files go
-  back and the services restart on them. One deploy runs on a host at a
-  time. xray can't reload, so changing its node restarts it.
+  back and the services restart on them, and on the engine release they
+  ran with. One deploy runs on a host at a time. xray can't reload, so
+  changing its node restarts it.
 
 The host needs DNS records for the node's domains and ports 80 and 443
 open in any firewall in front of it. Rule sets are downloaded from
@@ -165,7 +167,9 @@ Secrets come from sops-nix, using the sops files of princo.yaml's
 files under `services.princo.secretsDir`. On the host,
 `princo-render.service` renders the node's files into `/run/princo/files`
 and `princo.service` runs the engine on them, so no secret reaches the Nix
-store.
+store. The engine comes from the host's nixpkgs
+(`services.princo.enginePackage`); the module refuses one older than the
+node's config needs.
 
 The plan is read while the system is evaluated (import from derivation),
 by default with a princo built for the host's platform. To evaluate
@@ -213,6 +217,13 @@ After changing `go.mod`, run `just vendor-hash` to update the Nix
 package's `vendorHash`; on Dependabot's PRs CI does it. With `sing-box` and
 `xray` in `PATH`, the tests also run `sing-box check` and `xray run -test`
 on every rendered config. The NixOS VM test boots a node of the fixture fleet.
+
+`princo deploy` installs the engine releases pinned in
+`internal/deploy/engines.go`. To move to a new one, put its version and
+the checksums `just engine-digests sing-box 1.14.4` prints there, then
+accept the changed bundles with `just golden`. The
+engines workflow checks the rendered configs on those releases and on
+nixos-unstable's.
 
 Releases come from [release-please](https://github.com/googleapis/release-please):
 it keeps a release PR open that bumps `internal/version/VERSION` and

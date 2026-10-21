@@ -1,17 +1,22 @@
 package deploy
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"cmp"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/dfjay/princo/internal/engine"
@@ -19,32 +24,47 @@ import (
 
 // engineSpec is how a Debian host runs an engine, like nix/engines.nix.
 type engineSpec struct {
-	command func(config, stateDir string) []string
-	check   func(config string) []string
+	// version is the release princo deploy installs.
+	version string
+	release release
+	command func(bin, config, stateDir string) []string
+	check   func(bin, config string) []string
 	// environment is the engine's, as NAME=value.
 	environment []string
 	// reloads tells whether SIGHUP reloads the config.
-	reloads bool
-	// repo has pkg; nil when the distribution does.
-	repo *aptRepo
-	pkg  string
-	// pkgUnit comes with pkg; princo.service replaces it.
-	pkgUnit string
-	// binary is the engine when it has no package.
-	binary       *release
+	reloads      bool
 	ruleSetURL   func(file string) string
 	ruleSetMagic []byte
 	// trim cuts a rule set down to what the config uses.
 	trim func(file string, data, config []byte) ([]byte, error)
 }
 
-// release is an engine's executable, in a zip per Debian architecture.
+// engineRoot holds a directory per engine release. The unit runs its
+// release's, so a rollback runs the old release again.
+const engineRoot = "/usr/local/lib/princo"
+
+// dir is where the engine's release goes on the host.
+func (e engineSpec) dir() string {
+	return path.Join(engineRoot, e.release.Files[0]+"-"+e.version)
+}
+
+// bin is the engine's executable.
+func (e engineSpec) bin() string {
+	return path.Join(e.dir(), e.release.Files[0])
+}
+
+// release is an engine's archive per Debian architecture, pinned by
+// checksum: neither SagerNet nor XTLS sign theirs.
 type release struct {
-	Path    string
-	Version string
-	Zips    map[string]download
-	// Member is the executable's name in the zip.
-	Member string
+	// URL is an archive's, with {version} and {arch} to fill in.
+	URL string
+	// Arch names Debian architectures as the archives do, where they differ.
+	Arch map[string]string
+	// SHA256 is each Debian architecture's archive's.
+	SHA256 map[string]string
+	// Files are what the engine needs of an archive, first its executable,
+	// named as the engine.
+	Files []string
 }
 
 type download struct {
@@ -52,40 +72,34 @@ type download struct {
 	SHA256 string
 }
 
-type aptRepo struct {
-	Name    string
-	Key     string
-	Sources string
+func (r release) url(version, arch string) string {
+	return strings.NewReplacer("{version}", version, "{arch}", cmp.Or(r.Arch[arch], arch)).Replace(r.URL)
 }
 
-// sagernetKey is https://sing-box.app/gpg.key, fingerprint
-// 2C31 7FBD 5D88 6B4E 89BA E8DA 6D91 5217 2A2B 2F0C.
-//
-//go:embed keys/sagernet.asc
-var sagernetKey string
+// archive is the engine's release for a Debian architecture.
+func (e engineSpec) archive(arch string) (download, bool) {
+	sum, ok := e.release.SHA256[arch]
+	return download{URL: e.release.url(e.version, arch), SHA256: sum}, ok
+}
 
 var engines = map[string]engineSpec{
 	"sing-box": {
-		command: func(config, stateDir string) []string {
-			return []string{"/usr/bin/sing-box", "-D", stateDir, "-c", config, "run"}
+		version: "1.14.3",
+		release: release{
+			URL: "https://github.com/SagerNet/sing-box/releases/download/v{version}/sing-box-{version}-linux-{arch}.tar.gz",
+			SHA256: map[string]string{
+				"amd64": "e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee",
+				"arm64": "29dae24d76bea3bc62d07dd3e60cfc12003de7debbd6b768df9be9c68360174e",
+			},
+			Files: []string{"sing-box", "libcronet.so"},
 		},
-		check: func(config string) []string {
-			return []string{"/usr/bin/sing-box", "check", "-c", config}
+		command: func(bin, config, stateDir string) []string {
+			return []string{bin, "-D", stateDir, "-c", config, "run"}
+		},
+		check: func(bin, config string) []string {
+			return []string{bin, "check", "-c", config}
 		},
 		reloads: true,
-		repo: &aptRepo{
-			Name: "sagernet",
-			Key:  sagernetKey,
-			Sources: `Types: deb
-URIs: https://deb.sagernet.org/
-Suites: *
-Components: *
-Enabled: yes
-Signed-By: /etc/apt/keyrings/sagernet.asc
-`,
-		},
-		pkg:     "sing-box",
-		pkgUnit: "sing-box.service",
 		ruleSetURL: func(file string) string {
 			repo := "sing-geosite"
 			if strings.HasPrefix(file, "geoip-") {
@@ -96,14 +110,23 @@ Signed-By: /etc/apt/keyrings/sagernet.asc
 		ruleSetMagic: []byte("SRS"),
 	},
 	"xray": {
-		command: func(config, _ string) []string {
-			return []string{xrayBin, "run", "-c", config}
+		version: "26.3.27",
+		release: release{
+			URL:  "https://github.com/XTLS/Xray-core/releases/download/v{version}/Xray-linux-{arch}.zip",
+			Arch: map[string]string{"amd64": "64", "arm64": "arm64-v8a"},
+			SHA256: map[string]string{
+				"amd64": "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae",
+				"arm64": "4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c",
+			},
+			Files: []string{"xray"},
 		},
-		check: func(config string) []string {
-			return []string{"/usr/bin/env", "XRAY_LOCATION_ASSET=" + engine.RuleSetDir, xrayBin, "run", "-test", "-c", config}
+		command: func(bin, config, _ string) []string {
+			return []string{bin, "run", "-c", config}
+		},
+		check: func(bin, config string) []string {
+			return []string{"/usr/bin/env", "XRAY_LOCATION_ASSET=" + engine.RuleSetDir, bin, "run", "-test", "-c", config}
 		},
 		environment: []string{"XRAY_LOCATION_ASSET=" + engine.RuleSetDir},
-		binary:      xrayRelease,
 		ruleSetURL: func(file string) string {
 			return "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/" + file
 		},
@@ -113,41 +136,92 @@ Signed-By: /etc/apt/keyrings/sagernet.asc
 	},
 }
 
-// extract checks data, downloaded from z, and returns the executable in it.
-func (b *release) extract(z download, data []byte) ([]byte, error) {
-	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != z.SHA256 {
-		return nil, fmt.Errorf("%s doesn't match its pinned SHA-256", z.URL)
-	}
-	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+// extract checks data, downloaded from d, and returns r's files in it as
+// a tar archive.
+func (r release) extract(d download, data []byte) ([]byte, error) {
+	files, err := d.unpack(data, func(name string) bool { return slices.Contains(r.Files, name) })
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", z.URL, err)
+		return nil, err
 	}
-	f, err := r.Open(b.Member)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", z.URL, err)
+	var out bytes.Buffer
+	w := tar.NewWriter(&out)
+	for _, name := range r.Files {
+		data, ok := files[name]
+		if !ok {
+			return nil, fmt.Errorf("%s has no %s", d.URL, name)
+		}
+		if err := w.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(data))}); err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(data); err != nil {
+			return nil, err
+		}
 	}
-	defer func() { _ = f.Close() }()
-	return io.ReadAll(f)
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
 }
 
-const xrayBin = "/usr/local/lib/princo/xray"
+// unpack checks data, d's download, and reads the files want picks out
+// of it by name.
+func (d download) unpack(data []byte, want func(name string) bool) (map[string][]byte, error) {
+	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != d.SHA256 {
+		return nil, fmt.Errorf("%s doesn't match its pinned SHA-256", d.URL)
+	}
+	files, err := readArchive(d.URL, data, want)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", d.URL, err)
+	}
+	return files, nil
+}
 
-// xrayRelease is xray.MinVersion. XTLS signs no releases, so the
-// checksums are pinned.
-var xrayRelease = &release{
-	Path:    xrayBin,
-	Version: "26.3.27",
-	Zips: map[string]download{
-		"amd64": {
-			URL:    "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip",
-			SHA256: "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae",
-		},
-		"arm64": {
-			URL:    "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-arm64-v8a.zip",
-			SHA256: "4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c",
-		},
-	},
-	Member: "xray",
+// readArchive reads the files want picks out of a .zip or .tar.gz, by name.
+func readArchive(url string, data []byte, want func(name string) bool) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	keep := func(name string, open func() (io.Reader, error)) error {
+		base := path.Base(name)
+		if !want(base) {
+			return nil
+		}
+		f, err := open()
+		if err != nil {
+			return err
+		}
+		files[base], err = io.ReadAll(f)
+		return err
+	}
+	if strings.HasSuffix(url, ".zip") {
+		z, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range z.File {
+			if err := keep(f.Name, func() (io.Reader, error) { return f.Open() }); err != nil {
+				return nil, err
+			}
+		}
+		return files, nil
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	t := tar.NewReader(gz)
+	for {
+		h, err := t.Next()
+		if errors.Is(err, io.EOF) {
+			return files, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if h.Typeflag == tar.TypeReg {
+			if err := keep(h.Name, func() (io.Reader, error) { return t, nil }); err != nil {
+				return nil, err
+			}
+		}
+	}
 }
 
 // RuleSets reads each of the engine's rule sets from dir, or downloads the

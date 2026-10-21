@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/dfjay/princo/internal/bundle"
 	"github.com/dfjay/princo/internal/config"
+	"github.com/dfjay/princo/internal/engine"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/fleet/fleettest"
 	"github.com/dfjay/princo/internal/host"
@@ -190,4 +192,31 @@ func TestReadRuleSets(t *testing.T) {
 	require.Equal(t, []byte("\x0a\x04\x0a\x02DE"), got["geoip.dat"], "a negated code needs its entry")
 	_, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geosite-x.srs"}, nil)
 	require.ErrorContains(t, err, "isn't a xray rule set")
+}
+
+func TestEngines_PinnedVersions(t *testing.T) {
+	for name, e := range engines {
+		eng, err := engine.Lookup(name)
+		require.NoError(t, err)
+		require.False(t, olderThan(e.version, eng.MinVersion()),
+			"%s: princo deploy installs %s, older than the %s its configs need", name, e.version, eng.MinVersion())
+	}
+}
+
+// olderThan compares dotted versions such as 1.14.3.
+func olderThan(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := range max(len(as), len(bs)) {
+		var x, y int
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }

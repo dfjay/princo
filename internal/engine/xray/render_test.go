@@ -54,6 +54,9 @@ func TestRuleSets(t *testing.T) {
 func TestXrayCheck(t *testing.T) {
 	bin, err := exec.LookPath("xray")
 	if err != nil {
+		if os.Getenv("PRINCO_ENGINES") != "" {
+			t.Fatal("xray not in PATH")
+		}
 		t.Skip("xray not in PATH")
 	}
 	f := fleettest.Load(t, fixture)

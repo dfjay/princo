@@ -1,0 +1,37 @@
+# Rendered configs pass `sing-box check` and `xray run -test` on the
+# releases princo deploy installs, and on nixos-unstable's: weekly too, as
+# a new release can break them with no change here.
+name: engines
+on:
+  push: { branches: [main] }
+  pull_request: {}
+  schedule: [{ cron: "0 6 * * 1" }]
+
+permissions:
+  contents: read
+
+jobs:
+  pinned:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: |
+          go run ./internal/tools/engines install amd64 "$RUNNER_TEMP/engines"
+          echo "$RUNNER_TEMP/engines" >> "$GITHUB_PATH"
+      - run: go test ./internal/engine/... -count=1
+        env:
+          PRINCO_ENGINES: "1"
+
+  latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+      - run: |
+          nix develop --override-input nixpkgs github:NixOS/nixpkgs/nixos-unstable \
+            -c sh -c 'sing-box version | head -n 1; xray version | head -n 1; go test ./internal/engine/... -count=1'
+        env:
+          PRINCO_ENGINES: "1"

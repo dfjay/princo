@@ -81,17 +81,12 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		engineFiles = append(engineFiles, f)
 	}
 
-	// The binary's version names the unit, so a new one restarts it.
-	var version string
-	if e.binary != nil {
-		version = e.binary.Version
-	}
+	bin := e.bin()
 	unit, err := execute("princo.service", map[string]any{
 		"Node":        p.Node,
 		"Engine":      p.Engine,
-		"Version":     version,
 		"Environment": e.environment,
-		"ExecStart":   strings.Join(e.command(config, "/var/lib/princo-"+p.Engine), " "),
+		"ExecStart":   strings.Join(e.command(bin, config, "/var/lib/princo-"+p.Engine), " "),
 		"Reloads":     e.reloads,
 		"StateDir":    "princo-" + p.Engine,
 	})
@@ -99,7 +94,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		return nil, err
 	}
 	b.Files = append(b.Files, bundle.File{Path: UnitFile, Mode: 0o644, Data: unit})
-	units := []bundle.Unit{{Name: "princo.service", Files: engineFiles, Check: e.check(config)}}
+	units := []bundle.Unit{{Name: "princo.service", Files: engineFiles, Check: e.check(bin, config)}}
 
 	var nginxFiles []string
 	if p.Mux != nil || hostStream {

@@ -20,7 +20,7 @@ file 0644 root     /etc/systemd/system/princo.service
 file 0644 root     /etc/nginx/modules-enabled/99-princo-stream.conf
 file 0644 root     /etc/nginx/sites-enabled/princo.conf
 file 0755 root     /etc/letsencrypt/renewal-hooks/deploy/princo
-unit princo.service reload=false check=["/usr/bin/sing-box" "check" "-c" "/var/lib/princo/files/sing-box.json"]
+unit princo.service reload=false check=["/usr/local/lib/princo/sing-box-1.14.3/sing-box" "check" "-c" "/var/lib/princo/files/sing-box.json"]
   /etc/systemd/system/princo.service
   /var/lib/princo/files/sing-box.json
   /var/lib/princo/rules/geoip-ru.srs

@@ -106,6 +106,17 @@ let
     )
   );
 
+  # Nix orders 1.14.0-rc.1 after 1.14.0; the engines, before it.
+  engineNewEnough =
+    let
+      v = cfg.enginePackage.version;
+      release = lib.head (lib.splitString "-" v);
+    in
+    if release == v then
+      lib.versionAtLeast v plan.engine_min_version
+    else
+      lib.versionOlder plan.engine_min_version release;
+
   parseAddr =
     addr:
     let
@@ -194,6 +205,10 @@ in
                 ${lib.concatStringsSep "\n  " muxConflicts}
               Have them listen on 127.0.0.1:8443 and route their domains there with `passthrough:` in princo.yaml.
             '';
+          }
+          {
+            assertion = engineNewEnough;
+            message = "services.princo: node ${cfg.node}'s config needs ${plan.engine} ${plan.engine_min_version} or newer; services.princo.enginePackage is ${cfg.enginePackage.version}.";
           }
           {
             assertion = !useSops || options ? sops;

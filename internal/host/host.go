@@ -81,6 +81,8 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 type Plan struct {
 	Node   string `json:"node"`
 	Engine string `json:"engine"`
+	// EngineMinVersion is the oldest engine release the config works on.
+	EngineMinVersion string `json:"engine_min_version"`
 	// Config is the server config's path among the rendered files.
 	Config   string `json:"config"`
 	TCPPorts []int  `json:"tcp_ports"`
@@ -154,15 +156,16 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 		return nil, err
 	}
 	p := &Plan{
-		Node:         node,
-		Engine:       n.Engine,
-		Config:       ConfigFile(n.Engine),
-		TCPPorts:     []int{},
-		UDPPorts:     []int{},
-		Certificates: []string{},
-		ACMEEmail:    n.ACMEEmail,
-		RuleSets:     e.RuleSets(files[ConfigFile(n.Engine)]),
-		Secrets:      []Secret{},
+		Node:             node,
+		Engine:           n.Engine,
+		EngineMinVersion: e.MinVersion(),
+		Config:           ConfigFile(n.Engine),
+		TCPPorts:         []int{},
+		UDPPorts:         []int{},
+		Certificates:     []string{},
+		ACMEEmail:        n.ACMEEmail,
+		RuleSets:         e.RuleSets(files[ConfigFile(n.Engine)]),
+		Secrets:          []Secret{},
 	}
 	if n.Reality != nil || n.Mux() {
 		p.TCPPorts = append(p.TCPPorts, 443)

@@ -1,6 +1,6 @@
 # Written by princo deploy; changes here are overwritten.
 [Unit]
-Description=princo node {{.Node}} ({{.Engine}}{{with .Version}} {{.}}{{end}})
+Description=princo node {{.Node}} ({{.Engine}})
 Wants=network-online.target
 After=network-online.target
 

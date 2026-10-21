@@ -5,7 +5,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-ExecStart=/usr/bin/sing-box -D /var/lib/princo-sing-box -c /var/lib/princo/files/sing-box.json run
+ExecStart=/usr/local/lib/princo/sing-box-1.14.3/sing-box -D /var/lib/princo-sing-box -c /var/lib/princo/files/sing-box.json run
 ExecReload=/bin/kill -HUP $MAINPID
 DynamicUser=yes
 StateDirectory=princo-sing-box
