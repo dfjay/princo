@@ -8,6 +8,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -178,5 +179,53 @@ echo token >/var/lib/princo/acme/.well-known/acme-challenge/t`)
 		require.NoError(t, err)
 		require.Equal(t, "active", e.sh(t, "systemctl is-active princo.service"))
 		require.Contains(t, e.sh(t, "ss -Htlnp sport = :443"), "sing-box", "the engine has TCP 443 back from nginx")
+	})
+
+	t.Run("xray", func(t *testing.T) {
+		e.sh(t, "rm /var/lib/princo/applied.json")
+		// Out of the node itself, to a site on the host.
+		e.setConfig(t, "path: /f7Kq2m", "path: /f7Kq2m\n    egress: direct")
+		out, err := e.deploy(t, "fi")
+		require.NoError(t, err)
+		require.Contains(t, out, "+ /var/lib/princo/files/xray.json\n")
+		require.Equal(t, "active", e.sh(t, "systemctl is-active princo.service"))
+		require.Contains(t, e.sh(t, "ss -Htlnp sport = :443"), "xray")
+
+		e.start(t, "princo-e2e-site", "python3 -m http.server 18080 --bind 127.0.0.1 --directory /var/lib/princo/rules")
+		reality := map[string]any{
+			"serverName":  "www.samsung.com",
+			"fingerprint": "chrome",
+			"publicKey":   "x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc",
+			"shortId":     "3c5409f1",
+		}
+		for i, c := range []struct {
+			name, flow string
+			stream     map[string]any
+		}{
+			{"vision", "xtls-rprx-vision", map[string]any{"network": "raw", "security": "reality", "realitySettings": reality}},
+			{"xhttp", "", map[string]any{
+				"network": "xhttp", "security": "reality", "realitySettings": reality,
+				"xhttpSettings": map[string]any{"path": "/f7Kq2m", "mode": "auto"},
+			}},
+		} {
+			port := 10801 + i
+			client, err := json.Marshal(map[string]any{
+				"inbounds": []any{map[string]any{"listen": "127.0.0.1", "port": port, "protocol": "socks"}},
+				"outbounds": []any{map[string]any{
+					"protocol": "vless",
+					"settings": map[string]any{
+						"address": "127.0.0.1", "port": 443, "encryption": "none", "flow": c.flow,
+						"id": "dbc5aca6-f0dd-416d-b30f-813754d72f99", // alice
+					},
+					"streamSettings": c.stream,
+				}},
+			})
+			require.NoError(t, err)
+			config := "/tmp/princo-e2e-" + c.name + ".json"
+			e.sh(t, "cat >"+config+" <<'EOF'\n"+string(client)+"\nEOF")
+			e.start(t, "princo-e2e-"+c.name, "/usr/local/lib/princo/xray run -c "+config)
+			require.Equal(t, "200", e.sh(t, fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' --socks5-hostname 127.0.0.1:%d http://127.0.0.1:18080/", port)),
+				"alice gets through over %s", c.name)
+		}
 	})
 }

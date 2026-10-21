@@ -82,7 +82,7 @@ XHTTP and Naive over TCP, Hysteria2 over UDP.
 |---|---|
 | `server_name` | a real HTTPS site the node imitates, e.g. `www.microsoft.com`; pick one reachable from the node |
 | `short_id` | hex, up to 16 characters (`openssl rand -hex 4`) |
-| `public_key` | from `sing-box generate reality-keypair` |
+| `public_key` | from `sing-box generate reality-keypair` or `xray x25519` (its `Password`) |
 | `private_key` | *secret*, `nodes/<node>/reality` |
 
 ### `xhttp`

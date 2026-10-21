@@ -1,0 +1,11 @@
+dir  0755 root     /var/lib/princo
+dir  0700 root     /var/lib/princo/files
+file 0600 root     /var/lib/princo/files/xray.json
+file 0644 root     /var/lib/princo/rules/geoip.dat
+file 0644 root     /var/lib/princo/rules/geosite.dat
+file 0644 root     /etc/systemd/system/princo.service
+unit princo.service reload=false check=["/usr/bin/env" "XRAY_LOCATION_ASSET=/var/lib/princo/rules" "/usr/local/lib/princo/xray" "run" "-test" "-c" "/var/lib/princo/files/xray.json"]
+  /etc/systemd/system/princo.service
+  /var/lib/princo/files/xray.json
+  /var/lib/princo/rules/geoip.dat
+  /var/lib/princo/rules/geosite.dat

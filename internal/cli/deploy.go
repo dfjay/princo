@@ -78,7 +78,7 @@ names a directory holding them.`,
 				}
 			}
 			client := &http.Client{Timeout: time.Minute}
-			ruleSets, err := deploy.RuleSets(ctx, client, ruleSetDir, p.Engine, p.RuleSets)
+			ruleSets, err := deploy.RuleSets(ctx, client, ruleSetDir, p.Engine, p.RuleSets, files[p.Config])
 			if err != nil {
 				return err
 			}
@@ -88,6 +88,9 @@ names a directory holding them.`,
 				Version: version.String(),
 				Release: func(ctx context.Context, v, arch string) ([]byte, error) {
 					return deploy.ReleaseDeb(ctx, client, deploy.ReleaseURL, v, arch)
+				},
+				Fetch: func(ctx context.Context, url string) ([]byte, error) {
+					return deploy.Fetch(ctx, client, url)
 				},
 			}
 			if debPath != "" {

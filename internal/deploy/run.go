@@ -31,14 +31,16 @@ type Deployer struct {
 	Deb []byte
 	// Release gives a released princo's .deb for a Debian architecture.
 	Release func(ctx context.Context, version, arch string) ([]byte, error)
+	// Fetch downloads a URL, for engines without a package.
+	Fetch func(ctx context.Context, url string) ([]byte, error)
 }
 
-// facts are what probe.sh tells; princo and node are empty when the host
-// has none.
+// facts are what probe.sh tells; princo, engine (the version of the
+// engine's binary) and node are empty when the host has none.
 type facts struct {
-	arch, princo, node string
-	missing            []string
-	stream             bool
+	arch, princo, engine, node string
+	missing                    []string
+	stream                     bool
 }
 
 // Deploy installs the node's packages and princo, issues the certificates
@@ -54,6 +56,9 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 	}
 	d.logf("installing packages")
 	if err := d.provision(ctx, p, e); err != nil {
+		return err
+	}
+	if err := d.installEngine(ctx, f, e); err != nil {
 		return err
 	}
 	if err := d.installPrinco(ctx, f); err != nil {
@@ -109,7 +114,12 @@ func (d *Deployer) Check(ctx context.Context, p *host.Plan, files, ruleSets map[
 }
 
 func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
+	var bin string
+	if b := engines[p.Engine].binary; b != nil {
+		bin = b.Path
+	}
 	script, err := execute("probe.sh", map[string]any{
+		"Binary":       bin,
 		"Certificates": p.Certificates,
 		"CertDir":      engine.CertDir,
 		"StateFile":    bundle.StateFile,
@@ -130,6 +140,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.arch = value
 		case "princo":
 			f.princo = value
+		case "engine":
+			f.engine = value
 		case "node":
 			f.node = value
 		case "missing":
@@ -148,7 +160,10 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 }
 
 func (d *Deployer) provision(ctx context.Context, p *host.Plan, e engineSpec) error {
-	pkgs := []string{e.pkg}
+	var pkgs []string
+	if e.pkg != "" {
+		pkgs = append(pkgs, e.pkg)
+	}
 	tcp := slices.Clone(p.TCPPorts)
 	if p.Mux != nil || len(p.Certificates) > 0 {
 		pkgs = append(pkgs, "nginx")
@@ -171,6 +186,40 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan, e engineSpec) er
 		return err
 	}
 	return d.Remote.Run(ctx, string(script), nil, d.Log)
+}
+
+// installBinary writes stdin to the executable at bin, replacing it whole.
+const installBinary = `set -eu
+bin=%s
+install -d -m 0755 "$(dirname "$bin")"
+f=$(mktemp "$bin.XXXXXX")
+trap 'rm -f "$f"' EXIT
+cat >"$f"
+chmod 0755 "$f"
+mv -f "$f" "$bin"
+`
+
+// installEngine puts the engine's pinned binary on the host, unless it
+// has that version.
+func (d *Deployer) installEngine(ctx context.Context, f facts, e engineSpec) error {
+	b := e.binary
+	if b == nil || f.engine == b.Version {
+		return nil
+	}
+	z, ok := b.Zips[f.arch]
+	if !ok {
+		return fmt.Errorf("there's no %s %s for %s", b.Member, b.Version, f.arch)
+	}
+	data, err := d.Fetch(ctx, z.URL)
+	if err != nil {
+		return err
+	}
+	exe, err := b.extract(z, data)
+	if err != nil {
+		return err
+	}
+	d.logf("installing %s %s on the host", b.Member, b.Version)
+	return d.Remote.Run(ctx, fmt.Sprintf(installBinary, shellQuote(b.Path)), bytes.NewReader(exe), d.Log)
 }
 
 const installDeb = `set -eu
