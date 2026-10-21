@@ -66,8 +66,20 @@
   },
   "outbounds": [
     {
-      "default": "de-reality",
       "outbounds": [
+        "de-reality",
+        "de-hysteria2",
+        "de-naive",
+        "us-reality",
+        "fi-reality"
+      ],
+      "tag": "select-auto",
+      "type": "urltest"
+    },
+    {
+      "default": "select-auto",
+      "outbounds": [
+        "select-auto",
         "de-reality",
         "de-hysteria2",
         "de-naive",

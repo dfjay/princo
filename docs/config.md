@@ -216,8 +216,9 @@ The sing-box profile users import.
 | Field | Default | Description |
 | --- | --- | --- |
 | `nodes` | `all` | members: `all`, `<tag>`, or `!<tag>` (without the tag) |
-| `default` | `first` | the preselected member: `first`, `direct`, or an outbound tag such as `fr-reality` |
+| `default` | `first`, or `auto` with `auto` | the preselected member: `first`, `auto`, `direct`, or an outbound tag such as `fr-reality`; users who can't use that tag get `first` |
 | `include_direct` | `false` | also offer `direct` |
+| `auto` | `false` | add a member, `<group>-auto`, that tests the others and uses the fastest working one |
 | `fallback` | — | a group or `direct` to use when the user has no members here |
 
 Every node a user may use contributes one member per protocol, tagged

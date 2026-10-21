@@ -76,7 +76,7 @@ client:
   groups:
     select:
       nodes: "!domestic"
-      default: first
+      auto: true
     ru-select:
       nodes: domestic
       include_direct: true

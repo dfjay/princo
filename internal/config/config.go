@@ -144,6 +144,7 @@ type Group struct {
 	// Nodes selects members by tag: "<tag>", "!<tag>" or "all".
 	Nodes         string `yaml:"nodes"`
 	Default       string `yaml:"default"`
+	Auto          bool   `yaml:"auto"`
 	IncludeDirect bool   `yaml:"include_direct"`
 	Fallback      string `yaml:"fallback"`
 }

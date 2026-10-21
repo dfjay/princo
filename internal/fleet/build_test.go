@@ -308,6 +308,36 @@ users:
 	}
 }
 
+func TestBuild_GroupAuto(t *testing.T) {
+	f, err := build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+client:
+  groups:
+    proxy: { nodes: all, auto: true }
+  final: proxy
+`, conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, "auto", f.Client.Groups[0].Default)
+
+	_, err = build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+client:
+  groups:
+    proxy: { nodes: all, auto: true }
+    proxy-auto: { nodes: all }
+    manual: { nodes: all, default: auto }
+  final: proxy
+`, conventionalSecrets())
+	require.ErrorContains(t, err, "client.groups.proxy.auto: its member is named proxy-auto, like another group")
+	require.ErrorContains(t, err, "client.groups.manual.default: auto needs auto: true")
+}
+
 func TestBuild_ClientProtocolWithoutGroups(t *testing.T) {
 	_, err := build(t, `
 nodes:

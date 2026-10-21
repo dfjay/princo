@@ -334,11 +334,22 @@ func (b *builder) client() {
 		if g.Fallback != "" && g.Fallback != "direct" && (g.Fallback == name || !slices.Contains(groups, g.Fallback)) {
 			b.errorf("%s.fallback: want direct or another group, got %q", where, g.Fallback)
 		}
+		def := cmp.Or(g.Default, "first")
+		if g.Auto && g.Default == "" {
+			def = "auto"
+		}
+		if g.Auto && slices.Contains(groups, name+"-auto") {
+			b.errorf("%s.auto: its member is named %s-auto, like another group", where, name)
+		}
+		if def == "auto" && !g.Auto {
+			b.errorf("%s.default: auto needs auto: true", where)
+		}
 		b.f.Client.Groups = append(b.f.Client.Groups, Group{
 			Name:          name,
 			Members:       sel,
-			Default:       cmp.Or(g.Default, "first"),
+			Default:       def,
 			IncludeDirect: g.IncludeDirect,
+			Auto:          g.Auto,
 			Fallback:      g.Fallback,
 		})
 	}

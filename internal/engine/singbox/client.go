@@ -158,17 +158,28 @@ func (c *clientView) outbounds() []any {
 		if len(nodes) == 0 {
 			continue
 		}
+		var proxies []any
+		for _, n := range nodes {
+			for _, ob := range nodeOutbounds(n, c.user) {
+				proxies = append(proxies, ob["tag"])
+			}
+		}
 		var tags []any
+		auto := g.Name + "-auto"
+		if g.Auto {
+			tags = append(tags, auto)
+			out = append(out, map[string]any{"type": "urltest", "tag": auto, "outbounds": proxies})
+		}
 		if g.IncludeDirect {
 			tags = append(tags, "direct")
 		}
-		for _, n := range nodes {
-			for _, ob := range nodeOutbounds(n, c.user) {
-				tags = append(tags, ob["tag"])
-			}
-		}
+		tags = append(tags, proxies...)
 		def := g.Default
-		if def == "first" {
+		switch {
+		case def == "auto":
+			def = auto
+		case def == "first", !slices.Contains(tags, any(def)):
+			// The default may be a node this user can't use.
 			def = outboundTag(nodes[0], firstProtocol(nodes[0]))
 		}
 		out = append(out, map[string]any{"type": "selector", "tag": g.Name, "outbounds": tags, "default": def})

@@ -76,8 +76,16 @@
   },
   "outbounds": [
     {
-      "default": "us-reality",
       "outbounds": [
+        "us-reality"
+      ],
+      "tag": "select-auto",
+      "type": "urltest"
+    },
+    {
+      "default": "select-auto",
+      "outbounds": [
+        "select-auto",
         "us-reality"
       ],
       "tag": "select",
