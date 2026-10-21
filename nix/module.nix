@@ -350,7 +350,6 @@ in
           };
 
         security.acme = lib.mkIf (plan.certificates != [ ]) {
-          acceptTerms = true;
           defaults.email = lib.mkIf (plan.acme_email or "" != "") (lib.mkDefault plan.acme_email);
           certs = lib.genAttrs engineDomains (_: {
             webroot = acmeWebroot;

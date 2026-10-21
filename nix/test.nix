@@ -36,6 +36,7 @@ in
         node = "de";
         secretsDir = "${secretsDir}";
       };
+      security.acme.acceptTerms = true;
       # Keep the stand-ins: never ask a real CA.
       security.acme.defaults.server = "https://127.0.0.1:1/directory";
       environment.systemPackages = [
@@ -54,6 +55,7 @@ in
         node = "fi";
         secretsDir = "${secretsDir}";
       };
+      security.acme.acceptTerms = true;
       environment.systemPackages = [ pkgs.xray ];
     };
 

@@ -110,6 +110,9 @@ services.princo = {
   config = ./vpn/princo.yaml;
   node = "nl";
 };
+
+# Certificates come from Let's Encrypt, whose terms you accept here.
+security.acme.acceptTerms = true;
 ```
 
 This example assumes you already have sops-nix as an input and have configured
