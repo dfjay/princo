@@ -1,11 +1,11 @@
 # princo
 
-Declarative CLI for sing-box (and, later, xray) VPN fleets.
+Declarative CLI for sing-box and xray VPN fleets.
 
 One `princo.yaml` describes the whole VPN: nodes and the protocols they
 serve, users and which nodes they may use, chains of nodes, server and
-client routing, and subscriptions. princo renders it into sing-box configs
-(xray later). Debian and Ubuntu hosts get their node with `princo deploy`
+client routing, and subscriptions. princo renders it into sing-box or
+xray configs, node by node. Debian and Ubuntu hosts get their node with `princo deploy`
 over SSH; NixOS hosts run it through princo's NixOS module and whatever
 deploy tool you use.
 
@@ -15,6 +15,8 @@ Alpha: schema v1 may still change. Works today:
 
 - nodes with VLESS-Reality, Hysteria2 and Naive sharing port 443, egress
   direct, through WARP or through another node (chains);
+- nodes running xray, with VLESS over XHTTP behind VLESS-Reality on the
+  same port and keys;
 - server and client routing rules, client groups selected by node tags,
   DNS on both sides;
 - a subscription site: share links for most apps, the profile for
@@ -22,8 +24,6 @@ Alpha: schema v1 may still change. Works today:
 - secrets in an age file or in sops files you already have;
 - running nodes on Debian and Ubuntu with `princo deploy`, and on NixOS
   with the NixOS module and any deploy tool.
-
-Not yet: the xray engine.
 
 ## Install
 
@@ -118,8 +118,10 @@ princo deploy goes over the system ssh, so your `~/.ssh/config`, agent
 and known_hosts apply, as root or as a user with passwordless sudo. It
 
 - installs sing-box from SagerNet's apt repository (princo carries its
-  key), and nginx with its stream module and certbot when the node needs
-  them; opens the node's ports if ufw is active;
+  key), or xray from XTLS's release into `/usr/local/lib/princo` (XTLS
+  signs none, so princo pins its checksums), and nginx with its stream
+  module and certbot when the node needs them; opens the node's ports if
+  ufw is active;
 - installs princo of its own version from the release, once cosign has
   verified the release's signature (or the `.deb` of `--princo-deb`);
 - issues the certificates the host lacks with certbot over HTTP-01;
@@ -128,11 +130,12 @@ and known_hosts apply, as root or as a user with passwordless sudo. It
   restarts what they changed. If `nginx -t`, `sing-box check` or a restart
   fails, or a restarted service stops within seconds, the old files go
   back and the services restart on them. One deploy runs on a host at a
-  time.
+  time. xray can't reload, so changing its node restarts it.
 
 The host needs DNS records for the node's domains and ports 80 and 443
 open in any firewall in front of it. Rule sets are downloaded from
-SagerNet unless `--rule-sets DIR` holds them. As on NixOS, other HTTPS
+SagerNet for sing-box, and from Loyalsoldier/v2ray-rules-dat for xray,
+cut down to the codes the node uses, unless `--rule-sets DIR` holds them. As on NixOS, other HTTPS
 sites go behind the multiplexer with `passthrough:`.
 
 ## NixOS
@@ -184,7 +187,7 @@ cmd/princo/        # CLI entrypoint
 internal/cli/      # cobra commands
 internal/config/   # princo.yaml as written (strict YAML decoding)
 internal/fleet/    # resolved model: defaults, secrets, validation
-internal/engine/   # Engine interface + sing-box renderer
+internal/engine/   # Engine interface + sing-box and xray renderers
 internal/host/     # a node's files and the plan around them
 internal/subscription/ # share links and the subscription site
 internal/secrets/  # age and sops secrets, secrets dirs
@@ -197,7 +200,7 @@ docs/              # princo.yaml reference
 ## Development
 
 `nix develop`, or direnv with the committed `.envrc`, gives a shell with
-Go, golangci-lint, sing-box, GoReleaser and just. Then:
+Go, golangci-lint, sing-box, xray, GoReleaser and just. Then:
 
 ```bash
 just test          # go test ./...
@@ -207,9 +210,9 @@ just vendor-hash   # update nix/package.nix after go.mod changes
 ```
 
 After changing `go.mod`, run `just vendor-hash` to update the Nix
-package's `vendorHash`; on Dependabot's PRs CI does it. With `sing-box` in
-`PATH`, the tests also run `sing-box check` on every
-rendered config. The NixOS VM test boots a node of the fixture fleet.
+package's `vendorHash`; on Dependabot's PRs CI does it. With `sing-box` and
+`xray` in `PATH`, the tests also run `sing-box check` and `xray run -test`
+on every rendered config. The NixOS VM test boots a node of the fixture fleet.
 
 Releases come from [release-please](https://github.com/googleapis/release-please):
 it keeps a release PR open that bumps `internal/version/VERSION` and

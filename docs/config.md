@@ -44,9 +44,10 @@ Every node inherits these; a node's own value wins.
 
 | Field | Default | |
 |---|---|---|
-| `engine` | `sing-box` | what the nodes run (only `sing-box` for now) |
+| `engine` | `sing-box` | what the nodes run: `sing-box` or `xray` (see [Engines](#engines)) |
 | `acme_email` | | the email ACME certificates are registered with |
 | `reality` | | default `server_name`, `short_id` of `reality` blocks |
+| `xhttp` | | default `path`, `mode` of `xhttp` blocks |
 | `hysteria2` | | default `masquerade`, `obfs_password` of `hysteria2` blocks |
 | `egress` | `direct` | see `nodes.<name>.egress` |
 | `dns` | | see [DNS](#dns) |
@@ -61,6 +62,7 @@ protocol when it has its own block, even an empty one (`hysteria2: {}`).
 |---|---|
 | `address` | the host name or IP apps connect to; required for `reality` and `hysteria2` |
 | `reality` | serve VLESS-Reality over TCP 443 |
+| `xhttp` | serve VLESS over XHTTP behind `reality` (xray only) |
 | `hysteria2` | serve Hysteria2 over UDP 443 |
 | `naive` | serve NaiveProxy over TCP 443 |
 | `egress` | where traffic leaves: `direct`, `warp`, or another node's name |
@@ -71,8 +73,8 @@ protocol when it has its own block, even an empty one (`hysteria2: {}`).
 | `dns`, `rules`, `engine`, `acme_email` | override `defaults` |
 | `ssh` | `user@host` or a `~/.ssh/config` Host that `princo deploy` connects to |
 
-A node needs at least one protocol. All of them share port 443: Reality
-and Naive over TCP, Hysteria2 over UDP.
+A node needs at least one protocol. All of them share port 443: Reality,
+XHTTP and Naive over TCP, Hysteria2 over UDP.
 
 ### `reality`
 
@@ -80,8 +82,20 @@ and Naive over TCP, Hysteria2 over UDP.
 |---|---|
 | `server_name` | a real HTTPS site the node imitates, e.g. `www.microsoft.com`; pick one reachable from the node |
 | `short_id` | hex, up to 16 characters (`openssl rand -hex 4`) |
-| `public_key` | from `sing-box generate reality-keypair` |
+| `public_key` | from `sing-box generate reality-keypair` or `xray x25519` (its `Password`) |
 | `private_key` | *secret*, `nodes/<node>/reality` |
+
+### `xhttp`
+
+| Field | Default | |
+|---|---|---|
+| `path` | | the HTTP path, e.g. `/f7Kq2m`: letters, digits, `.`, `_`, `~`, `-` |
+| `mode` | `auto` | how apps carry the upload: `auto`, `packet-up`, `stream-up` or `stream-one` |
+
+XHTTP rides on the node's `reality`: same port, server name and keys.
+Whatever reaches the Reality inbound and isn't VLESS over a raw TLS
+stream falls back to the XHTTP inbound. sing-box apps can't use XHTTP,
+so it is only in share links.
 
 ### `hysteria2`
 
@@ -151,6 +165,7 @@ The sing-box profile users import.
 
 Every node a user may use contributes one member per protocol, tagged
 `<node>-reality`, `<node>-hy2`, `<node>-naive`. `direct` is reserved.
+XHTTP has no member: sing-box doesn't speak it.
 
 ## Rules
 
@@ -206,6 +221,25 @@ dns:
 | `strategy` | `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` |
 | `optimistic` | answer from an expired cache while refreshing |
 | `rules` | `{ match: [...], server: <name> }`; domain conditions only |
+
+## Engines
+
+| | sing-box | xray |
+|---|---|---|
+| `reality` | yes | yes |
+| `xhttp` | no | yes |
+| `hysteria2` | yes | no |
+| `naive` | yes | no |
+
+On xray nodes:
+
+- DNS servers can't be `tls://`, and are queried directly; their host
+  names are resolved by the system, as xray has no `resolver` per server.
+- `network:icmp` can't be matched.
+- `action: sniff` turns on sniffing for the whole inbound, so every rule
+  sees the sniffed domain, wherever the `sniff` rule stands.
+
+Users' apps get the same subscription whatever engine the nodes run.
 
 ## `subscription`
 

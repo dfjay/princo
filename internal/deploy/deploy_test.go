@@ -56,7 +56,7 @@ func build(t *testing.T, node string) *bundle.Bundle {
 // a listing of its directories, files and units, and the files princo
 // deploy writes itself. Run with -update to accept changes.
 func TestGolden(t *testing.T) {
-	for _, node := range []string{"de", "us", "relay"} {
+	for _, node := range []string{"de", "us", "relay", "fi"} {
 		t.Run(node, func(t *testing.T) {
 			b := build(t, node)
 			var listing strings.Builder
@@ -163,8 +163,8 @@ func TestBuild_MissingRuleSet(t *testing.T) {
 }
 
 func TestBuild_UnknownEngine(t *testing.T) {
-	_, err := Build(&host.Plan{Node: "de", Engine: "xray"}, nil, nil, false)
-	require.ErrorContains(t, err, "can't run engine xray yet")
+	_, err := Build(&host.Plan{Node: "de", Engine: "v2ray"}, nil, nil, false)
+	require.ErrorContains(t, err, "can't run engine v2ray yet")
 }
 
 func TestReadRuleSets(t *testing.T) {
@@ -172,10 +172,22 @@ func TestReadRuleSets(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "geoip-ru.srs"), []byte("SRS\x01"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "geosite-x.srs"), []byte("<html>"), 0o644))
 
-	got, err := RuleSets(t.Context(), nil, dir, "sing-box", []string{"geoip-ru.srs"})
+	got, err := RuleSets(t.Context(), nil, dir, "sing-box", []string{"geoip-ru.srs"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, map[string][]byte{"geoip-ru.srs": []byte("SRS\x01")}, got)
 
-	_, err = RuleSets(t.Context(), nil, dir, "sing-box", []string{"geosite-x.srs"})
+	_, err = RuleSets(t.Context(), nil, dir, "sing-box", []string{"geosite-x.srs"}, nil)
 	require.ErrorContains(t, err, "isn't a sing-box rule set")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "geoip.dat"), []byte("\x0a\x04\x0a\x02RU\x0a\x04\x0a\x02DE"), 0o644))
+	got, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:ru"]}`))
+	require.NoError(t, err)
+	require.Equal(t, []byte("\x0a\x04\x0a\x02RU"), got["geoip.dat"], "only what the config uses")
+	_, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:fr"]}`))
+	require.ErrorContains(t, err, "it has no fr")
+	got, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:!de"]}`))
+	require.NoError(t, err)
+	require.Equal(t, []byte("\x0a\x04\x0a\x02DE"), got["geoip.dat"], "a negated code needs its entry")
+	_, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geosite-x.srs"}, nil)
+	require.ErrorContains(t, err, "isn't a xray rule set")
 }

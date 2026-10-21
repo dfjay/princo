@@ -12,7 +12,8 @@ import (
 // Where a rendered server config expects things on the host. Whatever
 // deploys the node (the NixOS module, princo deploy) puts them there.
 const (
-	// RuleSetDir holds the geosite/geoip rule sets, one <tag>.srs each.
+	// RuleSetDir holds the geosite/geoip rule sets in the engine's format:
+	// one <tag>.srs each for sing-box, geosite.dat and geoip.dat for xray.
 	RuleSetDir = "/var/lib/princo/rules"
 	// CertDir holds one directory per domain with fullchain.pem and key.pem.
 	CertDir = "/var/lib/princo/certs"
@@ -20,6 +21,13 @@ const (
 	// SNI multiplexer on TCP 443.
 	MuxRealityPort = 8444
 	MuxNaivePort   = 8445
+)
+
+// Cloudflare WARP's WireGuard peer.
+const (
+	WarpPeer          = "engage.cloudflareclient.com"
+	WarpPeerPort      = 2408
+	WarpPeerPublicKey = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
 )
 
 // ClientEngine renders client profiles whatever engine the servers run:
@@ -33,6 +41,8 @@ type Engine interface {
 	RenderServer(f *fleet.Fleet, node string) ([]byte, error)
 	// RenderClient renders the profile the named user imports into their app.
 	RenderClient(f *fleet.Fleet, user string) ([]byte, error)
+	// RuleSets lists the files in RuleSetDir a rendered server config loads.
+	RuleSets(config []byte) []string
 }
 
 var (

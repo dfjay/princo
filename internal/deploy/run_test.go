@@ -1,8 +1,11 @@
 package deploy
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"io"
 	"os/exec"
@@ -23,6 +26,7 @@ type fakeRemote struct {
 	steps   []string
 	bundles []*bundle.Bundle
 	deb     []byte
+	binary  []byte
 }
 
 func (r *fakeRemote) Run(_ context.Context, script string, stdin io.Reader, stdout io.Writer) error {
@@ -44,6 +48,9 @@ func (r *fakeRemote) Run(_ context.Context, script string, stdin io.Reader, stdo
 	case strings.Contains(script, "dpkg -i"):
 		r.steps = append(r.steps, "install")
 		r.deb = in
+	case strings.Contains(script, `mv -f "$f" "$bin"`):
+		r.steps = append(r.steps, "install engine")
+		r.binary = in
 	case strings.HasPrefix(script, "princo host apply"):
 		var b bundle.Bundle
 		require.NoError(r.t, json.Unmarshal(in, &b))
@@ -192,6 +199,51 @@ func TestProvision(t *testing.T) {
 	require.NoError(t, d.provision(t.Context(), p, engines[p.Engine]))
 	require.Contains(t, script, "for p in 'sing-box'; do")
 	require.NotContains(t, script, "/udp")
+}
+
+func TestDeploy_Xray(t *testing.T) {
+	exe := []byte("xray binary")
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	f, err := w.Create("xray")
+	require.NoError(t, err)
+	_, err = f.Write(exe)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	sum := sha256.Sum256(buf.Bytes())
+	pinned := *xrayRelease
+	pinned.Zips = map[string]download{"amd64": {URL: "https://example.com/xray.zip", SHA256: hex.EncodeToString(sum[:])}}
+	spec := engines["xray"]
+	spec.binary = &pinned
+	engines["xray"] = spec
+	t.Cleanup(func() { spec.binary = xrayRelease; engines["xray"] = spec })
+
+	p, files, ruleSets := plan(t, "fi")
+	r := &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\n"}
+	d, _ := newDeployer(r, "0.2.0")
+	var fetched []string
+	d.Fetch = func(_ context.Context, url string) ([]byte, error) {
+		fetched = append(fetched, url)
+		return buf.Bytes(), nil
+	}
+	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
+	require.Equal(t, []string{"probe", "provision", "install engine", "apply"}, r.steps)
+	require.Equal(t, exe, r.binary)
+	require.Equal(t, []string{"https://example.com/xray.zip"}, fetched)
+
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine 26.3.27\nprinco 0.2.0\n"}
+	d, _ = newDeployer(r, "0.2.0")
+	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
+	require.Equal(t, []string{"probe", "provision", "apply"}, r.steps, "the host has this xray")
+
+	r = &fakeRemote{t: t, probe: "arch arm64\nprinco 0.2.0\n"}
+	d, _ = newDeployer(r, "0.2.0")
+	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "there's no xray 26.3.27 for arm64")
+
+	r = &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\n"}
+	d, _ = newDeployer(r, "0.2.0")
+	d.Fetch = func(context.Context, string) ([]byte, error) { return []byte("tampered"), nil }
+	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "doesn't match its pinned SHA-256")
 }
 
 type remoteFunc func(script string)

@@ -272,6 +272,7 @@ in
               "princo-render.service"
             ]
             ++ certUnits;
+            inherit (engine) environment;
             serviceConfig = {
               ExecStart = lib.escapeShellArgs (
                 engine.command {

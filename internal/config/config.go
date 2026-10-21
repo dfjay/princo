@@ -40,6 +40,7 @@ type Defaults struct {
 	ACMEEmail string     `yaml:"acme_email"`
 	Reality   *Reality   `yaml:"reality"`
 	Hysteria2 *Hysteria2 `yaml:"hysteria2"`
+	XHTTP     *XHTTP     `yaml:"xhttp"`
 	Egress    string     `yaml:"egress"`
 	DNS       *DNS       `yaml:"dns"`
 	Rules     []Rule     `yaml:"rules"`
@@ -57,6 +58,7 @@ type Node struct {
 	Reality     *Reality        `yaml:"reality"`
 	Hysteria2   *Hysteria2      `yaml:"hysteria2"`
 	Naive       *Naive          `yaml:"naive"`
+	XHTTP       *XHTTP          `yaml:"xhttp"`
 	Warp        *Warp           `yaml:"warp"`
 	Egress      string          `yaml:"egress"`
 	DNS         *DNS            `yaml:"dns"`
@@ -74,6 +76,11 @@ type Reality struct {
 type Hysteria2 struct {
 	Masquerade   string                 `yaml:"masquerade"`
 	ObfsPassword *secrets.SecretOrPlain `yaml:"obfs_password"`
+}
+
+type XHTTP struct {
+	Path string `yaml:"path"`
+	Mode string `yaml:"mode"`
 }
 
 type Naive struct {

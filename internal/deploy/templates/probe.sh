@@ -15,6 +15,11 @@ fi
 if [ -e {{.StreamConf}} ]; then
 	echo stream
 fi
+{{- with .Binary}}
+if [ -x {{q .}} ]; then
+	echo "engine $({{q .}} version | head -n 1 | cut -d' ' -f2)"
+fi
+{{- end}}
 if command -v princo >/dev/null; then
 	echo "princo $(princo version | cut -d' ' -f2)"
 fi

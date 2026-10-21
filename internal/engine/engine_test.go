@@ -28,3 +28,4 @@ type dummyEngine struct{ name string }
 func (d *dummyEngine) Name() string                                      { return d.name }
 func (d *dummyEngine) RenderServer(*fleet.Fleet, string) ([]byte, error) { return nil, nil }
 func (d *dummyEngine) RenderClient(*fleet.Fleet, string) ([]byte, error) { return nil, nil }
+func (d *dummyEngine) RuleSets([]byte) []string                          { return nil }

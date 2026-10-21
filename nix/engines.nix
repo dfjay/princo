@@ -22,6 +22,8 @@
       ];
     # Whether SIGHUP reloads the config.
     reloads = true;
+    # The engine's environment.
+    environment = { };
     # Where a file of plan.rule_sets comes from.
     ruleSet =
       file:
@@ -29,5 +31,26 @@
         source = if lib.hasPrefix "geoip-" file then pkgs.sing-geoip else pkgs.sing-geosite;
       in
       "${source}/share/sing-box/rule-set/${file}";
+  };
+
+  xray = {
+    package = pkgs.xray;
+    command =
+      { package, config, ... }:
+      [
+        (lib.getExe package)
+        "run"
+        "-c"
+        config
+      ];
+    reloads = false;
+    # geoip.dat and geosite.dat, from the rule set dir.
+    environment.XRAY_LOCATION_ASSET = "/var/lib/princo/rules";
+    ruleSet =
+      file:
+      let
+        source = if file == "geoip.dat" then pkgs.v2ray-geoip else pkgs.v2ray-domain-list-community;
+      in
+      "${source}/share/v2ray/${file}";
   };
 }

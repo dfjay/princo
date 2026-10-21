@@ -179,3 +179,62 @@ func TestParseDNSAddress(t *testing.T) {
 	_, err := parseDNSAddress("ftp://x")
 	require.Error(t, err)
 }
+
+func TestBuild_XHTTP(t *testing.T) {
+	f, err := build(t, `
+defaults:
+  xhttp: { path: /shared }
+nodes:
+  a:
+    address: a.example.com
+    engine: xray
+    reality: { server_name: s, short_id: "1", public_key: p }
+    xhttp: {}
+users:
+  u: {}
+`, conventionalSecrets())
+	require.NoError(t, err)
+	a, _ := f.Node("a")
+	require.Equal(t, &XHTTP{Path: "/shared", Mode: "auto"}, a.XHTTP)
+	require.Equal(t, []string{"reality", "xhttp"}, a.Protocols())
+}
+
+func TestBuild_EngineLimits(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    xhttp: { path: /p }
+  b:
+    address: b.example.com
+    engine: xray
+    hysteria2: { masquerade: https://example.com }
+    xhttp: { path: "/bad path", mode: fast }
+    dns:
+      servers: { dot: { address: tls://1.1.1.1 } }
+      final: dot
+      rules:
+        - { match: [domain:example.org] }
+    rules:
+      - { match: [network:icmp], action: reject }
+  c:
+    engine: v2ray
+    naive: { domain: c.example.com }
+users:
+  u: {}
+`, conventionalSecrets())
+	for _, want := range []string{
+		"nodes.a.xhttp: engine sing-box doesn't serve it",
+		"nodes.b.hysteria2: engine xray doesn't serve it",
+		`nodes.b.xhttp.path: want a path such as /a1b2c3`,
+		`nodes.b.xhttp.mode: want one of auto, packet-up, stream-up, stream-one, got "fast"`,
+		"nodes.b.xhttp: needs reality",
+		"nodes.b.dns.servers.dot: xray has no DNS over TLS",
+		"nodes.b.rules[0]: xray doesn't route ICMP",
+		"nodes.b.dns.rules[0].server: required",
+		`nodes.c: engine "v2ray" is not supported (have: sing-box, xray)`,
+	} {
+		require.ErrorContains(t, err, want)
+	}
+}

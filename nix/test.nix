@@ -1,6 +1,7 @@
 # Runs node de of the fixture fleet, which has everything: all three
 # protocols, the multiplexer with a passthrough site, and the subscription
-# site. Certificates are ACME's self-signed stand-ins.
+# site. Certificates are ACME's self-signed stand-ins. Beside it, node fi
+# runs xray with XHTTP behind Reality.
 { self }:
 { pkgs, ... }:
 
@@ -43,7 +44,25 @@ in
       ];
     };
 
+  nodes.fi =
+    { pkgs, ... }:
+    {
+      imports = [ self.nixosModules.default ];
+      services.princo = {
+        enable = true;
+        config = ../testdata/fleet/princo.yaml;
+        node = "fi";
+        secretsDir = "${secretsDir}";
+      };
+      environment.systemPackages = [ pkgs.xray ];
+    };
+
   testScript = ''
+    fi.wait_for_unit("princo.service")
+    fi.wait_for_open_port(443)
+    fi.succeed("grep -q '@princo-xhttp' /proc/net/unix")  # the XHTTP fallback
+    fi.succeed("XRAY_LOCATION_ASSET=/var/lib/princo/rules xray run -test -c /run/princo/files/xray.json")
+
     machine.wait_for_unit("princo-render.service")
     machine.wait_for_unit("princo.service")
     machine.wait_for_unit("nginx.service")

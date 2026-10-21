@@ -75,7 +75,8 @@
         "de-reality",
         "de-hy2",
         "de-naive",
-        "us-reality"
+        "us-reality",
+        "fi-reality"
       ],
       "tag": "select",
       "type": "selector"
@@ -139,6 +140,27 @@
           "enabled": true,
           "public_key": "P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk",
           "short_id": "2b4398e0"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "fi.example.com",
+      "server_port": 443,
+      "tag": "fi-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc",
+          "short_id": "3c5409f1"
         },
         "server_name": "www.samsung.com",
         "utls": {

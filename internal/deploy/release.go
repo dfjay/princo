@@ -38,7 +38,7 @@ func ReleaseDeb(ctx context.Context, client *http.Client, baseURL, version, arch
 
 	var sums []byte
 	for _, name := range []string{"checksums.txt", "checksums.txt.sigstore.json"} {
-		data, err := fetch(ctx, client, release+name)
+		data, err := Fetch(ctx, client, release+name)
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +64,7 @@ func ReleaseDeb(ctx context.Context, client *http.Client, baseURL, version, arch
 	if !ok {
 		return nil, fmt.Errorf("princo %s has no %s", version, name)
 	}
-	deb, err := fetch(ctx, client, release+name)
+	deb, err := Fetch(ctx, client, release+name)
 	if err != nil {
 		return nil, err
 	}

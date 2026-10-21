@@ -64,6 +64,7 @@ type Node struct {
 	Reality   *Reality
 	Hysteria2 *Hysteria2
 	Naive     *Naive
+	XHTTP     *XHTTP
 
 	Egress Egress
 	// Warp holds the WARP credentials when Egress is EgressWarp.
@@ -77,6 +78,24 @@ type Node struct {
 
 	// ServesSubscription is set on the node hosting the subscription site.
 	ServesSubscription bool
+}
+
+// Protocols lists the protocols n serves, by their names in princo.yaml.
+func (n *Node) Protocols() []string {
+	var out []string
+	if n.Reality != nil {
+		out = append(out, "reality")
+	}
+	if n.XHTTP != nil {
+		out = append(out, "xhttp")
+	}
+	if n.Hysteria2 != nil {
+		out = append(out, "hysteria2")
+	}
+	if n.Naive != nil {
+		out = append(out, "naive")
+	}
+	return out
 }
 
 // HasTag reports whether the node carries tag.
@@ -98,6 +117,12 @@ type Reality struct {
 type Hysteria2 struct {
 	Masquerade   string
 	ObfsPassword string
+}
+
+type XHTTP struct {
+	Path string
+	// Mode is the client's: auto, packet-up, stream-up or stream-one.
+	Mode string
 }
 
 type Naive struct {

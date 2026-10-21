@@ -1,6 +1,7 @@
 # A small fleet exercising every feature: all three protocols with WARP
 # egress and a site behind the multiplexer (de), VLESS-Reality alone on
-# 443 (us), and a chain hop without IPv6 that exits through de (relay).
+# 443 (us), a chain hop without IPv6 that exits through de (relay), and
+# an xray node serving XHTTP beside VLESS-Reality (fi).
 princo: v1
 
 defaults:
@@ -42,6 +43,16 @@ nodes:
       public_key: P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk
     egress: direct
 
+  fi:
+    ssh: root@fi.example.com
+    address: fi.example.com
+    engine: xray
+    reality:
+      short_id: 3c5409f1
+      public_key: x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc
+    xhttp:
+      path: /f7Kq2m
+
   relay:
     ssh: root@relay.example.ru
     address: relay.example.ru
@@ -57,7 +68,7 @@ nodes:
       - { match: [geosite:category-ru, geoip:ru], action: direct }
 
 users:
-  alice: { nodes: [de, us] }
+  alice: { nodes: [de, us, fi] }
   bob: { nodes: [us, relay] }
 
 client:

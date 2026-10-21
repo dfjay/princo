@@ -1,10 +1,13 @@
 # Written by princo deploy; changes here are overwritten.
 [Unit]
-Description=princo node {{.Node}} ({{.Engine}})
+Description=princo node {{.Node}} ({{.Engine}}{{with .Version}} {{.}}{{end}})
 Wants=network-online.target
 After=network-online.target
 
 [Service]
+{{- range .Environment}}
+Environment={{.}}
+{{- end}}
 ExecStart={{.ExecStart}}
 {{- if .Reloads}}
 ExecReload=/bin/kill -HUP $MAINPID
