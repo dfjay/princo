@@ -125,6 +125,7 @@
   },
   "outbounds": [
     {
+      "domain_resolver": "quad9",
       "tag": "direct",
       "type": "direct"
     }
@@ -147,6 +148,10 @@
       }
     ],
     "rules": [
+      {
+        "action": "reject",
+        "ip_is_private": true
+      },
       {
         "action": "reject",
         "port": [

@@ -241,6 +241,11 @@ rules:
   - { match: [geosite:category-ru, geoip:ru], action: direct }
 ```
 
+Before a node's rules, princo refuses users' connections to private and
+loopback addresses, so they can't reach the node's own services or network.
+On nodes exiting directly, domains are resolved first and their addresses
+checked too.
+
 Client rules can route through a group defined in `client.groups`:
 
 ```yaml
@@ -287,7 +292,7 @@ dns:
 | `servers.<name>.resolver` | another server that resolves this one's host name |
 | `servers.<name>.via` | client only: send queries through a group |
 | `final` | the server for everything else; required |
-| `default_resolver` | resolves the host names of outbounds |
+| `default_resolver` | resolves the host names of DNS servers and outbounds; what users connect to goes through `final` and `rules` |
 | `strategy` | `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` |
 | `optimistic` | answer from an expired cache while refreshing |
 | `rules` | `{ match: [...], server: <name> }`; domain conditions only |

@@ -32,13 +32,26 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	}
 
 	route := map[string]any{"final": egressTag(n)}
+	// Users mustn't reach the node's own services and network. Exiting
+	// directly, domains are resolved first so the check sees their
+	// addresses; the direct outbound then dials those. Other nodes resolve
+	// just the domains their rules send direct.
+	resolved := n.Egress.Kind == fleet.EgressDirect
+	private := map[string]any{"ip_is_private": true, "action": "reject"}
 	var rules []any
+	if resolved {
+		rules = append(rules, map[string]any{"action": "resolve"})
+	}
+	rules = append(rules, private)
 	for _, r := range n.Rules {
-		rules = append(rules, withAction(compileMatch(r.Match, &sets), serverAction(r))...)
+		bodies := compileMatch(r.Match, &sets)
+		if !resolved && r.Action == fleet.ActionDirect {
+			rules = append(rules, withAction(bodies, map[string]any{"action": "resolve"})...)
+			rules = append(rules, private)
+		}
+		rules = append(rules, withAction(bodies, serverAction(r))...)
 	}
-	if len(rules) > 0 {
-		route["rules"] = rules
-	}
+	route["rules"] = rules
 	if len(sets.tags) > 0 {
 		route["rule_set"] = localRuleSets(sets.tags)
 	}
@@ -135,7 +148,11 @@ func serverOutbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	if up := n.Egress.Node; up != nil {
 		out = append(out, realityOutbound(up, n.ChainUUID))
 	}
-	return append(out, map[string]any{"type": "direct", "tag": "direct"})
+	direct := map[string]any{"type": "direct", "tag": "direct"}
+	if n.DNS != nil {
+		direct["domain_resolver"] = n.DNS.Final
+	}
+	return append(out, direct)
 }
 
 func egressTag(n *fleet.Node) string {
