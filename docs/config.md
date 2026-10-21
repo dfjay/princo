@@ -130,7 +130,7 @@ so it is only in share links.
 | Field | Description |
 | --- | --- |
 | `masquerade` | without `obfs`: the site served to probes; defaults to `https://<reality.server_name>`, required when Reality is absent and no default is set |
-| `obfs` | `salamander` or `gecko` to obfuscate the traffic; `none` by default, or to turn off a default |
+| `obfs` | `salamander` or `gecko` to obfuscate the traffic; `none` by default, or to turn off a default. Gecko is experimental, and few apps besides recent sing-box and Hysteria clients support it |
 | `obfs_password` | with `obfs`: *secret*, `shared/hysteria2_obfs` |
 
 Without `obfs`, the node is an HTTP/3 server: apps authenticate, and

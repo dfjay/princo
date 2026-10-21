@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -190,6 +191,9 @@ func (b *builder) nodes() {
 		}
 		if n.Address == "" && (n.Reality != nil || n.Hysteria2 != nil) {
 			b.errorf("%s: address is required", where)
+		}
+		if _, err := netip.ParseAddr(n.Address); err == nil && n.Hysteria2 != nil {
+			b.errorf("%s.hysteria2: needs address to be a domain, which its certificate is for", where)
 		}
 
 		if dns := cmp.Or(c.DNS, d.DNS); dns != nil {

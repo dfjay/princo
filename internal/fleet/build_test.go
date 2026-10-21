@@ -236,12 +236,14 @@ nodes:
   b: { address: b.example.com, hysteria2: { obfs: brutal } }
   c: { address: c.example.com, hysteria2: { masquerade: https://example.com, obfs_password: x } }
   d: { address: d.example.com, hysteria2: {} }
+  e: { address: 203.0.113.9, hysteria2: { masquerade: https://example.com } }
 `, conventionalSecrets())
 	for _, want := range []string{
 		"nodes.a.hysteria2.masquerade: has no effect with obfs",
 		`nodes.b.hysteria2.obfs: want none, salamander or gecko, got "brutal"`,
 		"nodes.c.hysteria2.obfs_password: needs obfs",
 		"nodes.d.hysteria2: masquerade is required",
+		"nodes.e.hysteria2: needs address to be a domain",
 	} {
 		require.ErrorContains(t, err, want)
 	}
