@@ -180,6 +180,28 @@ func TestApply_ChangedConfig(t *testing.T) {
 	}, h.calls, "no daemon-reload, and nginx's check runs only when its files change")
 }
 
+func TestApply_ReloadsUnlessUnitChanged(t *testing.T) {
+	reloading := func(cfg, unit string) *Bundle {
+		b := node(cfg, "")
+		b.Files[0].Data = []byte(unit)
+		b.Units[1].Reload = true
+		return b
+	}
+	h := newFakeHost(t)
+	_, err := h.Apply(t.Context(), reloading(`{"a":1}`, "[Service]\n"))
+	require.NoError(t, err)
+
+	h.calls = nil
+	_, err = h.Apply(t.Context(), reloading(`{"a":2}`, "[Service]\n"))
+	require.NoError(t, err)
+	require.Contains(t, h.calls, "systemctl reload-or-restart princo.service", "a new config reloads")
+
+	h.calls = nil
+	_, err = h.Apply(t.Context(), reloading(`{"a":2}`, "[Service]\nExecStart=/new\n"))
+	require.NoError(t, err)
+	require.Contains(t, h.calls, "systemctl restart princo.service", "a new unit restarts: a reload keeps the old process")
+}
+
 func TestApply_ModeDrift(t *testing.T) {
 	h := newFakeHost(t)
 	_, err := h.Apply(t.Context(), node(`{"a":1}`, ""))
