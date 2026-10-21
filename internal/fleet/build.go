@@ -250,6 +250,10 @@ func (b *builder) egress() {
 				PrivateKey: b.secret(where+".warp.private_key", w.PrivateKey, secretWarp(n.Name, "private_key"), SecretExternal),
 				IPv4:       b.secret(where+".warp.ipv4", w.IPv4, secretWarp(n.Name, "ipv4"), SecretExternal),
 				IPv6:       b.secret(where+".warp.ipv6", w.IPv6, secretWarp(n.Name, "ipv6"), SecretExternal),
+				Reserved:   w.Reserved,
+			}
+			if w.Reserved != nil && (len(w.Reserved) != 3 || slices.ContainsFunc(w.Reserved, func(v int) bool { return v < 0 || v > 255 })) {
+				b.errorf("%s.warp.reserved: want 3 bytes, e.g. [12, 34, 56]", where)
 			}
 		default:
 			up, ok := b.f.nodes[egress]

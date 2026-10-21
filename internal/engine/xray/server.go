@@ -181,22 +181,22 @@ func realityOutbound(up *fleet.Node, uuid string) map[string]any {
 }
 
 func warpOutbound(w *fleet.Warp) map[string]any {
-	return map[string]any{
-		"protocol": "wireguard",
-		"tag":      "warp",
-		"settings": map[string]any{
-			"secretKey": w.PrivateKey,
-			"address":   []any{w.IPv4, w.IPv6},
-			"peers": []any{map[string]any{
-				"publicKey":  engine.WarpPeerPublicKey,
-				"endpoint":   engine.WarpPeer + ":" + strconv.Itoa(engine.WarpPeerPort),
-				"allowedIPs": []any{"0.0.0.0/0", "::/0"},
-			}},
-			"mtu": 1280,
-			// gVisor's netstack: no TUN device or routes on the host.
-			"noKernelTun": true,
-		},
+	settings := map[string]any{
+		"secretKey": w.PrivateKey,
+		"address":   []any{w.IPv4, w.IPv6},
+		"peers": []any{map[string]any{
+			"publicKey":  engine.WarpPeerPublicKey,
+			"endpoint":   engine.WarpPeer + ":" + strconv.Itoa(engine.WarpPeerPort),
+			"allowedIPs": []any{"0.0.0.0/0", "::/0"},
+		}},
+		"mtu": 1280,
+		// gVisor's netstack: no TUN device or routes on the host.
+		"noKernelTun": true,
 	}
+	if w.Reserved != nil {
+		settings["reserved"] = w.Reserved
+	}
+	return map[string]any{"protocol": "wireguard", "tag": "warp", "settings": settings}
 }
 
 // ipStrategy is the address families a DNS strategy resolves, as xray's

@@ -172,7 +172,8 @@ credentials; it does not register an account.
 | `ipv6` | `nodes/<node>/warp/ipv6` | WARP interface IPv6 address |
 
 All three fields are *secret* and can be omitted when stored at their
-conventional paths.
+conventional paths. Some accounts also need `reserved`, the 3 bytes of
+their client ID, e.g. `reserved: [12, 34, 56]`.
 
 ### `passthrough`
 

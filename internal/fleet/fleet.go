@@ -135,6 +135,8 @@ type Warp struct {
 	PrivateKey string
 	IPv4       string
 	IPv6       string
+	// Reserved is the account's client ID as 3 bytes, when it needs one.
+	Reserved []int
 }
 
 type EgressKind int

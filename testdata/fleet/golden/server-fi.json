@@ -105,6 +105,11 @@
             "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
           }
         ],
+        "reserved": [
+          12,
+          34,
+          56
+        ],
         "secretKey": "aCzPQ1cG5D0b4rBW1ZJvXyeyqbPBJwe4ttkRwEeIvGs="
       },
       "tag": "warp",

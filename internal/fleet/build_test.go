@@ -268,6 +268,20 @@ users:
 	require.ErrorContains(t, err, "protocol must be one of tls, http, quic, bittorrent")
 }
 
+func TestBuild_WarpReserved(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    egress: warp
+    warp: { reserved: [1, 256] }
+users:
+  u: {}
+`, conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.warp.reserved: want 3 bytes")
+}
+
 func TestBuild_EngineLimits(t *testing.T) {
 	_, err := build(t, `
 nodes:
