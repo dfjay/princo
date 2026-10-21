@@ -220,3 +220,13 @@ func olderThan(a, b string) bool {
 	}
 	return false
 }
+
+func TestCertbotHook_SiteKeyStaysRoots(t *testing.T) {
+	hook, err := certbotHook(&host.Plan{
+		Certificates: []string{"de.example.com", "subs.example.com"},
+		Subscription: &host.Site{Domain: "subs.example.com"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, string(hook), "'subs.example.com') unit=nginx.service group=root ;;")
+	require.Contains(t, string(hook), "'de.example.com') unit=princo.service group=princo-engine ;;")
+}

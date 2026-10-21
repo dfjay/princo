@@ -20,5 +20,9 @@ if command -v princo >/dev/null; then
 	echo "princo $(princo version | cut -d' ' -f2)"
 fi
 {{- range .Certificates}}
-[ -s {{q (print $.CertDir "/" . "/fullchain.pem")}} ] && [ -s {{q (print $.CertDir "/" . "/key.pem")}} ] || echo missing {{q .}}
+if ! [ -s {{q (print $.CertDir "/" . "/fullchain.pem")}} ] || ! [ -s {{q (print $.CertDir "/" . "/key.pem")}} ]; then
+	echo missing {{q .}}
+elif [ -L {{q (print $.CertDir "/" . "/key.pem")}} ]; then
+	echo linked {{q .}}
+fi
 {{- end}}

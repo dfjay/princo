@@ -321,7 +321,7 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domain` | its domain; needs a DNS record pointing at that node |
+| `domain` | its domain; needs a DNS record pointing at that node, and can't be a domain the node's engine has a certificate for |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and

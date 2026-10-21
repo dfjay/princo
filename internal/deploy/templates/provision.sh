@@ -8,6 +8,7 @@ if [ -n "$missing" ]; then
 	apt-get update -q
 	apt-get install -y -q $missing
 fi
+getent group {{.Group}} >/dev/null || groupadd --system {{.Group}}
 {{- if or .TCP .UDP}}
 if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
 {{- range .TCP}}

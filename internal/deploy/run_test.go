@@ -25,7 +25,7 @@ type fakeRemote struct {
 	t     *testing.T
 	probe string
 	// steps names each script that ran: probe, provision, install,
-	// apply, check, or issue <domain>.
+	// apply, check, issue <domain> or copy <domain>.
 	steps   []string
 	bundles []*bundle.Bundle
 	deb     []byte
@@ -65,6 +65,9 @@ func (r *fakeRemote) Run(_ context.Context, script string, stdin io.Reader, stdo
 		} else {
 			r.steps = append(r.steps, "apply")
 		}
+	case strings.HasPrefix(script, "RENEWED_LINEAGE="):
+		lineage, _, _ := strings.Cut(strings.TrimPrefix(script, "RENEWED_LINEAGE='/etc/letsencrypt/live/"), "'")
+		r.steps = append(r.steps, "copy "+lineage)
 	case strings.Contains(script, "certbot certonly"):
 		_, domain, _ := strings.Cut(script, "--domains '")
 		domain, _, _ = strings.Cut(domain, "'")
@@ -102,6 +105,18 @@ func TestDeploy_FreshHost(t *testing.T) {
 	require.Equal(t, "deb 0.2.0 arm64", string(r.deb))
 	require.True(t, r.bundles[0].Partial, "the engine waits for the certificates")
 	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(r.bundles[1]))
+}
+
+func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nlinked de.example.com\nlinked subs.example.com\n"}
+	d, _ := newDeployer(r, "0.2.0")
+	p, files, ruleSets := plan(t, "de")
+	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
+	require.Equal(t, []string{
+		"probe", "provision",
+		"copy de.example.com", "copy subs.example.com",
+		"apply", "prune",
+	}, r.steps, "copied before the engine restarts without access to certbot's")
 }
 
 func TestDeploy_UpToDate(t *testing.T) {
@@ -182,7 +197,7 @@ func TestProbe_Certificates(t *testing.T) {
 	p, _, _ := plan(t, "de")
 	_, err := d.probe(t.Context(), p)
 	require.ErrorContains(t, err, "didn't tell its architecture")
-	require.Contains(t, script, "[ -s '/var/lib/princo/certs/subs.example.com/fullchain.pem' ] && [ -s '/var/lib/princo/certs/subs.example.com/key.pem' ] || echo missing 'subs.example.com'")
+	require.Contains(t, script, "if ! [ -s '/var/lib/princo/certs/subs.example.com/fullchain.pem' ] || ! [ -s '/var/lib/princo/certs/subs.example.com/key.pem' ]; then\n\techo missing 'subs.example.com'\nelif [ -L '/var/lib/princo/certs/subs.example.com/key.pem' ]; then\n\techo linked 'subs.example.com'\nfi")
 }
 
 func TestProvision(t *testing.T) {

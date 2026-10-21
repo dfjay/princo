@@ -83,6 +83,13 @@ in
     assert "qr-sub.svg" in machine.succeed(curl + "/qr")
     assert "<svg" in machine.succeed(curl + "/qr-sub.svg")
     machine.fail("curl -sfk --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/tokens.txt")
+    machine.fail(curl + "/missing.svg")
+    # Subscription URLs grant access.
+    assert token not in machine.succeed("cat /var/log/nginx/*.log && journalctl -u nginx --no-pager")
+
+    # The engine reads its files through its group, not by bypassing permissions.
+    caps = machine.succeed("grep CapEff /proc/$(systemctl show -P MainPID princo.service)/status")
+    assert int(caps.split()[1], 16) & (1 << 2) == 0, caps  # CAP_DAC_READ_SEARCH
 
     closure = machine.succeed("nix-store -qR /run/current-system | grep -v princo-test-secrets").split()
     assert len(closure) > 100, closure

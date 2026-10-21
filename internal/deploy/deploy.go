@@ -36,6 +36,9 @@ var stateDir = bundle.Dir{Path: bundle.StateDir, Mode: 0o755}
 // webGroup is the group Debian's nginx runs as.
 const webGroup = "www-data"
 
+// engineGroup may read the engine's config and certificates.
+const engineGroup = "princo-engine"
+
 //go:embed templates
 var templateFS embed.FS
 
@@ -51,7 +54,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 	}
 	b := &bundle.Bundle{Format: bundle.Format, Node: p.Node, Dirs: []bundle.Dir{stateDir}}
 
-	filesDir := bundle.Dir{Path: FilesDir, Mode: 0o700}
+	filesDir := bundle.Dir{Path: FilesDir, Mode: 0o750, Group: engineGroup}
 	if p.Subscription != nil {
 		filesDir.Mode = 0o751
 	}
@@ -67,6 +70,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 			f.Mode, f.Group = 0o640, webGroup
 		}
 		if f.Path == config {
+			f.Mode, f.Group = 0o640, engineGroup
 			engineFiles = append(engineFiles, f.Path)
 		}
 		b.Files = append(b.Files, f)
@@ -89,6 +93,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		"ExecStart":   strings.Join(e.command(bin, config, "/var/lib/princo-"+p.Engine), " "),
 		"Reloads":     e.reloads,
 		"StateDir":    "princo-" + p.Engine,
+		"Group":       engineGroup,
 	})
 	if err != nil {
 		return nil, err
@@ -140,14 +145,8 @@ func Bootstrap(p *host.Plan, missing []string) (*bundle.Bundle, error) {
 // addSite adds nginx's sites, the ACME webroot and the certbot hook;
 // siteTLS serves the subscription site, which needs its certificate.
 func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
-	var engineDomains []string
-	for _, d := range p.Certificates {
-		if p.Subscription == nil || d != p.Subscription.Domain {
-			engineDomains = append(engineDomains, d)
-		}
-	}
 	data := map[string]any{
-		"EngineDomains": engineDomains,
+		"EngineDomains": engineDomains(p),
 		"Site":          p.Subscription,
 		"SiteTLS":       siteTLS,
 		"ACMEDir":       ACMEDir,
@@ -160,11 +159,7 @@ func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 	if err != nil {
 		return err
 	}
-	hook, err := execute("certbot-hook", map[string]any{
-		"Site":          p.Subscription,
-		"EngineDomains": engineDomains,
-		"CertDir":       engine.CertDir,
-	})
+	hook, err := certbotHook(p)
 	if err != nil {
 		return err
 	}
@@ -174,6 +169,22 @@ func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 		bundle.File{Path: CertbotHook, Mode: 0o755, Data: hook},
 	)
 	return nil
+}
+
+func certbotHook(p *host.Plan) ([]byte, error) {
+	return execute("certbot-hook", map[string]any{
+		"Site":          p.Subscription,
+		"EngineDomains": engineDomains(p),
+		"CertDir":       engine.CertDir,
+		"Group":         engineGroup,
+	})
+}
+
+// engineDomains are the certificates the engine reads, not nginx.
+func engineDomains(p *host.Plan) []string {
+	return slices.DeleteFunc(slices.Clone(p.Certificates), func(d string) bool {
+		return p.Subscription != nil && d == p.Subscription.Domain
+	})
 }
 
 func nginxUnit(files []string) bundle.Unit {
