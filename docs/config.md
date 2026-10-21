@@ -329,7 +329,9 @@ Users' apps get the same subscription whatever engine the nodes run.
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
-a QR page at `/qr`. `princo render --user <name> --links` prints them.
+a QR page at `/qr`. Apps that read subscription headers name the profile
+after the domain, link to the QR page and refresh it daily.
+`princo render --user <name> --links` prints them.
 The sing-box profile is served at `/<token>/sing-box`. Tokens stay stable
 across renders; changing a user's UUID changes their subscription URL.
 Deploy the subscription node after changing users or their access so its

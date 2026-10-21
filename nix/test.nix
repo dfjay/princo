@@ -77,6 +77,8 @@ in
     token = machine.succeed("awk '$1 == \"alice\" {print $2}' /run/princo/files/tokens.txt").strip()
     curl = "curl -sfk --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/" + token
     links = machine.succeed(curl + "/ | base64 -d")
+    headers = machine.succeed(curl + "/ -D - -o /dev/null")
+    assert "profile-web-page-url: https://subs.example.com/" + token + "/qr" in headers, headers
     assert "#alice-de-reality" in links, links
     profile = machine.succeed(curl + "/ -A 'SFA (sing-box 1.14)'")
     assert '"outbounds"' in profile, profile
