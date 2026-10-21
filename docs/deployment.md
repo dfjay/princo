@@ -42,7 +42,9 @@ princo deploy --node nl --host admin@nl.example.com
 ### What a deploy does
 
 1. Installs nginx, its stream module and certbot when needed, and opens the
-   node's ports if ufw is active.
+   node's ports if ufw is active. Once the node is applied, princo closes the
+   ports it opened that the node no longer uses. Rules without its `princo`
+   comment, such as yours or those of older releases, stay.
 2. Installs the engine release pinned by this version of princo, verifying
    its SHA-256 checksum. Engine files go under
    `/usr/local/lib/princo/<engine>-<version>`.

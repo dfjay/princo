@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	"github.com/dfjay/princo/internal/bundle"
@@ -104,7 +103,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 	if err := d.apply(ctx, b, false); err != nil {
 		return err
 	}
-	return d.Remote.Run(ctx, fmt.Sprintf(pruneReleases, shellQuote(engineRoot), shellQuote(e.dir())), nil, d.Log)
+	return d.cleanup(ctx, p, e)
 }
 
 // Check prints what Deploy would change in the host's files.
@@ -189,7 +188,6 @@ func (d *Deployer) copyLinked(ctx context.Context, p *host.Plan, domains []strin
 
 func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 	var pkgs []string
-	tcp := slices.Clone(p.TCPPorts)
 	if p.Mux != nil || len(p.Certificates) > 0 {
 		pkgs = append(pkgs, "nginx")
 	}
@@ -198,18 +196,46 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 	}
 	if len(p.Certificates) > 0 {
 		pkgs = append(pkgs, "certbot")
-		tcp = append(tcp, 80)
 	}
 	script, err := execute("provision.sh", map[string]any{
 		"Packages": pkgs,
-		"TCP":      tcp,
-		"UDP":      p.UDPPorts,
+		"Ports":    ports(p),
 		"Group":    engineGroup,
 	})
 	if err != nil {
 		return err
 	}
 	return d.Remote.Run(ctx, string(script), nil, d.Log)
+}
+
+// cleanup removes what the applied node no longer needs: the other engine
+// releases, kept for a rollback until now, and the ufw rules princo opened
+// for ports it stopped using.
+func (d *Deployer) cleanup(ctx context.Context, p *host.Plan, e engineSpec) error {
+	script, err := execute("cleanup.sh", map[string]any{
+		"Root":  engineRoot,
+		"Keep":  e.dir(),
+		"Ports": ports(p),
+	})
+	if err != nil {
+		return err
+	}
+	return d.Remote.Run(ctx, string(script), nil, d.Log)
+}
+
+// ports are the node's ufw rules, like 443/tcp; 80 serves ACME challenges.
+func ports(p *host.Plan) []string {
+	var out []string
+	for _, port := range p.TCPPorts {
+		out = append(out, fmt.Sprintf("%d/tcp", port))
+	}
+	if len(p.Certificates) > 0 {
+		out = append(out, "80/tcp")
+	}
+	for _, port := range p.UDPPorts {
+		out = append(out, fmt.Sprintf("%d/udp", port))
+	}
+	return out
 }
 
 // installRelease unpacks the tar on stdin into dir, whole or not at all.
@@ -222,14 +248,6 @@ tar -x -C "$tmp" --no-same-owner
 chmod 0755 "$tmp"
 rm -rf "$dir"
 mv "$tmp" "$dir"
-`
-
-// pruneReleases removes the engine releases but the one at keep, once
-// the node no longer needs them to roll back.
-const pruneReleases = `set -eu
-for dir in %s/*; do
-	[ "$dir" = %s ] || rm -rf "$dir"
-done
 `
 
 // installEngine puts the engine's release on the host, unless it has it.
