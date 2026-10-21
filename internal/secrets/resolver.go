@@ -3,7 +3,10 @@ package secrets
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -16,6 +19,10 @@ import (
 //
 // Files are decrypted on first use and kept in memory.
 type Resolver struct {
+	// Recipients is the file of age public keys that age files are
+	// encrypted to when written.
+	Recipients string
+
 	baseDir      string
 	identityPath string
 	mappings     []Mapping
@@ -126,11 +133,112 @@ func ParseLocation(s string) (kind, file, key string, err error) {
 	return kind, file, key, nil
 }
 
-func (r *Resolver) open(kind, file string) (map[string]any, error) {
-	path := file
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(r.baseDir, file)
+// Has reports whether path has a value. A missing age file has none; a
+// missing sops file is an error, since princo can't create one.
+func (r *Resolver) Has(path string) (bool, error) {
+	kind, file, _, err := ParseLocation(r.Locate(path))
+	if err != nil {
+		return false, err
 	}
+	if kind == "age" {
+		if _, err := os.Stat(r.abs(file)); errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+	}
+	_, err = r.Get(path)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Set stores value at path, in the file Get looks it up in: a sops file
+// through `sops set`, an age file encrypted to Recipients.
+func (r *Resolver) Set(path, value string) error { return r.write(path, &value) }
+
+// Delete removes path from the file Get looks it up in.
+func (r *Resolver) Delete(path string) error { return r.write(path, nil) }
+
+// write sets path to value, or removes it when value is nil.
+func (r *Resolver) write(path string, value *string) error {
+	kind, file, key, err := ParseLocation(r.Locate(path))
+	if err != nil {
+		return err
+	}
+	file = r.abs(file)
+	delete(r.cache, kind+":"+file)
+	if kind == "sops" {
+		if value == nil {
+			return runSops(nil, "unset", file, sopsIndex(key))
+		}
+		v, err := json.Marshal(*value)
+		if err != nil {
+			return err
+		}
+		// On stdin, the value stays out of process listings.
+		return runSops(v, "set", "--value-stdin", file, sopsIndex(key))
+	}
+
+	if r.Recipients == "" {
+		return fmt.Errorf("write %s: no recipients file to encrypt to", file)
+	}
+	if err := CheckRecipients(r.identityPath, r.Recipients); err != nil {
+		return fmt.Errorf("write %s: %w", file, err)
+	}
+	values := map[string]any{}
+	if _, err := os.Stat(file); err == nil {
+		if values, err = r.decrypt(kind, file, r.identityPath); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	s := NewStore(values)
+	if value == nil {
+		err = s.Delete(key)
+	} else {
+		err = s.Set(key, *value)
+	}
+	if err != nil {
+		return err
+	}
+	return Save(file, r.Recipients, s.values)
+}
+
+// sopsIndex turns a key such as a/b into sops' ["a"]["b"].
+func sopsIndex(key string) string {
+	var b strings.Builder
+	for _, part := range splitPath(key) {
+		q, _ := json.Marshal(part)
+		b.WriteString("[" + string(q) + "]")
+	}
+	return b.String()
+}
+
+func runSops(stdin []byte, args ...string) error {
+	bin, err := exec.LookPath("sops")
+	if err != nil {
+		return fmt.Errorf("sops %s: sops is not installed", strings.Join(args, " "))
+	}
+	var stderr bytes.Buffer
+	cmd := exec.Command(bin, args...)
+	cmd.Stdin = bytes.NewReader(stdin)
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sops %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+func (r *Resolver) abs(file string) string {
+	if filepath.IsAbs(file) {
+		return file
+	}
+	return filepath.Join(r.baseDir, file)
+}
+
+func (r *Resolver) open(kind, file string) (map[string]any, error) {
+	path := r.abs(file)
 	id := kind + ":" + path
 	if v, ok := r.cache[id]; ok {
 		return v, nil

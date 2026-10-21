@@ -11,7 +11,7 @@ nodes:
     reality:
       server_name: www.microsoft.com # a real HTTPS site the node imitates
       short_id: 0123abcd # openssl rand -hex 4
-      public_key: <public key> # sing-box generate reality-keypair
+      public_key: <public key> # set by princo secret gen nodes/nl/reality
     hysteria2: {}
 
 users:

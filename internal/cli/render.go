@@ -192,5 +192,10 @@ func loadConfig(global *globalFlags) (*config.Config, error) {
 
 // newResolver looks secrets up as princo.yaml's secrets: block says, with paths relative to the config file.
 func newResolver(global *globalFlags, cfg *config.Config) (*secrets.Resolver, error) {
-	return secrets.NewResolver(filepath.Dir(global.ConfigPath), identityPath(global), cfg.SecretMappings())
+	r, err := secrets.NewResolver(filepath.Dir(global.ConfigPath), identityPath(global), cfg.SecretMappings())
+	if err != nil {
+		return nil, err
+	}
+	r.Recipients = recipientsPath(global)
+	return r, nil
 }
