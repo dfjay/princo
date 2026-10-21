@@ -3,6 +3,7 @@ package subscription
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 
 	"github.com/dfjay/princo/internal/fleet"
@@ -13,22 +14,23 @@ import (
 func URIs(u *fleet.User) []string {
 	var out []string
 	for _, n := range u.Nodes {
+		addr := net.JoinHostPort(n.Address, "443")
 		name := func(protocol string) string {
 			return (&url.URL{Fragment: u.Name + "-" + n.Name + "-" + protocol}).EscapedFragment()
 		}
 		if r := n.Reality; r != nil {
 			out = append(out, fmt.Sprintf(
-				"vless://%s@%s:443?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
-				u.UUID, n.Address, r.ServerName, r.PublicKey, r.ShortID, name("reality")))
+				"vless://%s@%s?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
+				u.UUID, addr, r.ServerName, r.PublicKey, r.ShortID, name("reality")))
 			if x := n.XHTTP; x != nil {
 				out = append(out, fmt.Sprintf(
-					"vless://%s@%s:443?encryption=none&type=xhttp&path=%s&mode=%s&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
-					u.UUID, n.Address, url.QueryEscape(x.Path), x.Mode, r.ServerName, r.PublicKey, r.ShortID, name("xhttp")))
+					"vless://%s@%s?encryption=none&type=xhttp&path=%s&mode=%s&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
+					u.UUID, addr, url.QueryEscape(x.Path), x.Mode, r.ServerName, r.PublicKey, r.ShortID, name("xhttp")))
 			}
 		}
 		if h := n.Hysteria2; h != nil {
-			out = append(out, fmt.Sprintf("hysteria2://%s@%s:443?sni=%s&obfs=salamander&obfs-password=%s#%s",
-				u.UUID, n.Address, n.Address, url.QueryEscape(h.ObfsPassword), name("hy2")))
+			out = append(out, fmt.Sprintf("hysteria2://%s@%s?sni=%s&obfs=salamander&obfs-password=%s#%s",
+				u.UUID, addr, n.Address, url.QueryEscape(h.ObfsPassword), name("hy2")))
 		}
 		if nv := n.Naive; nv != nil {
 			out = append(out, fmt.Sprintf("naive+https://%s@%s:443#%s",

@@ -185,6 +185,9 @@ func TestReadRuleSets(t *testing.T) {
 	require.Equal(t, []byte("\x0a\x04\x0a\x02RU"), got["geoip.dat"], "only what the config uses")
 	_, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:fr"]}`))
 	require.ErrorContains(t, err, "it has no fr")
+	got, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:!de"]}`))
+	require.NoError(t, err)
+	require.Equal(t, []byte("\x0a\x04\x0a\x02DE"), got["geoip.dat"], "a negated code needs its entry")
 	_, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geosite-x.srs"}, nil)
 	require.ErrorContains(t, err, "isn't a xray rule set")
 }

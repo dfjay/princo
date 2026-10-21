@@ -214,6 +214,8 @@ nodes:
     dns:
       servers: { dot: { address: tls://1.1.1.1 } }
       final: dot
+      rules:
+        - { match: [domain:example.org] }
     rules:
       - { match: [network:icmp], action: reject }
   c:
@@ -230,6 +232,7 @@ users:
 		"nodes.b.xhttp: needs reality",
 		"nodes.b.dns.servers.dot: xray has no DNS over TLS",
 		"nodes.b.rules[0]: xray doesn't route ICMP",
+		"nodes.b.dns.rules[0].server: required",
 		`nodes.c: engine "v2ray" is not supported (have: sing-box, xray)`,
 	} {
 		require.ErrorContains(t, err, want)

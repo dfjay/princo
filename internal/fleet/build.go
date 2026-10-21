@@ -405,6 +405,9 @@ func (b *builder) dns(where string, c *config.DNS, groups []string) *DNS {
 				b.errorf("%s: DNS rules match domains only, got %s", w, m)
 			}
 		}
+		if r.Server == "" {
+			b.errorf("%s.server: required", w)
+		}
 		known(fmt.Sprintf("rules[%d].server", i), r.Server)
 		d.Rules = append(d.Rules, DNSRule{Match: match, Server: r.Server})
 	}

@@ -10,8 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dfjay/princo/internal/config"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/fleet/fleettest"
+	"github.com/dfjay/princo/internal/secrets"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -65,6 +67,87 @@ func TestXrayCheck(t *testing.T) {
 			out, err := exec.CommandContext(t.Context(), bin, "run", "-test", "-c", path).CombinedOutput()
 			require.NoError(t, err, string(out))
 		})
+	}
+}
+
+// edgeFleet has what the fixture lacks: a UDP DNS server on its own port
+// behind a DNS rule, and a user named like the chain hop into the node.
+func edgeFleet(t *testing.T) *fleet.Fleet {
+	t.Helper()
+	cfg, err := config.Parse([]byte(`
+princo: v1
+nodes:
+  a:
+    address: a.example.com
+    engine: xray
+    reality: { server_name: s.example.com, short_id: "01", public_key: x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc }
+    egress: warp
+    dns:
+      servers:
+        corp: { address: "udp://10.0.0.1:5353" }
+        quad9: { address: https://dns.quad9.net }
+      final: quad9
+      strategy: prefer_ipv6
+      rules:
+        - { match: [domain_suffix:corp.example], server: corp }
+  relay:
+    address: relay.example.com
+    reality: { server_name: s.example.com, short_id: "02", public_key: p }
+    egress: a
+users:
+  chain-relay: { nodes: [a] }
+`))
+	require.NoError(t, err)
+	f, err := fleet.Build(cfg, secrets.NewStore(map[string]any{
+		"users": map[string]any{"chain-relay": "dbc5aca6-f0dd-416d-b30f-813754d72f99"},
+		"nodes": map[string]any{
+			"a": map[string]any{
+				"reality": "WJcIvGK46S17DFQ3-QnhPr0P6hJ1QYZWZiFp7jUgzXk",
+				"warp": map[string]any{
+					"private_key": "aCzPQ1cG5D0b4rBW1ZJvXyeyqbPBJwe4ttkRwEeIvGs=",
+					"ipv4":        "172.16.0.3/32",
+					"ipv6":        "2606:4700:110:8000::3/128",
+				},
+			},
+			"relay": map[string]any{"reality": "k", "chain": "755f7363-f3ff-4523-b419-f2e71e80e7fd"},
+		},
+	}))
+	require.NoError(t, err)
+	return f
+}
+
+func TestRenderServer_Edges(t *testing.T) {
+	data, err := New().RenderServer(edgeFleet(t), "a")
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+
+	dns := cfg["dns"].(map[string]any)
+	require.Equal(t, []any{
+		map[string]any{
+			"address": "10.0.0.1", "port": 5353.0,
+			"domains": []any{"domain:corp.example"}, "skipFallback": true, "finalQuery": true,
+		},
+		map[string]any{"address": "https+local://dns.quad9.net/dns-query"},
+	}, dns["servers"])
+	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+	require.Equal(t, map[string]any{"inboundTag": []any{dns["tag"]}, "outboundTag": "direct"}, rules[0],
+		"the resolver's own queries skip the egress")
+
+	warp := cfg["outbounds"].([]any)[0].(map[string]any)
+	require.Equal(t, "ForceIPv6v4", warp["targetStrategy"])
+
+	var emails []any
+	for _, c := range cfg["inbounds"].([]any)[0].(map[string]any)["settings"].(map[string]any)["clients"].([]any) {
+		emails = append(emails, c.(map[string]any)["email"])
+	}
+	require.Equal(t, []any{"chain-relay", "chain:relay"}, emails)
+
+	if bin, err := exec.LookPath("xray"); err == nil {
+		path := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+		out, err := exec.CommandContext(t.Context(), bin, "run", "-test", "-c", path).CombinedOutput()
+		require.NoError(t, err, string(out))
 	}
 }
 

@@ -10,24 +10,27 @@ import (
 	"github.com/dfjay/princo/internal/fleet"
 )
 
-// renderDNS renders a node's resolver. Servers are queried directly, as
-// on sing-box nodes; xray has no resolver per server, so the system
-// resolves their host names.
+// dnsTag marks the resolver's own queries, which go out directly.
+const dnsTag = "dns"
+
+// renderDNS renders a node's resolver. xray has no resolver per server,
+// so the system resolves their host names.
 func renderDNS(d *fleet.DNS) map[string]any {
-	server := func(name string) fleet.DNSServer {
+	server := func(name string) map[string]any {
 		i := slices.IndexFunc(d.Servers, func(s fleet.DNSServer) bool { return s.Name == name })
-		return d.Servers[i]
+		return dnsServer(d.Servers[i])
 	}
 	var servers []any
 	for _, r := range d.Rules {
-		servers = append(servers, map[string]any{
-			"address":      dnsAddress(server(r.Server)),
-			"domains":      domainsOf(r.Match),
-			"skipFallback": true,
-		})
+		s := server(r.Server)
+		s["domains"] = domainsOf(r.Match)
+		// These domains only, and only here.
+		s["skipFallback"] = true
+		s["finalQuery"] = true
+		servers = append(servers, s)
 	}
-	servers = append(servers, dnsAddress(server(d.Final)))
-	out := map[string]any{"servers": servers}
+	servers = append(servers, server(d.Final))
+	out := map[string]any{"servers": servers, "tag": dnsTag}
 	switch d.Strategy {
 	case "ipv4_only":
 		out["queryStrategy"] = "UseIPv4"
@@ -40,25 +43,30 @@ func renderDNS(d *fleet.DNS) map[string]any {
 	return out
 }
 
-// dnsAddress is a server's address in xray's syntax, but for tls, which
-// fleet.Build refuses.
-func dnsAddress(s fleet.DNSServer) string {
+// dnsServer is a server in xray's syntax, but for tls, which fleet.Build
+// refuses.
+func dnsServer(s fleet.DNSServer) map[string]any {
+	if s.Type == "udp" {
+		out := map[string]any{"address": s.Server}
+		if s.Port != 0 {
+			out["port"] = s.Port
+		}
+		return out
+	}
 	host := s.Server
 	if s.Port != 0 {
 		host = net.JoinHostPort(s.Server, strconv.Itoa(s.Port))
-	}
-	if s.Type == "udp" {
-		return host
-	}
-	if s.Port == 0 && strings.Contains(host, ":") {
+	} else if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
+	var address string
 	switch s.Type {
 	case "tcp":
-		return "tcp+local://" + host
+		address = "tcp+local://" + host
 	case "https":
-		return "https+local://" + host + cmp.Or(s.Path, "/dns-query")
+		address = "https+local://" + host + cmp.Or(s.Path, "/dns-query")
 	default: // quic
-		return "quic+local://" + host
+		address = "quic+local://" + host
 	}
+	return map[string]any{"address": address}
 }

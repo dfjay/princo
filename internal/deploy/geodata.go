@@ -19,7 +19,9 @@ func trimGeodata(file string, data, config []byte) ([]byte, error) {
 	var missing []string
 	for _, m := range geoCodeRe.FindAllSubmatch(config, -1) {
 		if string(m[1]) == kind {
-			missing = append(missing, strings.ToUpper(string(m[2])))
+			// geosite:google@cn has attributes, geoip:!cn is negated.
+			code, _, _ := strings.Cut(strings.TrimLeft(string(m[2]), "!"), "@")
+			missing = append(missing, strings.ToUpper(code))
 		}
 	}
 	var out []byte

@@ -27,10 +27,11 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 		"inbounds":  serverInbounds(f, n),
 		"outbounds": serverOutbounds(n),
 	}
+	var rules []any
 	if n.DNS != nil {
 		cfg["dns"] = renderDNS(n.DNS)
+		rules = append(rules, map[string]any{"inboundTag": []any{dnsTag}, "outboundTag": "direct"})
 	}
-	var rules []any
 	for _, r := range n.Rules {
 		if r.Action == fleet.ActionSniff {
 			continue // the inbounds sniff
@@ -65,9 +66,9 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	for _, u := range users {
 		clients = append(clients, map[string]any{"id": u.UUID, "email": u.Name, "flow": vision})
 	}
-	// Chain hops that exit here log in like users.
+	// Chain hops that exit here log in like users, as no user can be named.
 	for _, m := range f.ChainsInto(n) {
-		clients = append(clients, map[string]any{"id": m.ChainUUID, "email": "chain-" + m.Name, "flow": vision})
+		clients = append(clients, map[string]any{"id": m.ChainUUID, "email": "chain:" + m.Name, "flow": vision})
 	}
 	settings := map[string]any{"clients": clients, "decryption": "none"}
 	if n.XHTTP != nil {
@@ -126,14 +127,20 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 // to the first outbound.
 func serverOutbounds(n *fleet.Node) []any {
 	direct := map[string]any{"protocol": "freedom", "tag": "direct"}
+	var ip string
 	if n.DNS != nil {
 		// Resolve with the node's DNS rather than the system's.
-		direct["settings"] = map[string]any{"domainStrategy": domainStrategy(n.DNS.Strategy)}
+		ip = ipStrategy(n.DNS.Strategy)
+		direct["settings"] = map[string]any{"domainStrategy": "Use" + ip}
 	}
 	block := map[string]any{"protocol": "blackhole", "tag": "block"}
 	switch n.Egress.Kind {
 	case fleet.EgressWarp:
-		return []any{warpOutbound(n.Warp), direct, block}
+		warp := warpOutbound(n.Warp)
+		if ip != "" {
+			warp["targetStrategy"] = "Force" + ip
+		}
+		return []any{warp, direct, block}
 	case fleet.EgressNode:
 		return []any{realityOutbound(n.Egress.Node, n.ChainUUID), direct, block}
 	default:
@@ -186,18 +193,19 @@ func warpOutbound(w *fleet.Warp) map[string]any {
 	}
 }
 
-// domainStrategy is how freedom resolves domains for a DNS strategy.
-func domainStrategy(strategy string) string {
+// ipStrategy is the address families a DNS strategy resolves, as xray's
+// domain strategies (UseIPv4v6, ForceIPv4v6, ...) end.
+func ipStrategy(strategy string) string {
 	switch strategy {
 	case "prefer_ipv4":
-		return "UseIPv4v6"
+		return "IPv4v6"
 	case "prefer_ipv6":
-		return "UseIPv6v4"
+		return "IPv6v4"
 	case "ipv4_only":
-		return "UseIPv4"
+		return "IPv4"
 	case "ipv6_only":
-		return "UseIPv6"
+		return "IPv6"
 	default:
-		return "UseIP"
+		return "IP"
 	}
 }

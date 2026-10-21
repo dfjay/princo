@@ -1,8 +1,11 @@
 {
   "dns": {
     "servers": [
-      "https+local://dns.quad9.net/dns-query"
-    ]
+      {
+        "address": "https+local://dns.quad9.net/dns-query"
+      }
+    ],
+    "tag": "dns"
   },
   "inbounds": [
     {
@@ -104,7 +107,8 @@
         ],
         "secretKey": "aCzPQ1cG5D0b4rBW1ZJvXyeyqbPBJwe4ttkRwEeIvGs="
       },
-      "tag": "warp"
+      "tag": "warp",
+      "targetStrategy": "ForceIPv4v6"
     },
     {
       "protocol": "freedom",
@@ -120,6 +124,12 @@
   ],
   "routing": {
     "rules": [
+      {
+        "inboundTag": [
+          "dns"
+        ],
+        "outboundTag": "direct"
+      },
       {
         "outboundTag": "block",
         "port": "25,465,587"
