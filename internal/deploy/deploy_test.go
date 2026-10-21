@@ -1,8 +1,13 @@
 package deploy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,6 +172,37 @@ func TestBuild_MissingRuleSet(t *testing.T) {
 func TestBuild_UnknownEngine(t *testing.T) {
 	_, err := Build(&host.Plan{Node: "de", Engine: "v2ray"}, nil, nil, false)
 	require.ErrorContains(t, err, "can't run engine v2ray yet")
+}
+
+func TestFetchRuleSets_Checksums(t *testing.T) {
+	geoip := []byte("\x0a\x04\x0a\x02RU")
+	sum := sha256.Sum256(geoip)
+	published := hex.EncodeToString(sum[:])
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/geoip.dat":
+			_, _ = w.Write(geoip)
+		case "/geoip.dat.sha256sum":
+			_, _ = io.WriteString(w, published+"  geoip.dat\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	old := engines["xray"]
+	e := old
+	e.ruleSetURL = func(file string) string { return srv.URL + "/" + file }
+	engines["xray"] = e
+	t.Cleanup(func() { engines["xray"] = old })
+
+	config := []byte(`{"ip": ["geoip:ru"]}`)
+	got, err := RuleSets(t.Context(), srv.Client(), "", "xray", []string{"geoip.dat"}, config)
+	require.NoError(t, err)
+	require.Equal(t, geoip, got["geoip.dat"])
+
+	published = strings.Repeat("0", 64)
+	_, err = RuleSets(t.Context(), srv.Client(), "", "xray", []string{"geoip.dat"}, config)
+	require.ErrorContains(t, err, "doesn't match")
 }
 
 func TestReadRuleSets(t *testing.T) {
