@@ -129,6 +129,6 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!DOCTYPE html>
 </head><body>
 <h2>{{.User}}</h2>
 <div class="qr"><h3>Universal</h3><img src="qr-sub.svg" alt="QR"><br><a href="{{.Universal}}">{{.Universal}}</a></div>
-<div class="qr"><h3>sing-box</h3><img src="qr-singbox.svg" alt="QR"><br><a href="{{.SingBox}}">{{.SingBox}}</a></div>
+<div class="qr"><h3>sing-box 1.14+</h3><img src="qr-singbox.svg" alt="QR"><br><a href="{{.SingBox}}">{{.SingBox}}</a></div>
 </body></html>
 `))

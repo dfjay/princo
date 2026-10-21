@@ -144,7 +144,7 @@ princo render --user alice --links
 Import the **Universal** link into a compatible client, use the **sing-box**
 import link, or open the **QR page** on another device. Protocol support
 depends on the client; XHTTP is available through share links, while generated
-client profiles use sing-box.
+client profiles use sing-box and need sing-box 1.14 or newer.
 
 After changing the fleet config or credentials, deploy again to publish the
 updated server configs and subscriptions.
