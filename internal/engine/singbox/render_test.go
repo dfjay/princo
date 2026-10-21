@@ -79,7 +79,7 @@ func TestChain(t *testing.T) {
 	de := renderJSON(t, e.RenderServer, f, "de")
 	users := de["inbounds"].([]any)[0].(map[string]any)["users"].([]any)
 	require.Contains(t, users, map[string]any{
-		"name": "chain-relay",
+		"name": "chain:relay",
 		"uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd",
 		"flow": "xtls-rprx-vision",
 	}, "de accepts the relay hop")

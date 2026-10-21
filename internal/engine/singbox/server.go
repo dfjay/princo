@@ -69,11 +69,11 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	if r := n.Reality; r != nil {
 		accounts := make([]any, 0, len(users))
 		for _, u := range users {
-			accounts = append(accounts, map[string]any{"uuid": u.UUID, "flow": "xtls-rprx-vision"})
+			accounts = append(accounts, map[string]any{"name": u.Name, "uuid": u.UUID, "flow": "xtls-rprx-vision"})
 		}
 		// Chain hops that exit here log in like users.
 		for _, m := range f.ChainsInto(n) {
-			accounts = append(accounts, map[string]any{"name": "chain-" + m.Name, "uuid": m.ChainUUID, "flow": "xtls-rprx-vision"})
+			accounts = append(accounts, map[string]any{"name": "chain:" + m.Name, "uuid": m.ChainUUID, "flow": "xtls-rprx-vision"})
 		}
 		listen, port := "::", 443
 		if n.Mux() {

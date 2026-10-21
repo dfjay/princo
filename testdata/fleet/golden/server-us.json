@@ -45,10 +45,12 @@
       "users": [
         {
           "flow": "xtls-rprx-vision",
+          "name": "alice",
           "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
         },
         {
           "flow": "xtls-rprx-vision",
+          "name": "bob",
           "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
         }
       ]
