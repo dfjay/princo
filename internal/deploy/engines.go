@@ -32,7 +32,10 @@ type engineSpec struct {
 	// environment is the engine's, as NAME=value.
 	environment []string
 	// reloads tells whether SIGHUP reloads the config.
-	reloads      bool
+	reloads bool
+	// configError is the exit status of a config the engine refuses,
+	// which restarting won't fix; 0 for none.
+	configError  int
 	ruleSetURL   func(file string) string
 	ruleSetMagic []byte
 	// trim cuts a rule set down to what the config uses.
@@ -127,6 +130,7 @@ var engines = map[string]engineSpec{
 			return []string{"/usr/bin/env", "XRAY_LOCATION_ASSET=" + engine.RuleSetDir, bin, "run", "-test", "-c", config}
 		},
 		environment: []string{"XRAY_LOCATION_ASSET=" + engine.RuleSetDir},
+		configError: 23,
 		ruleSetURL: func(file string) string {
 			return "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/" + file
 		},

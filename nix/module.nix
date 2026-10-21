@@ -328,7 +328,24 @@ in
               CapabilityBoundingSet = caps;
               Restart = "on-failure";
               RestartSec = "10s";
+              RestartPreventExitStatus = lib.mkIf (engine ? configError) engine.configError;
               LimitNOFILE = "infinity";
+              ProtectClock = true;
+              ProtectControlGroups = true;
+              ProtectHostname = true;
+              ProtectKernelLogs = true;
+              ProtectKernelModules = true;
+              ProtectKernelTunables = true;
+              LockPersonality = true;
+              RestrictNamespaces = true;
+              RestrictRealtime = true;
+              RestrictAddressFamilies = [
+                "AF_INET"
+                "AF_INET6"
+                "AF_NETLINK"
+                "AF_UNIX"
+              ];
+              SystemCallArchitectures = "native";
             };
           };
 
