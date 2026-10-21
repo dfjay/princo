@@ -50,11 +50,9 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string) ([]byte, error) {
 
 	final := c.resolve(f.Client.Final)
 	cfg := map[string]any{
-		"log": map[string]any{"level": "info", "timestamp": true},
-		"experimental": map[string]any{
-			"clash_api":  map[string]any{"external_controller": "127.0.0.1:9090", "default_mode": "Rule"},
-			"cache_file": map[string]any{"enabled": true, "store_dns": true},
-		},
+		// The apps' logs would list where the user went.
+		"log":          map[string]any{"level": "warn", "timestamp": true},
+		"experimental": map[string]any{"cache_file": map[string]any{"enabled": true, "store_dns": true}},
 		// Remote rule sets are fetched through the proxy.
 		"http_clients": []any{map[string]any{"tag": "proxy-http", "detour": final}},
 		"inbounds": []any{map[string]any{
