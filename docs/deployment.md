@@ -134,8 +134,15 @@ deploy-rs. The module:
   multiplexer, ACME certificates and subscription site;
 - renders the node's files into `/run/princo/files` on the host through
   `princo-render.service`, keeping decrypted secrets out of the Nix store;
-- runs the engine through `princo.service`, using the host's nixpkgs package
-  or `services.princo.enginePackage` and checking its minimum required version.
+- runs the engine through `princo.service` and checks its minimum required
+  version.
+
+The engine and its rule sets come from `services.princo.enginePkgs`. With
+princo's flake that is its own nixpkgs input, nixos-unstable, which follows
+engine releases more closely than a stable channel. Make it follow yours with
+`inputs.princo.inputs.nixpkgs.follows`, or set `enginePkgs` or
+`enginePackage` directly; a stable channel may carry an engine older than
+princo needs.
 
 ### Evaluating from another platform
 

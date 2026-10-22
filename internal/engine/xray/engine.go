@@ -13,7 +13,9 @@ func init() {
 	engine.Register("xray", func() engine.Engine { return New() })
 }
 
-const minVersion = "26.3.27"
+// minVersion is the first release whose freedom resolves domains by
+// sockopt.domainStrategy; it also blocks private addresses for VLESS users.
+const minVersion = "26.9.8"
 
 // Engine is the xray renderer.
 type Engine struct{}

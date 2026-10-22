@@ -49,6 +49,9 @@
         {
           imports = [ ./nix/module.nix ];
           services.princo.package = lib.mkDefault (princo pkgs);
+          services.princo.enginePkgs =
+            lib.mkDefault
+              nixpkgs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
         };
 
       checks = forAllSystems (

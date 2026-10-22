@@ -110,13 +110,13 @@ var engines = map[string]engineSpec{
 		ruleSetMagic: []byte("SRS"),
 	},
 	"xray": {
-		version: "26.3.27",
+		version: "26.10.21",
 		release: release{
 			URL:  "https://github.com/XTLS/Xray-core/releases/download/v{version}/Xray-linux-{arch}.zip",
 			Arch: map[string]string{"amd64": "64", "arm64": "arm64-v8a"},
 			SHA256: map[string]string{
-				"amd64": "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae",
-				"arm64": "4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c",
+				"amd64": "0eec3ed4163c273d8c8bf821f7d219e257921cf584aa3fb970715e458e631978",
+				"arm64": "d1304946c486d98e6b886e9b931eaaaebb23835b30e217638037b7f2721d4e9c",
 			},
 			Files: []string{"xray"},
 		},

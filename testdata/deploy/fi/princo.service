@@ -6,7 +6,7 @@ After=network-online.target
 
 [Service]
 Environment=XRAY_LOCATION_ASSET=/var/lib/princo/rules
-ExecStart=/usr/local/lib/princo/xray-26.3.27/xray run -c /var/lib/princo/files/xray.json
+ExecStart=/usr/local/lib/princo/xray-26.10.21/xray run -c /var/lib/princo/files/xray.json
 DynamicUser=yes
 StateDirectory=princo-xray
 StateDirectoryMode=0700

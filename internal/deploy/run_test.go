@@ -272,7 +272,7 @@ func TestDeploy_InstallsEngine(t *testing.T) {
 
 	r = &fakeRemote{t: t, probe: "arch arm64\nprinco 0.2.0\n"}
 	d, _ = newDeployer(r, "0.2.0")
-	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "there's no xray 26.3.27 for arm64")
+	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "there's no xray 26.10.21 for arm64")
 
 	r = &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\n"}
 	d, _ = newDeployer(r, "0.2.0")
