@@ -62,10 +62,11 @@ only the engine joins. nginx doesn't log subscription requests, as their URLs
 grant access.
 
 The rendered files live in `/var/lib/princo/files`. Rule sets are downloaded
-from SagerNet for sing-box and Loyalsoldier/v2ray-rules-dat for xray, whose
-published SHA-256 checksums they must match; NixOS takes the same lists from
-nixpkgs. Each deploy gets the latest. xray's data files are reduced to the
-codes the node uses. To provide rule sets locally, pass `--rule-sets DIR`.
+from SagerNet for sing-box and Loyalsoldier/v2ray-rules-dat for xray. xray's
+downloaded data files must match the SHA-256 checksums published with them.
+NixOS takes the same lists from nixpkgs. Each deploy gets the latest. xray's
+data files are reduced to the codes the node uses. To provide rule sets
+locally, pass `--rule-sets DIR`.
 
 ### Previewing changes and handling failures
 
