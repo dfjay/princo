@@ -19,6 +19,7 @@ defaults:
   rules:
     - { match: [port:25, port:465, port:587], action: reject }
     - { action: sniff }
+    - { match: [protocol:bittorrent], action: reject }
     - { match: [geosite:category-ru, geoip:ru], action: reject }
 
 nodes:
@@ -52,6 +53,7 @@ nodes:
       public_key: x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc
     xhttp:
       path: /f7Kq2m
+    warp: { reserved: [12, 34, 56] }
 
   relay:
     ssh: root@relay.example.ru
@@ -75,7 +77,7 @@ client:
   groups:
     select:
       nodes: "!domestic"
-      default: first
+      auto: true
     ru-select:
       nodes: domestic
       include_direct: true

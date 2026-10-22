@@ -395,6 +395,8 @@ in
                   # add_header here drops the server's.
                   add_header X-Robots-Tag "noindex, nofollow" always;
                   add_header profile-update-interval "24";
+                  add_header profile-title "${site.domain}";
+                  add_header profile-web-page-url "https://${site.domain}/$token/qr";
                   try_files /$token/base64 =404;
                 '';
               };

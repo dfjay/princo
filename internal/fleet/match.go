@@ -3,6 +3,7 @@ package fleet
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -20,7 +21,12 @@ const (
 	MatchIP      MatchKind = "ip"
 	MatchPort    MatchKind = "port"
 	MatchNetwork MatchKind = "network"
+	// MatchProtocol is what sniffing found the traffic to be.
+	MatchProtocol MatchKind = "protocol"
 )
+
+// sniffedProtocols are those both engines detect.
+var sniffedProtocols = []string{"tls", "http", "quic", "bittorrent"}
 
 // Matcher is one `kind:value` entry of a rule's match list.
 type Matcher struct {
@@ -66,6 +72,10 @@ func ParseMatcher(s string) (Matcher, error) {
 		case "tcp", "udp", "icmp":
 		default:
 			return Matcher{}, fmt.Errorf("match %q: network must be tcp, udp or icmp", s)
+		}
+	case MatchProtocol:
+		if !slices.Contains(sniffedProtocols, value) {
+			return Matcher{}, fmt.Errorf("match %q: protocol must be one of %s", s, strings.Join(sniffedProtocols, ", "))
 		}
 	default:
 		return Matcher{}, fmt.Errorf("match %q: unknown kind %q", s, kind)

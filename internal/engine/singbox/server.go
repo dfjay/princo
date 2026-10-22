@@ -69,11 +69,11 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	if r := n.Reality; r != nil {
 		accounts := make([]any, 0, len(users))
 		for _, u := range users {
-			accounts = append(accounts, map[string]any{"uuid": u.UUID, "flow": "xtls-rprx-vision"})
+			accounts = append(accounts, map[string]any{"name": u.Name, "uuid": u.UUID, "flow": "xtls-rprx-vision"})
 		}
 		// Chain hops that exit here log in like users.
 		for _, m := range f.ChainsInto(n) {
-			accounts = append(accounts, map[string]any{"name": "chain-" + m.Name, "uuid": m.ChainUUID, "flow": "xtls-rprx-vision"})
+			accounts = append(accounts, map[string]any{"name": "chain:" + m.Name, "uuid": m.ChainUUID, "flow": "xtls-rprx-vision"})
 		}
 		listen, port := "::", 443
 		if n.Mux() {
@@ -176,18 +176,22 @@ func serverAction(r fleet.Rule) map[string]any {
 }
 
 func warpEndpoint(w *fleet.Warp) map[string]any {
+	peer := map[string]any{
+		"address":     engine.WarpPeer,
+		"port":        engine.WarpPeerPort,
+		"public_key":  engine.WarpPeerPublicKey,
+		"allowed_ips": []any{"0.0.0.0/0", "::/0"},
+	}
+	if w.Reserved != nil {
+		peer["reserved"] = w.Reserved
+	}
 	return map[string]any{
 		"type":        "wireguard",
 		"tag":         "warp",
 		"mtu":         1280,
 		"address":     []any{w.IPv4, w.IPv6},
 		"private_key": w.PrivateKey,
-		"peers": []any{map[string]any{
-			"address":     engine.WarpPeer,
-			"port":        engine.WarpPeerPort,
-			"public_key":  engine.WarpPeerPublicKey,
-			"allowed_ips": []any{"0.0.0.0/0", "::/0"},
-		}},
+		"peers":       []any{peer},
 	}
 }
 

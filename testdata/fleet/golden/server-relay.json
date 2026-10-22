@@ -45,6 +45,7 @@
       "users": [
         {
           "flow": "xtls-rprx-vision",
+          "name": "bob",
           "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
         }
       ]

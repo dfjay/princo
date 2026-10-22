@@ -50,10 +50,6 @@
     "cache_file": {
       "enabled": true,
       "store_dns": true
-    },
-    "clash_api": {
-      "default_mode": "Rule",
-      "external_controller": "127.0.0.1:9090"
     }
   },
   "http_clients": [
@@ -75,13 +71,21 @@
     }
   ],
   "log": {
-    "level": "info",
+    "level": "warn",
     "timestamp": true
   },
   "outbounds": [
     {
-      "default": "us-reality",
       "outbounds": [
+        "us-reality"
+      ],
+      "tag": "select-auto",
+      "type": "urltest"
+    },
+    {
+      "default": "select-auto",
+      "outbounds": [
+        "select-auto",
         "us-reality"
       ],
       "tag": "select",

@@ -135,6 +135,8 @@ type Warp struct {
 	PrivateKey string
 	IPv4       string
 	IPv6       string
+	// Reserved is the account's client ID as 3 bytes, when it needs one.
+	Reserved []int
 }
 
 type EgressKind int
@@ -216,8 +218,10 @@ type Group struct {
 	Name string
 	// Members selects nodes by tag.
 	Members       Selector
-	Default       string // "first", "direct" or an outbound tag
+	Default       string // "first", "auto", "direct" or an outbound tag
 	IncludeDirect bool
+	// Auto adds a member that picks the fastest working one.
+	Auto bool
 	// Fallback replaces the group where a user has no member nodes:
 	// "direct" or another group.
 	Fallback string

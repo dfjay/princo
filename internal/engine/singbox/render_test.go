@@ -79,7 +79,7 @@ func TestChain(t *testing.T) {
 	de := renderJSON(t, e.RenderServer, f, "de")
 	users := de["inbounds"].([]any)[0].(map[string]any)["users"].([]any)
 	require.Contains(t, users, map[string]any{
-		"name": "chain-relay",
+		"name": "chain:relay",
 		"uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd",
 		"flow": "xtls-rprx-vision",
 	}, "de accepts the relay hop")
@@ -108,7 +108,7 @@ func TestClientGroups(t *testing.T) {
 			selectors[ob["tag"].(string)] = ob["outbounds"].([]any)
 		}
 	}
-	require.Equal(t, []any{"us-reality"}, selectors["select"])
+	require.Equal(t, []any{"select-auto", "us-reality"}, selectors["select"])
 	require.Equal(t, []any{"direct", "relay-reality"}, selectors["ru-select"])
 	// relay has no IPv6: refuse IPv6 to RU IPs before anything else.
 	first := bob["route"].(map[string]any)["rules"].([]any)[0].(map[string]any)
@@ -119,6 +119,15 @@ func TestClientGroups(t *testing.T) {
 	alice := renderJSON(t, e.RenderClient, f, "alice")
 	for _, ob := range alice["outbounds"].([]any) {
 		require.NotEqual(t, "ru-select", ob.(map[string]any)["tag"])
+	}
+
+	// A default this user can't use gives way to the first member.
+	f.Client.Groups[0].Default = "de-reality"
+	bob = renderJSON(t, e.RenderClient, f, "bob")
+	for _, ob := range bob["outbounds"].([]any) {
+		if ob := ob.(map[string]any); ob["tag"] == "select" {
+			require.Equal(t, "us-reality", ob["default"])
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -191,6 +192,9 @@ func (b *builder) nodes() {
 		if n.Address == "" && (n.Reality != nil || n.Hysteria2 != nil) {
 			b.errorf("%s: address is required", where)
 		}
+		if _, err := netip.ParseAddr(n.Address); err == nil && n.Hysteria2 != nil {
+			b.errorf("%s.hysteria2: needs address to be a domain, which its certificate is for", where)
+		}
 
 		if dns := cmp.Or(c.DNS, d.DNS); dns != nil {
 			n.DNS = b.dns(where+".dns", dns, nil)
@@ -199,7 +203,7 @@ func (b *builder) nodes() {
 		if c.Rules != nil {
 			rules = c.Rules
 		}
-		n.Rules = b.rules(where+".rules", rules, []string{ActionDirect, ActionReject, ActionSniff}, nil)
+		n.Rules = b.rules(where+".rules", rules, []string{ActionDirect, ActionReject, ActionSniff}, nil, false)
 		if n.Engine == "xray" {
 			b.xrayLimits(where, n)
 		}
@@ -246,6 +250,10 @@ func (b *builder) egress() {
 				PrivateKey: b.secret(where+".warp.private_key", w.PrivateKey, secretWarp(n.Name, "private_key"), SecretExternal),
 				IPv4:       b.secret(where+".warp.ipv4", w.IPv4, secretWarp(n.Name, "ipv4"), SecretExternal),
 				IPv6:       b.secret(where+".warp.ipv6", w.IPv6, secretWarp(n.Name, "ipv6"), SecretExternal),
+				Reserved:   w.Reserved,
+			}
+			if w.Reserved != nil && (len(w.Reserved) != 3 || slices.ContainsFunc(w.Reserved, func(v int) bool { return v < 0 || v > 255 })) {
+				b.errorf("%s.warp.reserved: want 3 bytes, e.g. [12, 34, 56]", where)
 			}
 		default:
 			up, ok := b.f.nodes[egress]
@@ -330,18 +338,30 @@ func (b *builder) client() {
 		if g.Fallback != "" && g.Fallback != "direct" && (g.Fallback == name || !slices.Contains(groups, g.Fallback)) {
 			b.errorf("%s.fallback: want direct or another group, got %q", where, g.Fallback)
 		}
+		def := cmp.Or(g.Default, "first")
+		if g.Auto && g.Default == "" {
+			def = "auto"
+		}
+		if g.Auto && slices.Contains(groups, name+"-auto") {
+			b.errorf("%s.auto: its member is named %s-auto, like another group", where, name)
+		}
+		if def == "auto" && !g.Auto {
+			b.errorf("%s.default: auto needs auto: true", where)
+		}
 		b.f.Client.Groups = append(b.f.Client.Groups, Group{
 			Name:          name,
 			Members:       sel,
-			Default:       cmp.Or(g.Default, "first"),
+			Default:       def,
 			IncludeDirect: g.IncludeDirect,
+			Auto:          g.Auto,
 			Fallback:      g.Fallback,
 		})
 	}
 	if c.DNS != nil {
 		b.f.Client.DNS = b.dns("client.dns", c.DNS, groups)
 	}
-	b.f.Client.Rules = b.rules("client.rules", c.Rules, []string{ActionDirect, ActionReject}, groups)
+	// Client profiles sniff before any rule.
+	b.f.Client.Rules = b.rules("client.rules", c.Rules, []string{ActionDirect, ActionReject}, groups, true)
 	b.f.Client.Final = cmp.Or(c.Final, "direct")
 	if b.f.Client.Final != "direct" && !slices.Contains(groups, b.f.Client.Final) {
 		b.errorf("client.final: want direct or a group, got %q", b.f.Client.Final)
@@ -349,8 +369,9 @@ func (b *builder) client() {
 }
 
 // rules converts rules allowing the given actions; groups, if non-nil,
-// enables `via: <group>`.
-func (b *builder) rules(where string, in []config.Rule, actions, groups []string) []Rule {
+// enables `via: <group>`, and sniffed tells that traffic is sniffed before
+// the first rule.
+func (b *builder) rules(where string, in []config.Rule, actions, groups []string, sniffed bool) []Rule {
 	out := make([]Rule, 0, len(in))
 	for i, r := range in {
 		w := fmt.Sprintf("%s[%d]", where, i)
@@ -358,6 +379,10 @@ func (b *builder) rules(where string, in []config.Rule, actions, groups []string
 		if err != nil {
 			b.errorf("%s: %w", w, err)
 		}
+		if !sniffed && slices.ContainsFunc(match, func(m Matcher) bool { return m.Kind == MatchProtocol }) {
+			b.errorf("%s: protocol: needs a sniff rule before it", w)
+		}
+		sniffed = sniffed || r.Action == ActionSniff
 		rule := Rule{Match: match, Action: r.Action, Via: r.Via}
 		switch {
 		case r.Via != "" && r.Action != "":

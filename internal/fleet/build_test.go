@@ -236,15 +236,50 @@ nodes:
   b: { address: b.example.com, hysteria2: { obfs: brutal } }
   c: { address: c.example.com, hysteria2: { masquerade: https://example.com, obfs_password: x } }
   d: { address: d.example.com, hysteria2: {} }
+  e: { address: 203.0.113.9, hysteria2: { masquerade: https://example.com } }
 `, conventionalSecrets())
 	for _, want := range []string{
 		"nodes.a.hysteria2.masquerade: has no effect with obfs",
 		`nodes.b.hysteria2.obfs: want none, salamander or gecko, got "brutal"`,
 		"nodes.c.hysteria2.obfs_password: needs obfs",
 		"nodes.d.hysteria2: masquerade is required",
+		"nodes.e.hysteria2: needs address to be a domain",
 	} {
 		require.ErrorContains(t, err, want)
 	}
+}
+
+func TestBuild_ProtocolNeedsSniff(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    rules:
+      - { match: [protocol:bittorrent], action: reject }
+      - { action: sniff }
+      - { match: [protocol:quic], action: reject }
+      - { match: [protocol:ssh], action: reject }
+users:
+  u: {}
+`, conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.rules[0]: protocol: needs a sniff rule before it")
+	require.NotContains(t, err.Error(), "rules[2]")
+	require.ErrorContains(t, err, "protocol must be one of tls, http, quic, bittorrent")
+}
+
+func TestBuild_WarpReserved(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    egress: warp
+    warp: { reserved: [1, 256] }
+users:
+  u: {}
+`, conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.warp.reserved: want 3 bytes")
 }
 
 func TestBuild_EngineLimits(t *testing.T) {
@@ -285,4 +320,48 @@ users:
 	} {
 		require.ErrorContains(t, err, want)
 	}
+}
+
+func TestBuild_GroupAuto(t *testing.T) {
+	f, err := build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+client:
+  groups:
+    proxy: { nodes: all, auto: true }
+  final: proxy
+`, conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, "auto", f.Client.Groups[0].Default)
+
+	_, err = build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+client:
+  groups:
+    proxy: { nodes: all, auto: true }
+    proxy-auto: { nodes: all }
+    manual: { nodes: all, default: auto }
+  final: proxy
+`, conventionalSecrets())
+	require.ErrorContains(t, err, "client.groups.proxy.auto: its member is named proxy-auto, like another group")
+	require.ErrorContains(t, err, "client.groups.manual.default: auto needs auto: true")
+}
+
+func TestBuild_ClientProtocolWithoutGroups(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+client:
+  rules:
+    - { match: [protocol:bittorrent], action: reject }
+  final: direct
+`, conventionalSecrets())
+	require.NoError(t, err)
 }

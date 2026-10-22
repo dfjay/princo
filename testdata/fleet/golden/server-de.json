@@ -68,11 +68,12 @@
       "users": [
         {
           "flow": "xtls-rprx-vision",
+          "name": "alice",
           "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
         },
         {
           "flow": "xtls-rprx-vision",
-          "name": "chain-relay",
+          "name": "chain:relay",
           "uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd"
         }
       ]
@@ -165,6 +166,12 @@
       },
       {
         "action": "sniff"
+      },
+      {
+        "action": "reject",
+        "protocol": [
+          "bittorrent"
+        ]
       },
       {
         "action": "reject",

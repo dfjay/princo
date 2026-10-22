@@ -130,7 +130,7 @@ so it is only in share links.
 | Field | Description |
 | --- | --- |
 | `masquerade` | without `obfs`: the site served to probes; defaults to `https://<reality.server_name>`, required when Reality is absent and no default is set |
-| `obfs` | `salamander` or `gecko` to obfuscate the traffic; `none` by default, or to turn off a default |
+| `obfs` | `salamander` or `gecko` to obfuscate the traffic; `none` by default, or to turn off a default. Gecko is experimental, and few apps besides recent sing-box and Hysteria clients support it |
 | `obfs_password` | with `obfs`: *secret*, `shared/hysteria2_obfs` |
 
 Without `obfs`, the node is an HTTP/3 server: apps authenticate, and
@@ -172,7 +172,8 @@ credentials; it does not register an account.
 | `ipv6` | `nodes/<node>/warp/ipv6` | WARP interface IPv6 address |
 
 All three fields are *secret* and can be omitted when stored at their
-conventional paths.
+conventional paths. Some accounts also need `reserved`, the 3 bytes of
+their client ID, e.g. `reserved: [12, 34, 56]`.
 
 ### `passthrough`
 
@@ -216,8 +217,9 @@ The sing-box profile users import.
 | Field | Default | Description |
 | --- | --- | --- |
 | `nodes` | `all` | members: `all`, `<tag>`, or `!<tag>` (without the tag) |
-| `default` | `first` | the preselected member: `first`, `direct`, or an outbound tag such as `fr-reality` |
+| `default` | `first`, or `auto` with `auto` | the preselected member: `first`, `auto`, `direct`, or an outbound tag such as `fr-reality`; users who can't use that tag get `first` |
 | `include_direct` | `false` | also offer `direct` |
+| `auto` | `false` | add a member, `<group>-auto`, that tests the others and uses the fastest working one |
 | `fallback` | — | a group or `direct` to use when the user has no members here |
 
 Every node a user may use contributes one member per protocol, tagged
@@ -274,6 +276,17 @@ Conditions are `kind:value`:
 | `ip` | `ip:10.0.0.0/8`, or `ip:private` for private and loopback ranges |
 | `port` | `port:443` |
 | `network` | `network:udp` (`tcp`, `udp`, `icmp`) |
+| `protocol` | `protocol:bittorrent` (`tls`, `http`, `quic`, `bittorrent`); on nodes, after a `sniff` rule |
+
+Hosting providers act on abuse complaints, which torrents shared through a
+node attract. To refuse the torrent traffic sniffing recognizes (encrypted
+or obfuscated BitTorrent can get past it):
+
+```yaml
+rules:
+  - { action: sniff }
+  - { match: [protocol:bittorrent], action: reject }
+```
 
 ## DNS
 
@@ -329,7 +342,9 @@ Users' apps get the same subscription whatever engine the nodes run.
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
-a QR page at `/qr`. `princo render --user <name> --links` prints them.
+a QR page at `/qr`. Apps that read subscription headers name the profile
+after the domain, link to the QR page and refresh it daily.
+`princo render --user <name> --links` prints them.
 The sing-box profile is served at `/<token>/sing-box`. Tokens stay stable
 across renders; changing a user's UUID changes their subscription URL.
 Deploy the subscription node after changing users or their access so its
