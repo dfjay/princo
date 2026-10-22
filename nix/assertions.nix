@@ -26,6 +26,7 @@ let
             __intentionallyOverridingVersion = true;
           };
         };
+        security.acme.acceptTerms = true;
         services.nginx.virtualHosts."blog.example.com" = {
           forceSSL = true;
           enableACME = true;

@@ -92,6 +92,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		"Environment": e.environment,
 		"ExecStart":   strings.Join(e.command(bin, config, "/var/lib/princo-"+p.Engine), " "),
 		"Reloads":     e.reloads,
+		"ConfigError": e.configError,
 		"StateDir":    "princo-" + p.Engine,
 		"Group":       engineGroup,
 	})

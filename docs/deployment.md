@@ -42,7 +42,9 @@ princo deploy --node nl --host admin@nl.example.com
 ### What a deploy does
 
 1. Installs nginx, its stream module and certbot when needed, and opens the
-   node's ports if ufw is active.
+   node's ports if ufw is active. Once the node is applied, princo closes the
+   ports it opened that the node no longer uses. Rules without its `princo`
+   comment, such as yours or those of older releases, stay.
 2. Installs the engine release pinned by this version of princo, verifying
    its SHA-256 checksum. Engine files go under
    `/usr/local/lib/princo/<engine>-<version>`.
@@ -60,9 +62,10 @@ only the engine joins. nginx doesn't log subscription requests, as their URLs
 grant access.
 
 The rendered files live in `/var/lib/princo/files`. Rule sets are downloaded
-from SagerNet for sing-box and Loyalsoldier/v2ray-rules-dat for xray. xray's
-data files are reduced to the codes the node uses. To provide rule sets
-locally, pass `--rule-sets DIR`.
+from SagerNet for sing-box and Loyalsoldier/v2ray-rules-dat for xray, whose
+published SHA-256 checksums they must match; NixOS takes the same lists from
+nixpkgs. Each deploy gets the latest. xray's data files are reduced to the
+codes the node uses. To provide rule sets locally, pass `--rule-sets DIR`.
 
 ### Previewing changes and handling failures
 
@@ -110,6 +113,9 @@ services.princo = {
   config = ./vpn/princo.yaml;
   node = "nl";
 };
+
+# Certificates come from Let's Encrypt, whose terms you accept here.
+security.acme.acceptTerms = true;
 ```
 
 This example assumes you already have sops-nix as an input and have configured

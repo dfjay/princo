@@ -11,7 +11,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -208,16 +210,63 @@ func TestProvision(t *testing.T) {
 	p, _, _ := plan(t, "de")
 	require.NoError(t, d.provision(t.Context(), p))
 	require.Contains(t, script, "for p in 'nginx' 'libnginx-mod-stream' 'certbot'; do")
-	require.Contains(t, script, "ufw allow 443/tcp")
-	require.Contains(t, script, "ufw allow 80/tcp")
-	require.Contains(t, script, "ufw allow 443/udp")
-	require.NoError(t, exec.Command("sh", "-n", "-c", script).Run())
+	require.Equal(t, []string{
+		"allow 443/tcp comment princo", "allow 80/tcp comment princo", "allow 443/udp comment princo",
+	}, runUFW(t, script, ""))
+	require.Equal(t, []string{"allow 443/tcp comment princo", "allow 443/udp comment princo"}, runUFW(t, script, `22/tcp                     ALLOW       Anywhere
+80/tcp (v6)                ALLOW       Anywhere (v6)
+`), "the user's rule for 80 stays theirs")
 
 	p, _, _ = plan(t, "us")
 	require.NoError(t, d.provision(t.Context(), p))
 	require.Contains(t, script, "for p in; do")
-	require.NotContains(t, script, "/udp")
-	require.NoError(t, exec.Command("sh", "-n", "-c", script).Run())
+	require.Equal(t, []string{"allow 443/tcp comment princo"}, runUFW(t, script, ""))
+}
+
+func TestCleanup(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"sing-box-1.0.0", "sing-box-1.1.0"} {
+		require.NoError(t, os.Mkdir(filepath.Join(root, dir), 0o755))
+	}
+	p, _, _ := plan(t, "us")
+	script, err := execute("cleanup.sh", map[string]any{"Root": root, "Keep": filepath.Join(root, "sing-box-1.1.0"), "Ports": ports(p)})
+	require.NoError(t, err)
+	require.Equal(t, []string{"--force delete 5", "--force delete 3", "--force delete 2"}, runUFW(t, string(script), `     To                         Action      From
+     --                         ------      ----
+[ 1] 443/tcp                    ALLOW IN    Anywhere                   # princo
+[ 2] 443/udp                    ALLOW IN    Anywhere                   # princo
+[ 3] 80/tcp                     ALLOW IN    Anywhere                   # princo
+[ 4] 22/tcp                     ALLOW IN    Anywhere
+[ 5] 443/udp (v6)               ALLOW IN    Anywhere (v6)              # princo
+[ 6] 80/tcp (v6)                ALLOW IN    Anywhere (v6)
+`), "the node no longer uses 80 and UDP 443; the user's rules stay")
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.Equal(t, "sing-box-1.1.0", entries[0].Name())
+}
+
+// runUFW runs script against an active ufw with rules, and returns the
+// ufw commands it ran besides status.
+func runUFW(t *testing.T, script, rules string) []string {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "ufw.log")
+	fake := map[string]string{
+		"dpkg-query": "echo 'install ok installed'",
+		"getent":     "exit 0",
+		"ufw":        `if [ "$1" = status ]; then printf 'Status: active\n\n%s' "$RULES"; else echo "$*" >>"$LOG"; fi`,
+	}
+	for name, body := range fake {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755))
+	}
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"), "RULES="+rules, "LOG="+log)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	data, err := os.ReadFile(log)
+	require.NoError(t, err)
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
 // withRelease has engine name's release be the archive data, served at

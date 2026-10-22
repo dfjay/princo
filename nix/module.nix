@@ -328,12 +328,28 @@ in
               CapabilityBoundingSet = caps;
               Restart = "on-failure";
               RestartSec = "10s";
+              RestartPreventExitStatus = lib.mkIf (engine ? configError) engine.configError;
               LimitNOFILE = "infinity";
+              ProtectClock = true;
+              ProtectControlGroups = true;
+              ProtectHostname = true;
+              ProtectKernelLogs = true;
+              ProtectKernelModules = true;
+              ProtectKernelTunables = true;
+              LockPersonality = true;
+              RestrictNamespaces = true;
+              RestrictRealtime = true;
+              RestrictAddressFamilies = [
+                "AF_INET"
+                "AF_INET6"
+                "AF_NETLINK"
+                "AF_UNIX"
+              ];
+              SystemCallArchitectures = "native";
             };
           };
 
         security.acme = lib.mkIf (plan.certificates != [ ]) {
-          acceptTerms = true;
           defaults.email = lib.mkIf (plan.acme_email or "" != "") (lib.mkDefault plan.acme_email);
           certs = lib.genAttrs engineDomains (_: {
             webroot = acmeWebroot;
@@ -354,6 +370,8 @@ in
               listen [::]:${toString mux.port};
               ssl_preread on;
               proxy_pass $princo_backend;
+              # Tunnels idle longer than nginx's 10 minutes.
+              proxy_timeout 1h;
             }
           '';
 

@@ -9,13 +9,9 @@ if [ -n "$missing" ]; then
 	apt-get install -y -q $missing
 fi
 getent group {{.Group}} >/dev/null || groupadd --system {{.Group}}
-{{- if or .TCP .UDP}}
 if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
-{{- range .TCP}}
-	ufw allow {{.}}/tcp >/dev/null
-{{- end}}
-{{- range .UDP}}
-	ufw allow {{.}}/udp >/dev/null
-{{- end}}
+	for r in{{range .Ports}} {{.}}{{end}}; do
+		# Tagged for cleanup.sh, unless the host already allows it.
+		ufw status | grep -Eq "^$r( \(v6\))? +ALLOW( IN)? +Anywhere" || ufw allow "$r" comment princo >/dev/null
+	done
 fi
-{{- end}}

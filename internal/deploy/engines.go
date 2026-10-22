@@ -32,8 +32,14 @@ type engineSpec struct {
 	// environment is the engine's, as NAME=value.
 	environment []string
 	// reloads tells whether SIGHUP reloads the config.
-	reloads      bool
-	ruleSetURL   func(file string) string
+	reloads bool
+	// configError is the exit status of a config the engine refuses,
+	// which restarting won't fix; 0 for none.
+	configError int
+	ruleSetURL  func(file string) string
+	// ruleSetSums tells that each rule set's SHA-256 is published beside
+	// it, at <url>.sha256sum.
+	ruleSetSums  bool
 	ruleSetMagic []byte
 	// trim cuts a rule set down to what the config uses.
 	trim func(file string, data, config []byte) ([]byte, error)
@@ -127,9 +133,11 @@ var engines = map[string]engineSpec{
 			return []string{"/usr/bin/env", "XRAY_LOCATION_ASSET=" + engine.RuleSetDir, bin, "run", "-test", "-c", config}
 		},
 		environment: []string{"XRAY_LOCATION_ASSET=" + engine.RuleSetDir},
+		configError: 23,
 		ruleSetURL: func(file string) string {
 			return "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/" + file
 		},
+		ruleSetSums: true,
 		// A protobuf list: field 1, length-delimited.
 		ruleSetMagic: []byte{0x0a},
 		trim:         trimGeodata,
@@ -239,6 +247,9 @@ func RuleSets(ctx context.Context, client *http.Client, dir, engineName string, 
 		if dir == "" {
 			src = e.ruleSetURL(f)
 			data, err = Fetch(ctx, client, src)
+			if err == nil && e.ruleSetSums {
+				err = checkSum(ctx, client, src+".sha256sum", data)
+			}
 		} else {
 			data, err = os.ReadFile(src)
 		}
@@ -256,6 +267,20 @@ func RuleSets(ctx context.Context, client *http.Client, dir, engineName string, 
 		out[f] = data
 	}
 	return out, nil
+}
+
+// checkSum compares data with the SHA-256 in the sha256sum file at url.
+func checkSum(ctx context.Context, client *http.Client, url string, data []byte) error {
+	sums, err := Fetch(ctx, client, url)
+	if err != nil {
+		return err
+	}
+	want, _, _ := strings.Cut(string(sums), " ")
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); got != strings.TrimSpace(want) {
+		return fmt.Errorf("SHA-256 %s doesn't match %s, published with it; was it updated while downloading?", got, url)
+	}
+	return nil
 }
 
 // Fetch GETs url.

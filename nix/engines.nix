@@ -44,13 +44,11 @@
         config
       ];
     reloads = false;
+    # The exit status of a config it refuses, which restarting won't fix.
+    configError = 23;
     # geoip.dat and geosite.dat, from the rule set dir.
     environment.XRAY_LOCATION_ASSET = "/var/lib/princo/rules";
-    ruleSet =
-      file:
-      let
-        source = if file == "geoip.dat" then pkgs.v2ray-geoip else pkgs.v2ray-domain-list-community;
-      in
-      "${source}/share/v2ray/${file}";
+    # Loyalsoldier's, as princo deploy downloads.
+    ruleSet = file: "${pkgs.v2ray-rules-dat}/share/v2ray/${file}";
   };
 }
