@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.3.0](https://github.com/dfjay/princo/compare/v0.2.0...v0.3.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* leave accepting Let's Encrypt's terms to the host
+* xray 26.10.21, engines from princo's nixpkgs ([#23](https://github.com/dfjay/princo/issues/23))
+* optional Hysteria2 obfuscation, hysteria2 instead of hy2 ([#22](https://github.com/dfjay/princo/issues/22))
+
+### Features
+
+* groups can pick their fastest working node ([aa94234](https://github.com/dfjay/princo/commit/aa94234c4dfb1c1b10f6b2c47e7df2bded41ae70))
+* harden the engine's systemd unit ([f26de16](https://github.com/dfjay/princo/commit/f26de161e5eb75809ade0bd9f63d1d26604fc03d))
+* leave accepting Let's Encrypt's terms to the host ([f26de16](https://github.com/dfjay/princo/commit/f26de161e5eb75809ade0bd9f63d1d26604fc03d))
+* match sniffed protocols in rules ([aa94234](https://github.com/dfjay/princo/commit/aa94234c4dfb1c1b10f6b2c47e7df2bded41ae70))
+* optional Hysteria2 obfuscation, hysteria2 instead of hy2 ([#22](https://github.com/dfjay/princo/issues/22)) ([416dcc6](https://github.com/dfjay/princo/commit/416dcc6245000bdc29fd366fb431f8662df29f2c))
+* princo init, secret gen and user commands ([#20](https://github.com/dfjay/princo/issues/20)) ([84ef619](https://github.com/dfjay/princo/commit/84ef619279c4152b5ca33828bc7ac5a3c7095b4d))
+* sing-box VLESS users carry their names ([aa94234](https://github.com/dfjay/princo/commit/aa94234c4dfb1c1b10f6b2c47e7df2bded41ae70))
+* subscriptions name themselves and link to their QR page ([aa94234](https://github.com/dfjay/princo/commit/aa94234c4dfb1c1b10f6b2c47e7df2bded41ae70))
+* WARP accounts can set their reserved bytes ([aa94234](https://github.com/dfjay/princo/commit/aa94234c4dfb1c1b10f6b2c47e7df2bded41ae70))
+* xray 26.10.21, engines from princo's nixpkgs ([#23](https://github.com/dfjay/princo/issues/23)) ([5168f96](https://github.com/dfjay/princo/commit/5168f96529220d4cc52721b9a3eb4fcddd4aeb58))
+
+
+### Bug Fixes
+
+* close the ufw ports a node no longer uses ([f26de16](https://github.com/dfjay/princo/commit/f26de161e5eb75809ade0bd9f63d1d26604fc03d))
+* engine reads its files by group, nginx logs no subscriptions ([88b0a59](https://github.com/dfjay/princo/commit/88b0a595dd6747cc1477e0415ee4b787fdff7629))
+* idle tunnels outlast nginx's 10-minute timeout ([f26de16](https://github.com/dfjay/princo/commit/f26de161e5eb75809ade0bd9f63d1d26604fc03d))
+* IP rules match the addresses of domains ([88b0a59](https://github.com/dfjay/princo/commit/88b0a595dd6747cc1477e0415ee4b787fdff7629))
+* keep users off sing-box nodes' private networks ([88b0a59](https://github.com/dfjay/princo/commit/88b0a595dd6747cc1477e0415ee4b787fdff7629))
+* open the ufw address family the host lacks ([7886228](https://github.com/dfjay/princo/commit/788622897efe2c8a269bff5fd64a7e165ba6b89b))
+* profiles drop the Clash API and log only warnings ([aa94234](https://github.com/dfjay/princo/commit/aa94234c4dfb1c1b10f6b2c47e7df2bded41ae70))
+* refuse Hysteria2 on a node addressed by IP ([aa94234](https://github.com/dfjay/princo/commit/aa94234c4dfb1c1b10f6b2c47e7df2bded41ae70))
+* xray rule sets match their checksums and NixOS's source ([f26de16](https://github.com/dfjay/princo/commit/f26de161e5eb75809ade0bd9f63d1d26604fc03d))
+
 ## [0.2.0](https://github.com/dfjay/princo/compare/v0.1.1...v0.2.0) (2026-10-21)
 
 
