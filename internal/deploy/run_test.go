@@ -213,9 +213,11 @@ func TestProvision(t *testing.T) {
 	require.Equal(t, []string{
 		"allow 443/tcp comment princo", "allow 80/tcp comment princo", "allow 443/udp comment princo",
 	}, runUFW(t, script, ""))
-	require.Equal(t, []string{"allow 443/tcp comment princo", "allow 443/udp comment princo"}, runUFW(t, script, `22/tcp                     ALLOW       Anywhere
+	require.Equal(t, []string{
+		"allow 443/tcp comment princo", "allow proto tcp from 0.0.0.0/0 to any port 80 comment princo", "allow 443/udp comment princo",
+	}, runUFW(t, script, `22/tcp                     ALLOW       Anywhere
 80/tcp (v6)                ALLOW       Anywhere (v6)
-`), "the user's rule for 80 stays theirs")
+`), "the user's IPv6 rule for 80 stays theirs")
 
 	p, _, _ = plan(t, "us")
 	require.NoError(t, d.provision(t.Context(), p))
