@@ -66,6 +66,9 @@ let
     }) plan.rule_sets
   );
   certUnits = map (d: "acme-${d}.service") plan.certificates;
+  # The certificates the engine reads, not nginx.
+  engineDomains = lib.filter (d: site == null || d != site.domain) plan.certificates;
+  acmeWebroot = "/var/lib/acme/acme-challenge";
 
   needsNginx = mux != null || plan.certificates != [ ];
   http = [
@@ -239,6 +242,9 @@ in
           }
         ];
 
+        # May read the engine's config and certificates.
+        users.groups.princo-engine = { };
+
         networking.firewall = {
           allowedTCPPorts = plan.tcp_ports ++ lib.optional (plan.certificates != [ ]) 80;
           allowedUDPPorts = plan.udp_ports;
@@ -272,8 +278,12 @@ in
               "--out"
               outDir
             ];
-            # nginx serves the subscription site; the rest stays root's.
-            ExecStartPost = lib.optionals (site != null) [
+            # The engine reads its config, nginx serves the subscription
+            # site; the rest stays root's.
+            ExecStartPost = [
+              "${pkgs.coreutils}/bin/chgrp princo-engine ${outDir} ${outDir}/${plan.config}"
+            ]
+            ++ lib.optionals (site != null) [
               "${pkgs.coreutils}/bin/chmod 0751 ${outDir}"
               "${pkgs.coreutils}/bin/chgrp -R ${config.services.nginx.group} ${siteRoot}"
             ];
@@ -286,8 +296,6 @@ in
               "CAP_NET_ADMIN"
               "CAP_NET_BIND_SERVICE"
               "CAP_NET_RAW"
-              # Reads the rendered config and the certificates, both root's.
-              "CAP_DAC_READ_SEARCH"
             ];
           in
           {
@@ -313,6 +321,7 @@ in
               );
               ExecReload = lib.mkIf engine.reloads "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
               DynamicUser = true;
+              SupplementaryGroups = [ "princo-engine" ];
               StateDirectory = "princo-${plan.engine}";
               StateDirectoryMode = "0700";
               AmbientCapabilities = caps;
@@ -326,8 +335,10 @@ in
         security.acme = lib.mkIf (plan.certificates != [ ]) {
           acceptTerms = true;
           defaults.email = lib.mkIf (plan.acme_email or "" != "") (lib.mkDefault plan.acme_email);
-          certs = lib.genAttrs plan.certificates (d: {
-            reloadServices = lib.optional (site == null || d != site.domain) "princo.service";
+          certs = lib.genAttrs engineDomains (_: {
+            webroot = acmeWebroot;
+            group = "princo-engine";
+            reloadServices = [ "princo.service" ];
           });
         };
 
@@ -348,18 +359,21 @@ in
 
           # The engine's domains: plain HTTP, only for ACME challenges.
           virtualHosts =
-            lib.genAttrs (lib.filter (d: site == null || d != site.domain) plan.certificates) (_: {
-              enableACME = true;
+            lib.genAttrs engineDomains (_: {
               listen = lib.mkDefault http;
+              locations."^~ /.well-known/acme-challenge/".root = acmeWebroot;
               locations."/".return = lib.mkDefault "404";
             })
             // lib.optionalAttrs (site != null) {
               ${site.domain} = {
-                forceSSL = true;
+                onlySSL = true;
                 enableACME = true;
-                listen = http ++ [ ((parseAddr site.listen) // { ssl = true; }) ];
+                listen = [ ((parseAddr site.listen) // { ssl = true; }) ];
                 root = siteRoot;
+                # Subscription URLs grant access: no log records their requests.
                 extraConfig = ''
+                  access_log off;
+                  log_not_found off;
                   add_header X-Robots-Tag "noindex, nofollow" always;
                 '';
                 locations."~ ^/([a-f0-9]+)/sing-box$".extraConfig = ''
@@ -378,8 +392,21 @@ in
                     rewrite ^ /$token/sing-box last;
                   }
                   default_type text/plain;
+                  # add_header here drops the server's.
+                  add_header X-Robots-Tag "noindex, nofollow" always;
                   add_header profile-update-interval "24";
                   try_files /$token/base64 =404;
+                '';
+              };
+              # Its plain HTTP side, which forceSSL would generate with logging on.
+              "${site.domain}-http" = {
+                serverName = site.domain;
+                listen = http;
+                locations."^~ /.well-known/acme-challenge/".root = acmeWebroot;
+                locations."/".return = "301 https://$host$request_uri";
+                extraConfig = ''
+                  access_log off;
+                  log_not_found off;
                 '';
               };
             };
@@ -389,6 +416,14 @@ in
           wants = [ "princo-render.service" ];
           after = [ "princo-render.service" ];
         };
+      }
+
+      {
+        # nginx serves the challenges of the engine's certificates.
+        systemd.services = lib.genAttrs (map (d: "acme-order-renew-${d}") engineDomains) (_: {
+          wants = [ "nginx.service" ];
+          after = [ "nginx.service" ];
+        });
       }
 
       (lib.optionalAttrs (options ? sops) {

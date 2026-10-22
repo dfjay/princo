@@ -10,9 +10,9 @@ ExecStart=/usr/local/lib/princo/xray-26.10.21/xray run -c /var/lib/princo/files/
 DynamicUser=yes
 StateDirectory=princo-xray
 StateDirectoryMode=0700
-# CAP_DAC_READ_SEARCH reads the rendered config and the certificates, both root's.
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_DAC_READ_SEARCH
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_DAC_READ_SEARCH
+SupplementaryGroups=princo-engine
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 Restart=on-failure
 RestartSec=10s
 LimitNOFILE=infinity

@@ -186,7 +186,11 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 		data := files[name]
 		secretPaths = append(secretPaths, secrets.Placeholders(data)...)
 		for _, m := range certRe.FindAllSubmatch(data, -1) {
-			p.Certificates = append(p.Certificates, string(m[1]))
+			d := string(m[1])
+			if p.Subscription != nil && d == p.Subscription.Domain {
+				return nil, fmt.Errorf("subscription.domain: node %s's engine has a certificate for %s too, which it can't share with nginx; give the site a domain of its own", node, d)
+			}
+			p.Certificates = append(p.Certificates, d)
 		}
 	}
 	p.RuleSets = sortedUnique(p.RuleSets)

@@ -1,20 +1,24 @@
 #!/bin/sh
 # Written by princo deploy; changes here are overwritten.
-# Links a certificate certbot issued or renewed to where princo reads it.
+# Copies a certificate certbot issued or renewed to where princo reads it.
 set -eu
 d=$(basename "$RENEWED_LINEAGE")
 case "$d" in
 {{- with .Site}}
-{{q .Domain}}) unit=nginx.service ;;
+{{q .Domain}}) unit=nginx.service group=root ;;
 {{- end}}
 {{- range .EngineDomains}}
-{{q .}}) unit=princo.service ;;
+{{q .}}) unit=princo.service group={{$.Group}} ;;
 {{- end}}
 *) exit 0 ;;
 esac
-mkdir -p {{.CertDir}}/"$d"
-ln -sfn "$RENEWED_LINEAGE/fullchain.pem" {{.CertDir}}/"$d"/fullchain.pem
-ln -sfn "$RENEWED_LINEAGE/privkey.pem" {{.CertDir}}/"$d"/key.pem
+dir={{.CertDir}}/"$d"
+install -d -m 0750 -g {{.Group}} {{.CertDir}}
+install -d -m 0750 -g "$group" "$dir"
+install -m 0640 -g "$group" "$RENEWED_LINEAGE/fullchain.pem" "$dir/.fullchain.pem"
+install -m 0640 -g "$group" "$RENEWED_LINEAGE/privkey.pem" "$dir/.key.pem"
+mv -f "$dir/.fullchain.pem" "$dir/fullchain.pem"
+mv -f "$dir/.key.pem" "$dir/key.pem"
 # Not yet there on the first deploy.
 if systemctl -q is-active "$unit"; then
 	systemctl reload-or-restart "$unit"

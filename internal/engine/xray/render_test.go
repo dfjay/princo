@@ -133,9 +133,11 @@ func TestRenderServer_Edges(t *testing.T) {
 		},
 		map[string]any{"address": "https+local://dns.quad9.net/dns-query"},
 	}, dns["servers"])
-	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+	routing := cfg["routing"].(map[string]any)
+	rules := routing["rules"].([]any)
 	require.Equal(t, map[string]any{"inboundTag": []any{dns["tag"]}, "outboundTag": "direct"}, rules[0],
 		"the resolver's own queries skip the egress")
+	require.NotContains(t, routing, "domainStrategy", "no IP rules to resolve for")
 
 	warp := cfg["outbounds"].([]any)[0].(map[string]any)
 	require.Equal(t, "ForceIPv6v4", warp["targetStrategy"])

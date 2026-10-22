@@ -42,7 +42,9 @@ type facts struct {
 	// engine tells that the host has the engine's release.
 	engine  bool
 	missing []string
-	stream  bool
+	// linked are certificates an older princo linked into certbot's directories.
+	linked []string
+	stream bool
 }
 
 // Deploy installs the node's packages and princo, issues the certificates
@@ -64,6 +66,9 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 		return err
 	}
 	if err := d.installPrinco(ctx, f); err != nil {
+		return err
+	}
+	if err := d.copyLinked(ctx, p, f.linked); err != nil {
 		return err
 	}
 	if len(f.missing) > 0 {
@@ -147,6 +152,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.node = value
 		case "missing":
 			f.missing = append(f.missing, value)
+		case "linked":
+			f.linked = append(f.linked, value)
 		case "stream":
 			f.stream = true
 		}
@@ -158,6 +165,26 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 		return f, bundle.OtherNodeError(f.node, p.Node)
 	}
 	return f, nil
+}
+
+// copyLinked replaces linked certificates with copies, which the engine
+// can read without access to certbot's directories.
+func (d *Deployer) copyLinked(ctx context.Context, p *host.Plan, domains []string) error {
+	if len(domains) == 0 {
+		return nil
+	}
+	hook, err := certbotHook(p)
+	if err != nil {
+		return err
+	}
+	for _, domain := range domains {
+		d.logf("copying the certificate for %s", domain)
+		script := "RENEWED_LINEAGE=" + shellQuote("/etc/letsencrypt/live/"+domain) + "\nexport RENEWED_LINEAGE\n" + string(hook)
+		if err := d.Remote.Run(ctx, script, nil, d.Log); err != nil {
+			return fmt.Errorf("certificate for %s: %w", domain, err)
+		}
+	}
+	return nil
 }
 
 func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
@@ -177,6 +204,7 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 		"Packages": pkgs,
 		"TCP":      tcp,
 		"UDP":      p.UDPPorts,
+		"Group":    engineGroup,
 	})
 	if err != nil {
 		return err

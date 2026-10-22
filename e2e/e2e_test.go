@@ -154,6 +154,8 @@ for d in de.example.com naive-de.example.com subs.example.com; do
 	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 2 \
 		-keyout /var/lib/princo/certs/$d/key.pem -out /var/lib/princo/certs/$d/fullchain.pem \
 		-subj /CN=$d -addext subjectAltName=DNS:$d 2>/dev/null
+	chgrp princo-engine /var/lib/princo/certs/$d/*.pem
+	chmod 0640 /var/lib/princo/certs/$d/*.pem
 done`)
 		_, err := e.deploy(t, "de")
 		require.NoError(t, err)

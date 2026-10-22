@@ -1,6 +1,7 @@
 package xray
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/dfjay/princo/internal/fleet"
@@ -62,4 +63,8 @@ func domainsOf(match []fleet.Matcher) []string {
 		}
 	}
 	return out
+}
+
+func matchesIP(r fleet.Rule) bool {
+	return slices.ContainsFunc(r.Match, fleet.Matcher.IsIP)
 }

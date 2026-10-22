@@ -241,6 +241,15 @@ rules:
   - { match: [geosite:category-ru, geoip:ru], action: direct }
 ```
 
+Users can't connect to the node's private and loopback addresses, so they
+can't reach its own services or network: sing-box nodes refuse them before
+the node's rules, and xray's freedom outbound refuses them itself.
+
+`ip:` and `geoip:` match the addresses of domains too, except on sing-box
+nodes chaining to another: they leave domains to the upstream, so their IP
+rules match only connections to IP addresses. Domains they send `direct`
+are still resolved there and refused if private.
+
 Client rules can route through a group defined in `client.groups`:
 
 ```yaml
@@ -287,7 +296,7 @@ dns:
 | `servers.<name>.resolver` | another server that resolves this one's host name |
 | `servers.<name>.via` | client only: send queries through a group |
 | `final` | the server for everything else; required |
-| `default_resolver` | resolves the host names of outbounds |
+| `default_resolver` | resolves the host names of DNS servers and outbounds; what users connect to goes through `final` and `rules` |
 | `strategy` | `prefer_ipv4`, `prefer_ipv6`, `ipv4_only`, `ipv6_only` |
 | `optimistic` | answer from an expired cache while refreshing |
 | `rules` | `{ match: [...], server: <name> }`; domain conditions only |
@@ -316,7 +325,7 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domain` | its domain; needs a DNS record pointing at that node |
+| `domain` | its domain; needs a DNS record pointing at that node, and can't be a domain the node's engine has a certificate for |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and

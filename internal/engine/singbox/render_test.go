@@ -69,6 +69,8 @@ func TestChain(t *testing.T) {
 
 	relay := renderJSON(t, e.RenderServer, f, "relay")
 	route := relay["route"].(map[string]any)
+	require.Equal(t, map[string]any{"ip_is_private": true, "action": "reject"}, route["rules"].([]any)[0],
+		"no resolve: domains go to de as they are")
 	require.Equal(t, "de-reality", route["final"], "relay exits through de")
 	upstream := relay["outbounds"].([]any)[0].(map[string]any)
 	require.Equal(t, "de.example.com", upstream["server"])

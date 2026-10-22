@@ -49,9 +49,15 @@ princo deploy --node nl --host admin@nl.example.com
 3. Installs the matching princo release after verifying its signature with
    cosign. Use `--princo-deb PATH` to supply a local `.deb` instead.
 4. Obtains missing TLS certificates with certbot using HTTP-01. The certbot
-   timer handles renewal.
+   timer handles renewal; its hook copies each certificate to
+   `/var/lib/princo/certs` for the engine.
 5. Applies the rendered files, rule sets, `princo.service` and nginx config,
    restarting or reloading services whose files changed.
+
+The engine runs as a dynamic user without access to other users' files. Its
+config and certificates belong to root and the `princo-engine` group, which
+only the engine joins. nginx doesn't log subscription requests, as their URLs
+grant access.
 
 The rendered files live in `/var/lib/princo/files`. Rule sets are downloaded
 from SagerNet for sing-box and Loyalsoldier/v2ray-rules-dat for xray. xray's

@@ -68,6 +68,13 @@ func TestPlan_Mux(t *testing.T) {
 	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[5].Source)
 }
 
+func TestPlan_SiteSharesEngineCertificate(t *testing.T) {
+	f := placeholderFleet(t)
+	f.Subscription.Domain = "de.example.com"
+	_, err := NewPlan(f, "de", func(path string) string { return "sops:s.yaml#" + path })
+	require.ErrorContains(t, err, "subscription.domain: node de's engine has a certificate for de.example.com too")
+}
+
 func TestPlan_RealityOnly(t *testing.T) {
 	p := plan(t, "us")
 	require.Equal(t, []int{443}, p.TCPPorts)

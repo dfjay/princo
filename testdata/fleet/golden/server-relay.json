@@ -77,6 +77,7 @@
       "uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd"
     },
     {
+      "domain_resolver": "quad9",
       "tag": "direct",
       "type": "direct"
     }
@@ -100,7 +101,22 @@
     ],
     "rules": [
       {
+        "action": "reject",
+        "ip_is_private": true
+      },
+      {
         "action": "sniff"
+      },
+      {
+        "action": "resolve",
+        "rule_set": [
+          "geosite-category-ru",
+          "geoip-ru"
+        ]
+      },
+      {
+        "action": "reject",
+        "ip_is_private": true
       },
       {
         "action": "route",
