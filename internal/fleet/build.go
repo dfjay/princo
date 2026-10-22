@@ -41,7 +41,7 @@ var xhttpPathRe = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
 
 func (b *builder) checkName(where, name string) {
-	if !nameRe.MatchString(name) {
+	if !ValidName(name) {
 		b.errorf("%s: name %q: use lowercase letters, digits, - and _, starting and ending with a letter or digit", where, name)
 	}
 }
@@ -49,10 +49,7 @@ func (b *builder) checkName(where, name string) {
 // Build applies defaults, resolves secrets through sec and checks every
 // reference, reporting all problems at once.
 func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
-	b := &builder{cfg: cfg, sec: sec, f: &Fleet{
-		nodes: map[string]*Node{},
-		users: map[string]*User{},
-	}}
+	b := newBuilder(cfg, sec)
 	b.nodes()
 	b.egress()
 	b.users()
@@ -64,11 +61,19 @@ func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
 	return b.f, nil
 }
 
+func newBuilder(cfg *config.Config, sec secrets.Getter) *builder {
+	return &builder{cfg: cfg, sec: sec, f: &Fleet{
+		nodes: map[string]*Node{},
+		users: map[string]*User{},
+	}}
+}
+
 type builder struct {
 	cfg  *config.Config
 	sec  secrets.Getter
 	f    *Fleet
 	errs []error
+	uses []SecretUse
 }
 
 func (b *builder) errorf(format string, args ...any) {
@@ -76,10 +81,13 @@ func (b *builder) errorf(format string, args ...any) {
 }
 
 // secret resolves ref, or the conventional path when ref is unset.
-func (b *builder) secret(where string, ref *secrets.SecretOrPlain, convention string) string {
+func (b *builder) secret(where string, ref *secrets.SecretOrPlain, convention string, kind SecretKind) string {
 	r := secrets.SecretOrPlain{SecretPath: convention}
 	if ref != nil {
 		r = *ref
+	}
+	if !r.IsPlain() {
+		b.uses = append(b.uses, SecretUse{Path: r.SecretPath, Field: where, Kind: kind})
 	}
 	v, err := r.Resolve(b.sec)
 	if err != nil {
@@ -113,7 +121,7 @@ func (b *builder) nodes() {
 				ServerName: cmp.Or(c.Reality.ServerName, def.ServerName),
 				ShortID:    cmp.Or(c.Reality.ShortID, def.ShortID),
 				PublicKey:  c.Reality.PublicKey,
-				PrivateKey: b.secret(where+".reality.private_key", c.Reality.PrivateKey, secretReality(name)),
+				PrivateKey: b.secret(where+".reality.private_key", c.Reality.PrivateKey, secretReality(name), SecretRealityKey),
 			}
 			if n.Reality.ServerName == "" || n.Reality.ShortID == "" || n.Reality.PublicKey == "" {
 				b.errorf("%s.reality: server_name, short_id and public_key are required", where)
@@ -130,7 +138,7 @@ func (b *builder) nodes() {
 			}
 			n.Hysteria2 = &Hysteria2{
 				Masquerade:   masquerade,
-				ObfsPassword: b.secret(where+".hysteria2.obfs_password", cmp.Or(c.Hysteria2.ObfsPassword, def.ObfsPassword), secretHy2Obfs),
+				ObfsPassword: b.secret(where+".hysteria2.obfs_password", cmp.Or(c.Hysteria2.ObfsPassword, def.ObfsPassword), secretHy2Obfs, SecretPassword),
 			}
 		}
 		if c.Naive != nil {
@@ -221,9 +229,9 @@ func (b *builder) egress() {
 			n.Egress = Egress{Kind: EgressWarp}
 			w := deref(c.Warp)
 			n.Warp = &Warp{
-				PrivateKey: b.secret(where+".warp.private_key", w.PrivateKey, secretWarp(n.Name, "private_key")),
-				IPv4:       b.secret(where+".warp.ipv4", w.IPv4, secretWarp(n.Name, "ipv4")),
-				IPv6:       b.secret(where+".warp.ipv6", w.IPv6, secretWarp(n.Name, "ipv6")),
+				PrivateKey: b.secret(where+".warp.private_key", w.PrivateKey, secretWarp(n.Name, "private_key"), SecretExternal),
+				IPv4:       b.secret(where+".warp.ipv4", w.IPv4, secretWarp(n.Name, "ipv4"), SecretExternal),
+				IPv6:       b.secret(where+".warp.ipv6", w.IPv6, secretWarp(n.Name, "ipv6"), SecretExternal),
 			}
 		default:
 			up, ok := b.f.nodes[egress]
@@ -236,7 +244,7 @@ func (b *builder) egress() {
 				b.errorf("%s.egress: chain upstream %s needs reality", where, egress)
 			default:
 				n.Egress = Egress{Kind: EgressNode, Node: up}
-				n.ChainUUID = b.secret(where+".egress", nil, secretChainUUID(n.Name))
+				n.ChainUUID = b.secret(where+".egress", nil, secretChainUUID(n.Name), SecretUUID)
 			}
 		}
 	}
@@ -258,7 +266,7 @@ func (b *builder) users() {
 		c, _ := b.cfg.Users.Get(name)
 		where := "users." + name
 		b.checkName(where, name)
-		u := &User{Name: name, UUID: b.secret(where+".uuid", c.UUID, secretUserUUID(name))}
+		u := &User{Name: name, UUID: b.secret(where+".uuid", c.UUID, secretUserUUID(name), SecretUUID)}
 		if c.Nodes == nil {
 			u.Nodes = b.f.Nodes
 		}

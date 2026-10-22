@@ -51,11 +51,15 @@ can be shared without exposing them.
 
 | Path | Value |
 | --- | --- |
-| `users/<user>` | the user's UUID (`uuidgen`) |
+| `users/<user>` | the user's UUID |
 | `nodes/<node>/reality` | the node's Reality private key |
 | `shared/hy2_obfs` | the Hysteria2 obfuscation password, shared by all nodes |
 | `nodes/<node>/warp/{private_key,ipv4,ipv6}` | the node's WARP account |
 | `nodes/<node>/chain` | the UUID a chained node uses on its upstream |
+
+`princo secret gen` generates every missing one it can: UUIDs, Reality key
+pairs (writing the public half to the node's `reality.public_key`) and the
+Hysteria2 password. WARP credentials come from an existing account.
 
 To use another path, set the field to `!secret <path>`, or point it at a
 file directly with `!secret sops:<file>#<key>` or `!secret age:<file>#<key>`.
@@ -106,7 +110,7 @@ XHTTP and Naive over TCP, Hysteria2 over UDP.
 | --- | --- |
 | `server_name` | a real HTTPS site the node imitates, e.g. `www.microsoft.com`; pick one reachable from the node |
 | `short_id` | hex, up to 16 characters (`openssl rand -hex 4`) |
-| `public_key` | from `sing-box generate reality-keypair` or `xray x25519` (its `Password`) |
+| `public_key` | set by `princo secret gen nodes/<node>/reality`, or from `sing-box generate reality-keypair` or `xray x25519` (its `Password`) |
 | `private_key` | *secret*, `nodes/<node>/reality` |
 
 ### `xhttp`
@@ -184,6 +188,9 @@ See [Sharing port 443](deployment.md#sharing-port-443) for host setup.
 | --- | --- |
 | `nodes` | node names the user may use, in the order their app lists them; all nodes when unset |
 | `uuid` | *secret*, `users/<name>` |
+
+Manage users with `princo user add`, `rotate` and `remove`; see
+[Writing secrets](#writing-secrets).
 
 ## `client`
 
@@ -329,17 +336,31 @@ secrets:
 Without a key, the key is what `*` matched (`nodes/fr/reality` →
 `reality`), or the whole path for a pattern without `*`.
 
-### Local age store
+### Writing secrets
 
 The default identity is `~/.config/princo/key.txt`; override it with `--key`.
-`princo secret set <path>` reads a hidden terminal prompt or the first line
-of stdin and creates or updates `secrets.age`. It encrypts to the recipients
-in `.princo/recipients`, falling back to `recipients`, next to `princo.yaml`.
+Commands that write secrets follow the mappings: they update mapped sops
+files with `sops set` (sops 3.11 or newer) and age files encrypted to the
+recipients in `.princo/recipients`, falling back to `recipients`, next to
+`princo.yaml`. When the recipients don't include the identity, they refuse
+to write, since the identity couldn't read the file back. Unmapped paths go
+to `secrets.age`, which is created when needed.
 
-`princo secret list` lists paths in this local store. `princo secret get
-<path>` follows mappings and prints the resolved value. `secret set` always
-writes the default age store, so use sops itself to edit mapped sops files.
-See the [quick start](../README.md#2-create-and-store-credentials) for setup.
+| Command | Effect |
+| --- | --- |
+| `princo secret gen [path...]` | generate missing secrets, or the given ones; `--force` replaces existing values |
+| `princo secret set <path>` | store a value read from a hidden prompt or the first line of stdin |
+| `princo secret get <path>` | print the resolved value |
+| `princo secret list` | list the paths in `secrets.age` |
+| `princo user add <name> [--nodes a,b]` | add a user to `princo.yaml` and generate their UUID |
+| `princo user rotate <name>` | replace the user's UUID; their subscription link changes with it |
+| `princo user remove <name>` | remove the user from `princo.yaml` and delete their UUID |
+
+`princo init` starts a fleet with these: see the
+[quick start](../README.md#1-create-your-fleet). princo edits `princo.yaml`
+in place, keeping comments and layout, and refuses an edit that would change
+more than intended. `user add` and `user remove` need `users:` written as an
+indented block.
 
 ### Host-side secret files
 

@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -63,7 +64,7 @@ func NewStore(values map[string]any) *Store { return &Store{values: values} }
 // Save encrypts the given map as armored age and atomically writes it to path.
 // recipientsPath is a text file with one age public key per line.
 func Save(path, recipientsPath string, values map[string]any) error {
-	recipients, err := loadRecipients(recipientsPath)
+	recipients, err := LoadRecipients(recipientsPath)
 	if err != nil {
 		return err
 	}
@@ -98,7 +99,8 @@ func Save(path, recipientsPath string, values map[string]any) error {
 	return nil
 }
 
-func loadRecipients(path string) ([]age.Recipient, error) {
+// LoadRecipients reads the age recipients file at path.
+func LoadRecipients(path string) ([]age.Recipient, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open recipients %s: %w", path, err)
@@ -131,7 +133,8 @@ func splitPath(p string) []string {
 func (s *Store) Get(path string) (string, error) { return lookup(s.values, path) }
 
 // lookup finds the value at a dot/slash-separated path in decrypted values.
-// Scalars of any type come back as strings.
+// Scalars of any type come back as strings; a missing one is an error
+// matching ErrNotFound.
 func lookup(values map[string]any, path string) (string, error) {
 	parts := splitPath(path)
 	if len(parts) == 0 {
@@ -145,7 +148,7 @@ func lookup(values map[string]any, path string) (string, error) {
 		}
 		next, ok := m[part]
 		if !ok {
-			return "", fmt.Errorf("secret not found: %s", path)
+			return "", fmt.Errorf("%w: %s", ErrNotFound, path)
 		}
 		cur = next
 	}
@@ -158,6 +161,9 @@ func lookup(values map[string]any, path string) (string, error) {
 		return fmt.Sprint(v), nil
 	}
 }
+
+// ErrNotFound is the error for a secret missing from its file.
+var ErrNotFound = errors.New("secret not found")
 
 // Set writes a string value at the path, creating intermediate maps.
 func (s *Store) Set(path, value string) error {

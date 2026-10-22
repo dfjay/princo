@@ -22,6 +22,7 @@ func newSecretCommand(global *globalFlags) *cobra.Command {
 	}
 	cmd.AddCommand(newSecretGetCommand(global))
 	cmd.AddCommand(newSecretSetCommand(global))
+	cmd.AddCommand(newSecretGenCommand(global))
 	cmd.AddCommand(newSecretListCommand(global))
 	return cmd
 }
@@ -53,10 +54,17 @@ func newSecretGetCommand(global *globalFlags) *cobra.Command {
 func newSecretSetCommand(global *globalFlags) *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <path>",
-		Short: "Set a secret value: typed without echo, or the first line of stdin",
-		Args:  cobra.ExactArgs(1),
+		Short: "Set a secret value, wherever princo.yaml's secrets: block maps it",
+		Long: `Set a secret value: typed without echo, or the first line of stdin. It
+goes where princo.yaml's secrets: block maps the path, sops files included,
+or to secrets.age next to princo.yaml.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, recipientsPath, err := openSecretStore(global)
+			cfg, err := loadConfig(global)
+			if err != nil {
+				return err
+			}
+			resolver, err := newResolver(global, cfg)
 			if err != nil {
 				return err
 			}
@@ -64,10 +72,7 @@ func newSecretSetCommand(global *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := store.Set(args[0], value); err != nil {
-				return err
-			}
-			return secrets.Save(secretsPath(global.ConfigPath), recipientsPath, store.Values())
+			return resolver.Set(args[0], value)
 		},
 	}
 }
@@ -104,7 +109,7 @@ func newSecretListCommand(global *globalFlags) *cobra.Command {
 		Use:   "list",
 		Short: "List all secret paths (values not shown)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, _, err := openSecretStore(global)
+			store, err := openSecretStore(global)
 			if err != nil {
 				return err
 			}
@@ -120,29 +125,28 @@ func newSecretListCommand(global *globalFlags) *cobra.Command {
 	}
 }
 
-// openSecretStore loads the secrets next to the config file and returns
-// (store, path-to-recipients-file, error). Recipients live in `.princo/recipients`
-// or `recipients` next to the config.
-func openSecretStore(global *globalFlags) (*secrets.Store, string, error) {
+// openSecretStore loads the secrets.age next to the config file.
+func openSecretStore(global *globalFlags) (*secrets.Store, error) {
 	path := secretsPath(global.ConfigPath)
-	var store *secrets.Store
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		// The first `secret set` creates it.
-		store = secrets.NewStore(map[string]any{})
-	} else if store, err = secrets.Open(path, identityPath(global)); err != nil {
-		return nil, "", err
+		return secrets.NewStore(map[string]any{}), nil
 	}
+	return secrets.Open(path, identityPath(global))
+}
+
+// recipientsPath is the recipients file next to the config:
+// `.princo/recipients` if it exists, else `recipients`.
+func recipientsPath(global *globalFlags) string {
 	dir := filepath.Dir(global.ConfigPath)
-	candidates := []string{
-		filepath.Join(dir, ".princo", "recipients"),
-		filepath.Join(dir, "recipients"),
+	if p := filepath.Join(dir, ".princo", "recipients"); fileExists(p) {
+		return p
 	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			return store, p, nil
-		}
-	}
-	return nil, "", fmt.Errorf("no recipients file found (tried %v)", candidates)
+	return filepath.Join(dir, "recipients")
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist)
 }
 
 // secretsPath converts /path/to/princo.yaml → /path/to/secrets.age.

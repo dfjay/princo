@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"filippo.io/age"
 	"github.com/stretchr/testify/require"
 )
 
@@ -98,4 +99,85 @@ func TestResolver_RealSops(t *testing.T) {
 	got, err := r.Get("users/alice")
 	require.NoError(t, err)
 	require.Equal(t, "uuid-a", got)
+
+	require.NoError(t, r.Set("users/bob", "uuid-b"))
+	require.NoError(t, r.Delete("users/alice"))
+	got, err = r.Get("users/bob")
+	require.NoError(t, err)
+	require.Equal(t, "uuid-b", got)
+	_, err = r.Get("users/alice")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestResolver_SetAge(t *testing.T) {
+	dir := t.TempDir()
+	id, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	keyFile := filepath.Join(dir, "key.txt")
+	require.NoError(t, os.WriteFile(keyFile, []byte(id.String()+"\n"), 0o600))
+	recipients := filepath.Join(dir, "recipients")
+	require.NoError(t, os.WriteFile(recipients, []byte(id.Recipient().String()+"\n"), 0o644))
+
+	r, err := NewResolver(dir, keyFile, []Mapping{{"nodes/fr/*", "age:fr.age"}})
+	require.NoError(t, err)
+	require.ErrorContains(t, r.Set("users/alice", "a"), "no recipients file")
+	r.Recipients = recipients
+	has, err := r.Has("users/alice")
+	require.NoError(t, err)
+	require.False(t, has, "no secrets.age yet")
+
+	require.NoError(t, r.Set("users/alice", "a"))
+	require.NoError(t, r.Set("users/bob", "b"))
+	require.NoError(t, r.Set("nodes/fr/reality", "rk"))
+	require.NoError(t, r.Delete("users/bob"))
+
+	r, err = NewResolver(dir, keyFile, []Mapping{{"nodes/fr/*", "age:fr.age"}})
+	require.NoError(t, err)
+	for path, want := range map[string]string{"users/alice": "a", "nodes/fr/reality": "rk"} {
+		got, err := r.Get(path)
+		require.NoError(t, err, path)
+		require.Equal(t, want, got)
+	}
+	has, err = r.Has("users/bob")
+	require.NoError(t, err)
+	require.False(t, has)
+	fr, err := Open(filepath.Join(dir, "fr.age"), keyFile)
+	require.NoError(t, err)
+	require.Equal(t, []string{"reality"}, fr.List())
+}
+
+func TestResolver_SetRefusesForeignRecipients(t *testing.T) {
+	dir := t.TempDir()
+	id, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	other, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	keyFile := filepath.Join(dir, "key.txt")
+	require.NoError(t, os.WriteFile(keyFile, []byte(id.String()+"\n"), 0o600))
+	recipients := filepath.Join(dir, "recipients")
+	require.NoError(t, os.WriteFile(recipients, []byte("# "+id.Recipient().String()+"\n"+other.Recipient().String()+"\n"), 0o644))
+
+	r, err := NewResolver(dir, keyFile, nil)
+	require.NoError(t, err)
+	r.Recipients = recipients
+	require.ErrorContains(t, r.Set("users/alice", "a"), "doesn't list the identity at")
+	require.NoFileExists(t, filepath.Join(dir, DefaultFile))
+
+	require.NoError(t, os.WriteFile(recipients, []byte(other.Recipient().String()+"\n"+id.Recipient().String()+"\n"), 0o644))
+	require.NoError(t, r.Set("users/alice", "a"))
+}
+
+func TestCheckRecipients_Hybrid(t *testing.T) {
+	dir := t.TempDir()
+	id, err := age.GenerateHybridIdentity()
+	require.NoError(t, err)
+	other, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	keyFile := filepath.Join(dir, "key.txt")
+	require.NoError(t, os.WriteFile(keyFile, []byte(id.String()+"\n"), 0o600))
+	recipients := filepath.Join(dir, "recipients")
+	require.NoError(t, os.WriteFile(recipients, []byte(other.Recipient().String()+"\n"), 0o644))
+	require.ErrorContains(t, CheckRecipients(keyFile, recipients), "doesn't list the identity at")
+	require.NoError(t, os.WriteFile(recipients, []byte(id.Recipient().String()+"\n"), 0o644))
+	require.NoError(t, CheckRecipients(keyFile, recipients))
 }

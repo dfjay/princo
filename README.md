@@ -62,20 +62,26 @@ nix run github:dfjay/princo -- --help
 This example creates one sing-box node, two users and a subscription site.
 Both users can connect over VLESS-Reality or Hysteria2.
 
-You need `princo`, `age-keygen`, `sing-box`, `openssl` and `uuidgen` locally.
-To deploy, prepare a Debian or Ubuntu server with SSH access as root or a user
-with passwordless sudo. Point `nl.example.com` and `subs.example.com` at its
-public IP, replacing these example domains with your own. Allow TCP 80 and
-443, and UDP 443; port 443 must be available for princo.
+You need `princo` locally. To deploy, prepare a Debian or Ubuntu server with
+SSH access as root or a user with passwordless sudo. Point `nl.example.com` and
+`subs.example.com` at its public IP, replacing these example domains with your
+own. Allow TCP 80 and 443, and UDP 443; port 443 must be available for princo.
 
-### 1. Create your fleet config
+### 1. Create your fleet
 
 ```bash
 mkdir my-vpn && cd my-vpn
-curl -fsSLO https://raw.githubusercontent.com/dfjay/princo/main/examples/minimal/princo.yaml
+princo init
 ```
 
-The [example](examples/minimal/princo.yaml) has this structure:
+`princo init` writes a `princo.yaml` like the
+[example](examples/minimal/princo.yaml) and generates its credentials: the
+node's Reality key pair, the Hysteria2 password and a UUID for each user. They
+go into `secrets.age`, encrypted to the age public key in `recipients`. Unless
+it already exists, init also creates the private key at
+`~/.config/princo/key.txt`; keep it outside your fleet repository and back it up.
+
+The generated config has this structure:
 
 ```yaml
 princo: v1
@@ -88,8 +94,8 @@ nodes:
     address: nl.example.com
     reality:
       server_name: www.microsoft.com
-      short_id: 0123abcd
-      public_key: <public key>
+      short_id: 2fb419ae          # random
+      public_key: UWXdEC6a...     # the generated key pair's public half
     hysteria2: {}
 
 users:
@@ -110,49 +116,13 @@ subscription:
 
 Set your domains and ACME email in `princo.yaml`. The `reality.server_name`
 is an existing HTTPS site reachable from your server; it does not need to be
-a domain you own. Generate a short ID with `openssl rand -hex 4` and replace
-the example `short_id`.
+a domain you own.
 
-### 2. Create and store credentials
+To add a node later, describe it in `princo.yaml` and run `princo secret gen`
+to create its credentials. See the [secrets reference](docs/config.md#secrets)
+to keep credentials in existing sops files instead.
 
-Create an age identity, or reuse an existing identity at the default path:
-
-```bash
-# Run once; keep this private key outside your fleet repository.
-mkdir -p ~/.config/princo
-age-keygen -o ~/.config/princo/key.txt
-```
-
-Write its public recipient next to `princo.yaml`, then generate the node's
-Reality key pair:
-
-```bash
-age-keygen -y ~/.config/princo/key.txt > recipients
-sing-box generate reality-keypair
-```
-
-Copy the generated **PublicKey** into `nodes.nl.reality.public_key` in
-`princo.yaml`. Store the **PrivateKey** with the following command; paste it
-at the prompt and press Enter (input is hidden):
-
-```bash
-princo secret set nodes/nl/reality
-```
-
-Create the shared Hysteria2 password and a UUID for each user:
-
-```bash
-openssl rand -hex 16 | princo secret set shared/hy2_obfs
-for user in alice bob; do
-  uuidgen | princo secret set users/$user
-done
-```
-
-These commands create `secrets.age` beside your config, encrypted to
-`recipients`. See the [secrets reference](docs/config.md#secrets) to use
-existing sops files instead.
-
-### 3. Inspect and deploy
+### 2. Inspect and deploy
 
 ```bash
 princo plan --node nl                 # Ports, certificates and required secrets
@@ -165,7 +135,7 @@ The deploy command installs the required software, obtains TLS certificates
 and starts the node. It uses your system SSH configuration. For NixOS, follow
 the [module setup](docs/deployment.md#nixos) instead.
 
-### 4. Connect a client
+### 3. Connect a client
 
 ```bash
 princo render --user alice --links
@@ -191,6 +161,10 @@ updated server configs and subscriptions.
 | Print subscription and QR links | `princo render --user alice --links` |
 | Deploy using the node's `ssh:` setting | `princo deploy --node nl` |
 | Preview file changes on a host with princo installed | `princo deploy --node nl --dry-run` |
+| Add a user on some nodes and generate their UUID | `princo user add carol --nodes nl` |
+| Replace a user's UUID, revoking their old links | `princo user rotate carol` |
+| Remove a user and their UUID | `princo user remove carol` |
+| Generate missing credentials after editing the config | `princo secret gen` |
 | List paths in the local age store | `princo secret list` |
 
 Use `--config PATH` (`-c`) to select another fleet config, `--key PATH` (`-k`)
