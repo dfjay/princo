@@ -73,7 +73,7 @@
       "default": "de-reality",
       "outbounds": [
         "de-reality",
-        "de-hy2",
+        "de-hysteria2",
         "de-naive",
         "us-reality",
         "fi-reality"
@@ -103,14 +103,10 @@
       "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
     },
     {
-      "obfs": {
-        "password": "obfs-password",
-        "type": "salamander"
-      },
       "password": "dbc5aca6-f0dd-416d-b30f-813754d72f99",
       "server": "de.example.com",
       "server_port": 443,
-      "tag": "de-hy2",
+      "tag": "de-hysteria2",
       "tls": {
         "enabled": true,
         "server_name": "de.example.com"

@@ -30,25 +30,25 @@ func fakeResolver(t *testing.T, mappings []Mapping, files map[string]map[string]
 func TestResolver_Mappings(t *testing.T) {
 	r, opened := fakeResolver(t, []Mapping{
 		{"users/*", "sops:../secrets/shared.yaml#vless_uuid_*"},
-		{"shared/hy2_obfs", "sops:../secrets/shared.yaml#hy2_obfs_password"},
+		{"shared/hysteria2_obfs", "sops:../secrets/shared.yaml#hysteria2_obfs_password"},
 		{"nodes/fr/reality", "sops:../secrets/gandi.yaml#reality_private_key"},
 		{"nodes/fr/warp/*", "sops:../secrets/gandi.yaml#warp_*"},
 		{"nodes/us/*", "sops:../secrets/linode.yaml"},
 	}, map[string]map[string]any{
-		"sops:/secrets/shared.yaml": {"vless_uuid_alice": "uuid-a", "hy2_obfs_password": "obfs"},
+		"sops:/secrets/shared.yaml": {"vless_uuid_alice": "uuid-a", "hysteria2_obfs_password": "obfs"},
 		"sops:/secrets/gandi.yaml":  {"reality_private_key": "rk", "warp_ipv4": "10.0.0.2/32", "warp_mtu": 1280},
 		"sops:/secrets/linode.yaml": {"reality": "rk-us"},
 		"age:/fleet/secrets.age":    {"nodes": map[string]any{"de": map[string]any{"chain": "c"}}},
 	})
 
 	for path, want := range map[string]string{
-		"users/alice":        "uuid-a",
-		"shared/hy2_obfs":    "obfs",
-		"nodes/fr/reality":   "rk",
-		"nodes/fr/warp/ipv4": "10.0.0.2/32",
-		"nodes/fr/warp/mtu":  "1280",
-		"nodes/us/reality":   "rk-us",
-		"nodes/de/chain":     "c", // no mapping: default age file
+		"users/alice":           "uuid-a",
+		"shared/hysteria2_obfs": "obfs",
+		"nodes/fr/reality":      "rk",
+		"nodes/fr/warp/ipv4":    "10.0.0.2/32",
+		"nodes/fr/warp/mtu":     "1280",
+		"nodes/us/reality":      "rk-us",
+		"nodes/de/chain":        "c", // no mapping: default age file
 		"sops:../secrets/shared.yaml#vless_uuid_alice": "uuid-a", // explicit location
 	} {
 		got, err := r.Get(path)

@@ -190,7 +190,7 @@ func firstProtocol(n *fleet.Node) string {
 	case n.Reality != nil:
 		return "reality"
 	case n.Hysteria2 != nil:
-		return "hy2"
+		return "hysteria2"
 	default:
 		return "naive"
 	}
@@ -203,15 +203,18 @@ func nodeOutbounds(n *fleet.Node, u *fleet.User) []map[string]any {
 		out = append(out, realityOutbound(n, u.UUID))
 	}
 	if h := n.Hysteria2; h != nil {
-		out = append(out, map[string]any{
+		o := map[string]any{
 			"type":        "hysteria2",
-			"tag":         outboundTag(n, "hy2"),
+			"tag":         outboundTag(n, "hysteria2"),
 			"server":      n.Address,
 			"server_port": 443,
 			"password":    u.UUID,
-			"obfs":        map[string]any{"type": "salamander", "password": h.ObfsPassword},
 			"tls":         map[string]any{"enabled": true, "server_name": n.Address},
-		})
+		}
+		if h.Obfs != "" {
+			o["obfs"] = map[string]any{"type": h.Obfs, "password": h.ObfsPassword}
+		}
+		out = append(out, o)
 	}
 	if nv := n.Naive; nv != nil {
 		out = append(out, map[string]any{

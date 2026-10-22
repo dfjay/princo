@@ -53,13 +53,13 @@ can be shared without exposing them.
 | --- | --- |
 | `users/<user>` | the user's UUID |
 | `nodes/<node>/reality` | the node's Reality private key |
-| `shared/hy2_obfs` | the Hysteria2 obfuscation password, shared by all nodes |
+| `shared/hysteria2_obfs` | the Hysteria2 obfuscation password, shared by nodes with `obfs` |
 | `nodes/<node>/warp/{private_key,ipv4,ipv6}` | the node's WARP account |
 | `nodes/<node>/chain` | the UUID a chained node uses on its upstream |
 
 `princo secret gen` generates every missing one it can: UUIDs, Reality key
 pairs (writing the public half to the node's `reality.public_key`) and the
-Hysteria2 password. WARP credentials come from an existing account.
+Hysteria2 obfuscation password. WARP credentials come from an existing account.
 
 To use another path, set the field to `!secret <path>`, or point it at a
 file directly with `!secret sops:<file>#<key>` or `!secret age:<file>#<key>`.
@@ -76,7 +76,7 @@ Every node inherits these; a node's own value wins.
 | `acme_email` | — | the email ACME certificates are registered with |
 | `reality` | — | default `server_name`, `short_id` of `reality` blocks |
 | `xhttp` | — | default `path`, `mode` of `xhttp` blocks |
-| `hysteria2` | — | default `masquerade`, `obfs_password` of `hysteria2` blocks |
+| `hysteria2` | — | default `masquerade`, `obfs`, `obfs_password` of `hysteria2` blocks |
 | `egress` | `direct` | see `nodes.<name>.egress` |
 | `dns` | — | see [DNS](#dns); a node's block replaces the default block |
 | `rules` | — | see [Rules](#rules); a node's `rules`, even empty, replace them |
@@ -129,8 +129,16 @@ so it is only in share links.
 
 | Field | Description |
 | --- | --- |
-| `masquerade` | the site served to probes; defaults to `https://<reality.server_name>`, required when Reality is absent and no default is set |
-| `obfs_password` | *secret*, `shared/hy2_obfs` |
+| `masquerade` | without `obfs`: the site served to probes; defaults to `https://<reality.server_name>`, required when Reality is absent and no default is set |
+| `obfs` | `salamander` or `gecko` to obfuscate the traffic; `none` by default, or to turn off a default |
+| `obfs_password` | with `obfs`: *secret*, `shared/hysteria2_obfs` |
+
+Without `obfs`, the node is an HTTP/3 server: apps authenticate, and
+anyone else gets the `masquerade` site. Obfuscation scrambles every packet,
+which helps where QUIC itself is blocked, but the node no longer looks like
+an HTTP/3 server and has no site to show, so `masquerade` can't be set with it.
+A node takes the defaults that fit its mode: `masquerade` without `obfs`,
+`obfs_password` with it.
 
 Hysteria2 needs a certificate for `address`, so `address` must then be a
 domain pointing at the node.
@@ -213,7 +221,7 @@ The sing-box profile users import.
 | `fallback` | — | a group or `direct` to use when the user has no members here |
 
 Every node a user may use contributes one member per protocol, tagged
-`<node>-reality`, `<node>-hy2`, `<node>-naive`. `direct` is reserved.
+`<node>-reality`, `<node>-hysteria2`, `<node>-naive`. `direct` is reserved.
 XHTTP has no member: sing-box doesn't speak it.
 
 For example, tag a node with `tags: [europe]`, then use a group with
@@ -328,7 +336,7 @@ princo.yaml.
 ```yaml
 secrets:
   users/*: sops:../secrets/shared.yaml#vless_uuid_*
-  shared/hy2_obfs: sops:../secrets/shared.yaml#hy2_obfs_password
+  shared/hysteria2_obfs: sops:../secrets/shared.yaml#hysteria2_obfs_password
   nodes/fr/*: sops:../secrets/fr.yaml
 ```
 

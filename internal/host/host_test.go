@@ -63,9 +63,9 @@ func TestPlan_Mux(t *testing.T) {
 	// Its own keys, the chain hop exiting here, and every user for the site.
 	require.Equal(t, []string{
 		"nodes/de/reality", "nodes/de/warp/ipv4", "nodes/de/warp/ipv6", "nodes/de/warp/private_key",
-		"nodes/relay/chain", "shared/hy2_obfs", "users/alice", "users/bob",
+		"nodes/relay/chain", "users/alice", "users/bob",
 	}, secretPaths(p))
-	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[6].Source)
+	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[5].Source)
 }
 
 func TestPlan_RealityOnly(t *testing.T) {

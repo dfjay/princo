@@ -161,6 +161,50 @@ func TestSingBoxCheck(t *testing.T) {
 	for _, u := range f.Users {
 		t.Run("client-"+u.Name, func(t *testing.T) { check(t, renderJSON(t, e.RenderClient, f, u.Name)) })
 	}
+	for _, obfs := range []string{"salamander", "gecko"} {
+		t.Run("obfs-"+obfs, func(t *testing.T) {
+			f := withObfs(t, obfs)
+			check(t, renderJSON(t, e.RenderServer, f, "de"))
+			check(t, renderJSON(t, e.RenderClient, f, "alice"))
+		})
+	}
+}
+
+// withObfs is the fixture fleet with de's Hysteria2 obfuscated.
+func withObfs(t *testing.T, obfs string) *fleet.Fleet {
+	t.Helper()
+	f := fleettest.Load(t, fixture)
+	de, _ := f.Node("de")
+	de.Hysteria2 = &fleet.Hysteria2{Obfs: obfs, ObfsPassword: "obfs-password"}
+	return f
+}
+
+func TestHysteria2Obfs(t *testing.T) {
+	e := New()
+	hysteria2 := func(cfg map[string]any, key string) map[string]any {
+		for _, v := range cfg[key].([]any) {
+			if v := v.(map[string]any); v["type"] == "hysteria2" {
+				return v
+			}
+		}
+		t.Fatalf("no hysteria2 in %s", key)
+		return nil
+	}
+
+	f := fleettest.Load(t, fixture)
+	in := hysteria2(renderJSON(t, e.RenderServer, f, "de"), "inbounds")
+	require.NotContains(t, in, "obfs")
+	require.Equal(t, "https://example.com", in["masquerade"].(map[string]any)["url"])
+	require.NotContains(t, hysteria2(renderJSON(t, e.RenderClient, f, "alice"), "outbounds"), "obfs")
+
+	f = withObfs(t, "salamander")
+	in = hysteria2(renderJSON(t, e.RenderServer, f, "de"), "inbounds")
+	obfs := map[string]any{"type": "salamander", "password": "obfs-password"}
+	require.Equal(t, obfs, in["obfs"])
+	require.NotContains(t, in, "masquerade", "nothing reaches it through obfs")
+	out := hysteria2(renderJSON(t, e.RenderClient, f, "alice"), "outbounds")
+	require.Equal(t, obfs, out["obfs"])
+	require.Equal(t, "de-hysteria2", out["tag"])
 }
 
 func renderJSON(t *testing.T, render func(*fleet.Fleet, string) ([]byte, error), f *fleet.Fleet, name string) map[string]any {

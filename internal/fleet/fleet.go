@@ -115,7 +115,9 @@ type Reality struct {
 }
 
 type Hysteria2 struct {
-	Masquerade   string
+	Masquerade string
+	// Obfs is salamander, gecko or empty for none.
+	Obfs         string
 	ObfsPassword string
 }
 

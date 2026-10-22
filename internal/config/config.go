@@ -75,6 +75,7 @@ type Reality struct {
 
 type Hysteria2 struct {
 	Masquerade   string                 `yaml:"masquerade"`
+	Obfs         string                 `yaml:"obfs"`
 	ObfsPassword *secrets.SecretOrPlain `yaml:"obfs_password"`
 }
 

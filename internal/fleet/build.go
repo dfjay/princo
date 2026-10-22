@@ -17,7 +17,7 @@ import (
 
 // Default secret paths, used when princo.yaml doesn't name one.
 const (
-	secretHy2Obfs = "shared/hy2_obfs"
+	secretHysteria2Obfs = "shared/hysteria2_obfs"
 )
 
 func secretUserUUID(user string) string    { return "users/" + user }
@@ -32,6 +32,8 @@ var engineProtocols = map[string][]string{
 }
 
 var xhttpModes = []string{"auto", "packet-up", "stream-up", "stream-one"}
+
+var hysteria2Obfs = []string{"salamander", "gecko"}
 
 // xhttpPathRe keeps XHTTP paths safe in URLs and share links.
 var xhttpPathRe = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
@@ -128,18 +130,30 @@ func (b *builder) nodes() {
 			}
 		}
 		if c.Hysteria2 != nil {
-			def := deref(d.Hysteria2)
-			masquerade := cmp.Or(c.Hysteria2.Masquerade, def.Masquerade)
-			if masquerade == "" && n.Reality != nil {
-				masquerade = "https://" + n.Reality.ServerName
+			def, own := deref(d.Hysteria2), c.Hysteria2
+			h := &Hysteria2{Obfs: cmp.Or(own.Obfs, def.Obfs)}
+			switch {
+			case h.Obfs == "" || h.Obfs == "none":
+				h.Obfs = ""
+				h.Masquerade = cmp.Or(own.Masquerade, def.Masquerade)
+				if h.Masquerade == "" && n.Reality != nil {
+					h.Masquerade = "https://" + n.Reality.ServerName
+				}
+				if h.Masquerade == "" {
+					b.errorf("%s.hysteria2: masquerade is required without reality.server_name to default to", where)
+				}
+				if own.ObfsPassword != nil {
+					b.errorf("%s.hysteria2.obfs_password: needs obfs", where)
+				}
+			case !slices.Contains(hysteria2Obfs, h.Obfs):
+				b.errorf("%s.hysteria2.obfs: want none, %s, got %q", where, strings.Join(hysteria2Obfs, " or "), h.Obfs)
+			default:
+				if own.Masquerade != "" {
+					b.errorf("%s.hysteria2.masquerade: has no effect with obfs, which hides the HTTP/3 server", where)
+				}
+				h.ObfsPassword = b.secret(where+".hysteria2.obfs_password", cmp.Or(own.ObfsPassword, def.ObfsPassword), secretHysteria2Obfs, SecretPassword)
 			}
-			if masquerade == "" {
-				b.errorf("%s.hysteria2: masquerade is required without reality.server_name to default to", where)
-			}
-			n.Hysteria2 = &Hysteria2{
-				Masquerade:   masquerade,
-				ObfsPassword: b.secret(where+".hysteria2.obfs_password", cmp.Or(c.Hysteria2.ObfsPassword, def.ObfsPassword), secretHy2Obfs, SecretPassword),
-			}
+			n.Hysteria2 = h
 		}
 		if c.Naive != nil {
 			if c.Naive.Domain == "" {

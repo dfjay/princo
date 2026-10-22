@@ -23,7 +23,7 @@ func newSecretGenCommand(global *globalFlags) *cobra.Command {
 		Short: "Generate the secrets princo.yaml uses",
 		Long: `Generate secrets princo.yaml uses and store them where its secrets: block
 maps them: user and chain UUIDs, Reality key pairs and the Hysteria2
-password. A Reality key's public half goes into the node's
+obfuscation password. A Reality key's public half goes into the node's
 reality.public_key in princo.yaml.
 
 Without paths, generates every one that is missing. WARP credentials come

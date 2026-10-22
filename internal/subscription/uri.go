@@ -29,8 +29,11 @@ func URIs(u *fleet.User) []string {
 			}
 		}
 		if h := n.Hysteria2; h != nil {
-			out = append(out, fmt.Sprintf("hysteria2://%s@%s?sni=%s&obfs=salamander&obfs-password=%s#%s",
-				u.UUID, addr, n.Address, url.QueryEscape(h.ObfsPassword), name("hy2")))
+			q := "sni=" + url.QueryEscape(n.Address)
+			if h.Obfs != "" {
+				q += "&obfs=" + h.Obfs + "&obfs-password=" + url.QueryEscape(h.ObfsPassword)
+			}
+			out = append(out, fmt.Sprintf("hysteria2://%s@%s/?%s#%s", u.UUID, addr, q, name("hysteria2")))
 		}
 		if nv := n.Naive; nv != nil {
 			out = append(out, fmt.Sprintf("naive+https://%s@%s:443#%s",
