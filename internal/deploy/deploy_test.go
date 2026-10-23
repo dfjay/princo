@@ -1,11 +1,8 @@
 package deploy
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -45,7 +42,7 @@ func plan(t *testing.T, node string) (*host.Plan, map[string][]byte, map[string]
 	files, err := host.Files(fleettest.Load(t, fixture), node)
 	require.NoError(t, err)
 	ruleSets := map[string][]byte{}
-	for _, f := range p.RuleSets {
+	for _, f := range p.AllRuleSets() {
 		ruleSets[f] = []byte("SRS " + f)
 	}
 	return p, files, ruleSets
@@ -169,65 +166,30 @@ func TestBuild_MissingRuleSet(t *testing.T) {
 	require.ErrorContains(t, err, "rule set geoip-ru.srs is missing")
 }
 
+func TestBuild_SiteRuleSets(t *testing.T) {
+	p := &host.Plan{Node: "fi", Engine: "xray", Config: "xray.json", RuleSets: []string{"geoip.dat"}, SiteRuleSets: []string{"geoip-ru.srs"}}
+	b, err := Build(p, map[string][]byte{"xray.json": nil}, map[string][]byte{"geoip.dat": nil, "geoip-ru.srs": nil}, false)
+	require.NoError(t, err)
+	file(t, b, engine.RuleSetDir+"/geoip-ru.srs")
+	require.Contains(t, b.Units[0].Files, engine.RuleSetDir+"/geoip.dat")
+	require.NotContains(t, b.Units[0].Files, engine.RuleSetDir+"/geoip-ru.srs", "the site's alone don't restart the engine")
+}
+
+func TestRuleSets_HTTPSRedirects(t *testing.T) {
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("data")) }))
+	t.Cleanup(plain.Close)
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plain.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	src := fleet.RuleData{GeoIP: fleet.RuleSource{URL: srv.URL + "/geoip.dat"}}
+	_, err := RuleSets(t.Context(), srv.Client(), "", src, []string{"geoip-ru.srs"}, nil)
+	require.ErrorContains(t, err, "isn't https")
+}
+
 func TestBuild_UnknownEngine(t *testing.T) {
 	_, err := Build(&host.Plan{Node: "de", Engine: "v2ray"}, nil, nil, false)
 	require.ErrorContains(t, err, "can't run engine v2ray yet")
-}
-
-func TestFetchRuleSets_Checksums(t *testing.T) {
-	geoip := []byte("\x0a\x04\x0a\x02RU")
-	sum := sha256.Sum256(geoip)
-	published := hex.EncodeToString(sum[:])
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/geoip.dat":
-			_, _ = w.Write(geoip)
-		case "/geoip.dat.sha256sum":
-			_, _ = io.WriteString(w, published+"  geoip.dat\n")
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	old := engines["xray"]
-	e := old
-	e.ruleSetURL = func(file string) string { return srv.URL + "/" + file }
-	engines["xray"] = e
-	t.Cleanup(func() { engines["xray"] = old })
-
-	config := []byte(`{"ip": ["geoip:ru"]}`)
-	got, err := RuleSets(t.Context(), srv.Client(), "", "xray", []string{"geoip.dat"}, config)
-	require.NoError(t, err)
-	require.Equal(t, geoip, got["geoip.dat"])
-
-	published = strings.Repeat("0", 64)
-	_, err = RuleSets(t.Context(), srv.Client(), "", "xray", []string{"geoip.dat"}, config)
-	require.ErrorContains(t, err, "doesn't match")
-}
-
-func TestReadRuleSets(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "geoip-ru.srs"), []byte("SRS\x01"), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "geosite-x.srs"), []byte("<html>"), 0o644))
-
-	got, err := RuleSets(t.Context(), nil, dir, "sing-box", []string{"geoip-ru.srs"}, nil)
-	require.NoError(t, err)
-	require.Equal(t, map[string][]byte{"geoip-ru.srs": []byte("SRS\x01")}, got)
-
-	_, err = RuleSets(t.Context(), nil, dir, "sing-box", []string{"geosite-x.srs"}, nil)
-	require.ErrorContains(t, err, "isn't a sing-box rule set")
-
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "geoip.dat"), []byte("\x0a\x04\x0a\x02RU\x0a\x04\x0a\x02DE"), 0o644))
-	got, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:ru"]}`))
-	require.NoError(t, err)
-	require.Equal(t, []byte("\x0a\x04\x0a\x02RU"), got["geoip.dat"], "only what the config uses")
-	_, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:fr"]}`))
-	require.ErrorContains(t, err, "it has no fr")
-	got, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geoip.dat"}, []byte(`{"ip": ["geoip:!de"]}`))
-	require.NoError(t, err)
-	require.Equal(t, []byte("\x0a\x04\x0a\x02DE"), got["geoip.dat"], "a negated code needs its entry")
-	_, err = RuleSets(t.Context(), nil, dir, "xray", []string{"geosite-x.srs"}, nil)
-	require.ErrorContains(t, err, "isn't a xray rule set")
 }
 
 func TestEngines_PinnedVersions(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dfjay/princo/internal/bundle"
+	"github.com/dfjay/princo/internal/ruledata/ruledatatest"
 	"github.com/dfjay/princo/internal/secrets"
 )
 
@@ -46,14 +47,7 @@ func sshCalls(t *testing.T, dir string) string {
 	return string(calls)
 }
 
-func ruleSetDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	for _, f := range []string{"geoip-ru.srs", "geosite-category-ru.srs"} {
-		require.NoError(t, os.WriteFile(filepath.Join(dir, f), []byte("SRS "+f), 0o644))
-	}
-	return dir
-}
+func ruleSetDir(t *testing.T) string { return ruledatatest.Dir(t) }
 
 func runDeploy(t *testing.T, args ...string) (string, error) {
 	t.Helper()

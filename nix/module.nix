@@ -59,12 +59,35 @@ let
       "yaml";
   notSops = lib.filter (s: s.source.type != "sops") plan.secrets;
 
-  ruleSetDir = pkgs.linkFarm "princo-rule-sets" (
-    map (file: {
-      name = file;
-      path = engine.ruleSet file;
-    }) plan.rule_sets
+  # The fleet's rule data, from which princo builds the node's rule sets.
+  presets = import ./rule-data.nix { pkgs = cfg.enginePkgs; };
+  presetData =
+    kind:
+    let
+      source = plan.rule_data.${kind};
+    in
+    if source ? preset then
+      presets.${source.preset}.${kind}
+    else
+      throw "services.princo: rule_data.${kind} in princo.yaml is ${source.url}, which Nix can't download without a hash; set services.princo.ruleData.${kind}.";
+  needs = kind: lib.any (lib.hasPrefix kind) (plan.rule_sets ++ plan.site_rule_sets);
+  ruleData = pkgs.linkFarm "princo-rule-data" (
+    map
+      (kind: {
+        name = kind;
+        path = cfg.ruleData.${kind};
+      })
+      (
+        lib.filter needs [
+          "geoip"
+          "geosite"
+        ]
+      )
   );
+  ruleSetDir = pkgs.runCommand "princo-rule-sets-${cfg.node}" { } ''
+    ${lib.getExe cfg.package} --config ${cfg.config} rule-sets --node ${lib.escapeShellArg cfg.node} \
+      --from ${ruleData} --out $out
+  '';
   certUnits = map (d: "acme-${d}.service") plan.certificates;
   # The certificates the engine reads, not nginx.
   engineDomains = lib.filter (d: site == null || d != site.domain) plan.certificates;
@@ -202,6 +225,25 @@ in
         the packages of the machine you deploy from to plan there.
       '';
     };
+
+    ruleData = lib.genAttrs [ "geoip" "geosite" ] (
+      kind:
+      lib.mkOption {
+        type = lib.types.path;
+        default = presetData kind;
+        defaultText = lib.literalMD "the ${kind} data of the preset princo.yaml's `rule_data` names";
+        example = lib.literalExpression ''pkgs.fetchurl { url = "https://example.org/${kind}.dat"; hash = "..."; }'';
+        description = ''
+          The fleet's ${kind} data the node's rule sets are built from:
+          ${lib.optionalString (kind == "geoip") "a geoip.dat, or a MaxMind-format .mmdb, maybe gzipped"}${
+            lib.optionalString (kind == "geosite") "a geosite.dat"
+          }.
+          Needed where `rule_data` in princo.yaml is a URL. Every node of
+          the fleet must use the same, or clients and nodes may disagree
+          on where traffic goes.
+        '';
+      }
+    );
 
     plan = lib.mkOption {
       type = lib.types.attrs;
@@ -401,6 +443,14 @@ in
                 locations."~ ^/([a-f0-9]+)/qr$".extraConfig = ''
                   default_type text/html;
                   try_files /$1/index.html =404;
+                '';
+                # The client profiles' rule sets, the node's own. Store
+                # paths share an mtime, so the apps download them whole.
+                locations."~ ^/rules/([^/]+\\.srs)$".extraConfig = ''
+                  alias /var/lib/princo/rules/$1;
+                  default_type application/octet-stream;
+                  etag off;
+                  if_modified_since off;
                 '';
                 # Named capture: the `if` regex below would reset $1.
                 locations."~ ^/(?<token>[a-f0-9]+)/?$".extraConfig = ''

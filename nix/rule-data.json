@@ -1,0 +1,12 @@
+{
+  "runetfreedom": {
+    "geoip": {
+      "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610230846/geoip.dat",
+      "hash": "sha256-VPg7W1VzbPFW9U1dpWjPlFJnSPfb/7P5Wh9o2UMisio="
+    },
+    "geosite": {
+      "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610230846/geosite.dat",
+      "hash": "sha256-dv2+AWh6bMdoO1DDjO6oSUFFjoNx0hWRja9VVmWlN80="
+    }
+  }
+}

@@ -12,10 +12,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -36,13 +35,6 @@ type engineSpec struct {
 	// configError is the exit status of a config the engine refuses,
 	// which restarting won't fix; 0 for none.
 	configError int
-	ruleSetURL  func(file string) string
-	// ruleSetSums tells that each rule set's SHA-256 is published beside
-	// it, at <url>.sha256sum.
-	ruleSetSums  bool
-	ruleSetMagic []byte
-	// trim cuts a rule set down to what the config uses.
-	trim func(file string, data, config []byte) ([]byte, error)
 }
 
 // engineRoot holds a directory per engine release. The unit runs its
@@ -106,14 +98,6 @@ var engines = map[string]engineSpec{
 			return []string{bin, "check", "-c", config}
 		},
 		reloads: true,
-		ruleSetURL: func(file string) string {
-			repo := "sing-geosite"
-			if strings.HasPrefix(file, "geoip-") {
-				repo = "sing-geoip"
-			}
-			return "https://raw.githubusercontent.com/SagerNet/" + repo + "/rule-set/" + file
-		},
-		ruleSetMagic: []byte("SRS"),
 	},
 	"xray": {
 		version: "26.10.21",
@@ -134,13 +118,6 @@ var engines = map[string]engineSpec{
 		},
 		environment: []string{"XRAY_LOCATION_ASSET=" + engine.RuleSetDir},
 		configError: 23,
-		ruleSetURL: func(file string) string {
-			return "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/" + file
-		},
-		ruleSetSums: true,
-		// A protobuf list: field 1, length-delimited.
-		ruleSetMagic: []byte{0x0a},
-		trim:         trimGeodata,
 	},
 }
 
@@ -232,57 +209,6 @@ func readArchive(url string, data []byte, want func(name string) bool) (map[stri
 	}
 }
 
-// RuleSets reads each of the engine's rule sets from dir, or downloads the
-// latest when dir is empty, keeping what config uses.
-func RuleSets(ctx context.Context, client *http.Client, dir, engineName string, files []string, config []byte) (map[string][]byte, error) {
-	e, ok := engines[engineName]
-	if !ok {
-		return nil, fmt.Errorf("princo deploy can't run engine %s yet", engineName)
-	}
-	out := map[string][]byte{}
-	for _, f := range files {
-		src := filepath.Join(dir, f)
-		var data []byte
-		var err error
-		if dir == "" {
-			src = e.ruleSetURL(f)
-			data, err = Fetch(ctx, client, src)
-			if err == nil && e.ruleSetSums {
-				err = checkSum(ctx, client, src+".sha256sum", data)
-			}
-		} else {
-			data, err = os.ReadFile(src)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("rule set %s: %w", f, err)
-		}
-		if !bytes.HasPrefix(data, e.ruleSetMagic) {
-			return nil, fmt.Errorf("rule set %s: %s isn't a %s rule set", f, src, engineName)
-		}
-		if e.trim != nil {
-			if data, err = e.trim(f, data, config); err != nil {
-				return nil, fmt.Errorf("rule set %s: %s: %w", f, src, err)
-			}
-		}
-		out[f] = data
-	}
-	return out, nil
-}
-
-// checkSum compares data with the SHA-256 in the sha256sum file at url.
-func checkSum(ctx context.Context, client *http.Client, url string, data []byte) error {
-	sums, err := Fetch(ctx, client, url)
-	if err != nil {
-		return err
-	}
-	want, _, _ := strings.Cut(string(sums), " ")
-	sum := sha256.Sum256(data)
-	if got := hex.EncodeToString(sum[:]); got != strings.TrimSpace(want) {
-		return fmt.Errorf("SHA-256 %s doesn't match %s, published with it; was it updated while downloading?", got, url)
-	}
-	return nil
-}
-
 // Fetch GETs url.
 func Fetch(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -295,7 +221,20 @@ func Fetch(ctx context.Context, client *http.Client, url string) ([]byte, error)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
+		return nil, &StatusError{URL: url, Status: resp.Status, Code: resp.StatusCode}
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// StatusError is a response other than 200 OK. It is fs.ErrNotExist for
+// what the server doesn't have.
+type StatusError struct {
+	URL, Status string
+	Code        int
+}
+
+func (e *StatusError) Error() string { return fmt.Sprintf("GET %s: %s", e.URL, e.Status) }
+
+func (e *StatusError) Is(target error) bool {
+	return target == fs.ErrNotExist && (e.Code == http.StatusNotFound || e.Code == http.StatusGone)
 }

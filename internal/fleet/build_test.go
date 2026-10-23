@@ -365,3 +365,23 @@ client:
 `, conventionalSecrets())
 	require.NoError(t, err)
 }
+
+func TestBuild_RuleData(t *testing.T) {
+	f, err := build(t, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, RuleData{
+		GeoIP:   RuleSource{Preset: "runetfreedom", URL: "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"},
+		Geosite: RuleSource{Preset: "runetfreedom", URL: "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"},
+	}, f.RuleData)
+
+	f, err = build(t, "rule_data: { geoip: dbip, geosite: https://example.org/geosite.dat }\n", nil)
+	require.NoError(t, err)
+	require.Equal(t, "dbip", f.RuleData.GeoIP.Preset)
+	require.Equal(t, RuleSource{URL: "https://example.org/geosite.dat"}, f.RuleData.Geosite)
+
+	_, err = build(t, "rule_data: { geoip: maxmind, geosite: dbip }\n", nil)
+	require.ErrorContains(t, err, `rule_data.geoip: unknown preset "maxmind" (have: dbip, loyalsoldier, runetfreedom, v2fly; or an https:// URL)`)
+	require.ErrorContains(t, err, "rule_data.geosite: preset dbip has no geosite data")
+	_, err = build(t, "rule_data: http://example.org/geo.dat\n", nil)
+	require.ErrorContains(t, err, `rule_data.geoip: "http://example.org/geo.dat" isn't an https:// URL`)
+}
