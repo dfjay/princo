@@ -159,7 +159,7 @@ func TestParseMatcher(t *testing.T) {
 		_, err := ParseMatcher(ok)
 		require.NoError(t, err, ok)
 	}
-	for _, bad := range []string{"geosite", "ip:10.0.0.1", "port:0", "network:sctp", "color:red"} {
+	for _, bad := range []string{"geosite", "geosite:foo/bar", "ip:10.0.0.1", "port:0", "network:sctp", "color:red"} {
 		_, err := ParseMatcher(bad)
 		require.Error(t, err, bad)
 	}
@@ -369,14 +369,14 @@ client:
 func TestBuild_RuleData(t *testing.T) {
 	f, err := build(t, "", nil)
 	require.NoError(t, err)
-	require.Equal(t, RuleData{
-		GeoIP:   RuleSource{Preset: "runetfreedom", URL: "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"},
-		Geosite: RuleSource{Preset: "runetfreedom", URL: "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat"},
-	}, f.RuleData)
+	require.Equal(t, "runetfreedom", f.RuleData.GeoIP.Preset)
+	require.Equal(t, "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat", f.RuleData.Geosite.URL)
+	require.NotEmpty(t, f.RuleData.Geosite.Nix.Hash, "pinned for NixOS")
 
 	f, err = build(t, "rule_data: { geoip: dbip, geosite: https://example.org/geosite.dat }\n", nil)
 	require.NoError(t, err)
 	require.Equal(t, "dbip", f.RuleData.GeoIP.Preset)
+	require.Equal(t, &NixSource{Package: "dbip-country-lite", Path: "share/dbip/dbip-country-lite.mmdb"}, f.RuleData.GeoIP.Nix)
 	require.Equal(t, RuleSource{URL: "https://example.org/geosite.dat"}, f.RuleData.Geosite)
 
 	_, err = build(t, "rule_data: { geoip: maxmind, geosite: dbip }\n", nil)

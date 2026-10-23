@@ -56,7 +56,12 @@ func ParseMatcher(s string) (Matcher, error) {
 	}
 	m := Matcher{Kind: MatchKind(kind), Value: value}
 	switch m.Kind {
-	case MatchGeosite, MatchGeoIP, MatchDomain, MatchDomainSuffix, MatchDomainKeyword:
+	case MatchGeosite, MatchGeoIP:
+		// The code names rule set files.
+		if strings.Contains(value, "/") {
+			return Matcher{}, fmt.Errorf("match %q: a %s code can't contain /", s, kind)
+		}
+	case MatchDomain, MatchDomainSuffix, MatchDomainKeyword:
 	case MatchIP:
 		if value != "private" {
 			if _, err := netip.ParsePrefix(value); err != nil {

@@ -6,6 +6,32 @@ import (
 	"github.com/dfjay/princo/internal/fleet"
 )
 
+// privateCIDRs is ip:private: the private, loopback, link-local and other
+// reserved ranges, written out so the node's geoip data needn't have them.
+var privateCIDRs = []string{
+	"0.0.0.0/8",
+	"10.0.0.0/8",
+	"100.64.0.0/10",
+	"127.0.0.0/8",
+	"169.254.0.0/16",
+	"172.16.0.0/12",
+	"192.0.0.0/24",
+	"192.0.2.0/24",
+	"192.88.99.0/24",
+	"192.168.0.0/16",
+	"198.18.0.0/15",
+	"198.51.100.0/24",
+	"203.0.113.0/24",
+	"224.0.0.0/4",
+	"240.0.0.0/4",
+	"255.255.255.255/32",
+	"::/128",
+	"::1/128",
+	"fc00::/7",
+	"fe80::/10",
+	"ff00::/8",
+}
+
 // compileMatch turns ORed matchers into xray rules to outbound tag. xray
 // ANDs the fields of a rule, so each field gets a rule of its own.
 func compileMatch(match []fleet.Matcher, tag string) []any {
@@ -17,7 +43,7 @@ func compileMatch(match []fleet.Matcher, tag string) []any {
 			ips = append(ips, "geoip:"+m.Value)
 		case fleet.MatchIP:
 			if m.Value == "private" {
-				ips = append(ips, "geoip:private")
+				ips = append(ips, privateCIDRs...)
 			} else {
 				ips = append(ips, m.Value)
 			}

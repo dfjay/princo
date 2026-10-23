@@ -100,7 +100,7 @@ type Plan struct {
 	// engine.RuleSetDir, which the subscription site serves.
 	SiteRuleSets []string `json:"site_rule_sets"`
 	// RuleData is what the rule sets are built from.
-	RuleData RuleData `json:"rule_data"`
+	RuleData fleet.RuleData `json:"rule_data"`
 	// Subscription is the site the node serves; nil on other nodes.
 	Subscription *Site `json:"subscription,omitzero"`
 	// Secrets are the ones rendering this node's files reads.
@@ -118,18 +118,6 @@ type Mux struct {
 type Route struct {
 	SNI    string `json:"sni"`
 	Target string `json:"target"`
-}
-
-// RuleData is the fleet's rule data, as in fleet.RuleData.
-type RuleData struct {
-	GeoIP   RuleSource `json:"geoip"`
-	Geosite RuleSource `json:"geosite"`
-}
-
-// RuleSource is a preset, or a URL when Preset is empty.
-type RuleSource struct {
-	Preset string `json:"preset,omitempty"`
-	URL    string `json:"url"`
 }
 
 type Site struct {
@@ -186,7 +174,7 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 		ACMEEmail:        n.ACMEEmail,
 		RuleSets:         e.RuleSets(files[ConfigFile(n.Engine)]),
 		SiteRuleSets:     []string{},
-		RuleData:         RuleData{GeoIP: RuleSource(f.RuleData.GeoIP), Geosite: RuleSource(f.RuleData.Geosite)},
+		RuleData:         f.RuleData,
 		Secrets:          []Secret{},
 	}
 	if n.Reality != nil || n.Mux() {

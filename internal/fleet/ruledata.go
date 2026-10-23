@@ -2,6 +2,8 @@ package fleet
 
 import (
 	"cmp"
+	_ "embed"
+	"encoding/json/v2"
 	"maps"
 	"net/url"
 	"slices"
@@ -12,48 +14,52 @@ import (
 // node and client profile is built from the same, so a client sends
 // traffic where the node agrees with it.
 type RuleData struct {
-	GeoIP   RuleSource
-	Geosite RuleSource
+	GeoIP   RuleSource `json:"geoip"`
+	Geosite RuleSource `json:"geosite"`
 }
 
 // RuleSource is one kind of rule data: a preset's or a URL's.
 type RuleSource struct {
 	// Preset names it, or is empty for a URL of the user's.
-	Preset string
+	Preset string `json:"preset,omitempty"`
 	// URL is a geoip.dat or geosite.dat, or for geoip a MaxMind-format
 	// .mmdb, optionally gzipped. {month} stands for the current one, as
 	// 2026-10.
-	URL string
+	URL string `json:"url"`
+	// Nix is where the NixOS module takes a preset's data from.
+	Nix *NixSource `json:"nix,omitempty"`
+}
+
+// NixSource is a file of a nixpkgs package, or a URL pinned by its hash.
+type NixSource struct {
+	Package string `json:"package,omitempty"`
+	Path    string `json:"path,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Hash    string `json:"hash,omitempty"`
+}
+
+// RulePreset is a preset's data of each kind; nil where it has none.
+type RulePreset struct {
+	GeoIP   *RuleSource `json:"geoip,omitempty"`
+	Geosite *RuleSource `json:"geosite,omitempty"`
 }
 
 // DefaultRuleData is the preset of fleets that don't choose one.
 const DefaultRuleData = "runetfreedom"
 
-type rulePreset struct{ geoip, geosite *RuleSource }
+// rulePresetsJSON holds the presets princo knows, by name.
+// internal/tools/ruledata keeps their pins up to date.
+//
+//go:embed rule-presets.json
+var rulePresetsJSON []byte
 
-func datRelease(repo, file string) *RuleSource {
-	return &RuleSource{URL: "https://github.com/" + repo + "/releases/latest/download/" + file}
-}
-
-// rulePresets are the rule data princo knows, by name. The NixOS module
-// takes the same from nixpkgs or its own pins (nix/rule-data.nix).
-var rulePresets = map[string]rulePreset{
-	"runetfreedom": {
-		geoip:   datRelease("runetfreedom/russia-v2ray-rules-dat", "geoip.dat"),
-		geosite: datRelease("runetfreedom/russia-v2ray-rules-dat", "geosite.dat"),
-	},
-	"loyalsoldier": {
-		geoip:   datRelease("Loyalsoldier/v2ray-rules-dat", "geoip.dat"),
-		geosite: datRelease("Loyalsoldier/v2ray-rules-dat", "geosite.dat"),
-	},
-	"v2fly": {
-		geoip:   datRelease("v2fly/geoip", "geoip.dat"),
-		geosite: datRelease("v2fly/domain-list-community", "dlc.dat"),
-	},
-	"dbip": {
-		geoip: &RuleSource{URL: "https://download.db-ip.com/free/dbip-country-lite-{month}.mmdb.gz"},
-	},
-}
+var rulePresets = func() map[string]RulePreset {
+	var out map[string]RulePreset
+	if err := json.Unmarshal(rulePresetsJSON, &out); err != nil {
+		panic("rule-presets.json: " + err.Error())
+	}
+	return out
+}()
 
 // RulePresets lists the presets' names.
 func RulePresets() []string { return slices.Sorted(maps.Keys(rulePresets)) }
@@ -73,9 +79,9 @@ func (b *builder) ruleSource(kind, s string) RuleSource {
 		b.errorf("%s: unknown preset %q (have: %s; or an https:// URL)", where, s, strings.Join(RulePresets(), ", "))
 		return RuleSource{}
 	}
-	src := p.geoip
+	src := p.GeoIP
 	if kind == "geosite" {
-		src = p.geosite
+		src = p.Geosite
 	}
 	if src == nil {
 		b.errorf("%s: preset %s has no %s data", where, s, kind)

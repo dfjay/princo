@@ -59,7 +59,7 @@ func TestPlan_Mux(t *testing.T) {
 	}, p.Mux)
 	require.Equal(t, []string{"de.example.com", "naive-de.example.com", "subs.example.com"}, p.Certificates)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
-	require.Equal(t, RuleSource{Preset: "runetfreedom", URL: "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat"}, p.RuleData.GeoIP)
+	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
 	require.Equal(t, &Site{Domain: "subs.example.com", Root: "subscription", Listen: SiteAddr}, p.Subscription)
 	// Its own keys, the chain hop exiting here, and every user for the site.
 	require.Equal(t, []string{

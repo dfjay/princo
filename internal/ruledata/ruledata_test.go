@@ -100,17 +100,14 @@ func TestGeositeSRS(t *testing.T) {
 }
 
 func TestXrayDat(t *testing.T) {
-	config := `{"ip": ["geoip:!ru", "geoip:private"], "domain": ["geosite:google@cn"]}`
+	config := `{"ip": ["geoip:!ru"], "domain": ["geosite:google@cn"]}`
 	out := files(t, geoipDat, geositeDat, []string{"geoip.dat", "geosite.dat"}, config)
 
 	d, err := New(out["geoip.dat"], out["geosite.dat"])
 	require.NoError(t, err)
 	_, err = d.geoipNetworks("RU")
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"RU", "PRIVATE"}, slices.Collect(maps.Keys(d.geoipIndex)), "only what the config uses")
-	nets, err := d.geoipNetworks("PRIVATE")
-	require.NoError(t, err)
-	require.Equal(t, privateNets, nets, "where the data lacks it")
+	require.Equal(t, []string{"RU"}, slices.Collect(maps.Keys(d.geoipIndex)), "only what the config uses")
 	_, err = d.geositeEntryOf("GOOGLE")
 	require.NoError(t, err)
 	_, err = d.geositeEntryOf("CATEGORY-RU")
@@ -260,4 +257,15 @@ func TestFixture(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, want, got, "run with -update")
 	}
+}
+
+// Protocol buffers may write an entry's fields in any order.
+func TestIndexDat_CodeNotFirst(t *testing.T) {
+	cidr := appendVarintField(appendBytesField(nil, 1, []byte{5, 3, 0, 0}), 2, 16)
+	body := appendBytesField(appendBytesField(nil, 2, cidr), 1, []byte("RU"))
+	d, err := New(appendBytesField(nil, 1, body), nil)
+	require.NoError(t, err)
+	nets, err := d.geoipNetworks("RU")
+	require.NoError(t, err)
+	require.Equal(t, "[5.3.0.0/16]", fmt.Sprint(nets))
 }

@@ -82,7 +82,7 @@ type entry struct {
 }
 
 // indexDat maps each code of a geodata list, in upper case, to its entry.
-// Entries start with their code, so only that much of each is read.
+// Entries are read up to their code, which usually comes first.
 func indexDat(data []byte) (map[string]entry, error) {
 	out := map[string]entry{}
 	for len(data) > 0 {
@@ -90,8 +90,15 @@ func indexDat(data []byte) (map[string]entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		code, _, err := bytesField(body)
-		if err != nil || len(code) == 0 {
+		var code []byte
+		err = fields(body, func(f field) error {
+			if f.num == 1 {
+				code = f.bytes
+				return errFound
+			}
+			return nil
+		})
+		if !errors.Is(err, errFound) || len(code) == 0 {
 			return nil, errBadDat
 		}
 		out[strings.ToUpper(string(code))] = entry{raw: data[:n], body: body}
@@ -99,6 +106,9 @@ func indexDat(data []byte) (map[string]entry, error) {
 	}
 	return out, nil
 }
+
+// errFound stops fields early.
+var errFound = errors.New("found")
 
 // bytesField reads field 1 of b, length-delimited: its value and the bytes
 // it takes.

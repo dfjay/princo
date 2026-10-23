@@ -1,0 +1,59 @@
+{
+  "dbip": {
+    "geoip": {
+      "url": "https://download.db-ip.com/free/dbip-country-lite-{month}.mmdb.gz",
+      "nix": {
+        "package": "dbip-country-lite",
+        "path": "share/dbip/dbip-country-lite.mmdb"
+      }
+    }
+  },
+  "loyalsoldier": {
+    "geoip": {
+      "url": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+      "nix": {
+        "package": "v2ray-rules-dat",
+        "path": "share/v2ray/geoip.dat"
+      }
+    },
+    "geosite": {
+      "url": "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
+      "nix": {
+        "package": "v2ray-rules-dat",
+        "path": "share/v2ray/geosite.dat"
+      }
+    }
+  },
+  "runetfreedom": {
+    "geoip": {
+      "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat",
+      "nix": {
+        "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610230846/geoip.dat",
+        "hash": "sha256-VPg7W1VzbPFW9U1dpWjPlFJnSPfb/7P5Wh9o2UMisio="
+      }
+    },
+    "geosite": {
+      "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat",
+      "nix": {
+        "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202610230846/geosite.dat",
+        "hash": "sha256-dv2+AWh6bMdoO1DDjO6oSUFFjoNx0hWRja9VVmWlN80="
+      }
+    }
+  },
+  "v2fly": {
+    "geoip": {
+      "url": "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat",
+      "nix": {
+        "package": "v2ray-geoip",
+        "path": "share/v2ray/geoip.dat"
+      }
+    },
+    "geosite": {
+      "url": "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat",
+      "nix": {
+        "package": "v2ray-domain-list-community",
+        "path": "share/v2ray/geosite.dat"
+      }
+    }
+  }
+}

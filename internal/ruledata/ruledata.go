@@ -116,35 +116,8 @@ func xrayCodes(kind string, config []byte) []string {
 	return slices.Compact(out)
 }
 
-// privateNets is geoip:private, for data that doesn't have it.
-var privateNets = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("10.0.0.0/8"),
-	netip.MustParsePrefix("100.64.0.0/10"),
-	netip.MustParsePrefix("127.0.0.0/8"),
-	netip.MustParsePrefix("169.254.0.0/16"),
-	netip.MustParsePrefix("172.16.0.0/12"),
-	netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("192.0.2.0/24"),
-	netip.MustParsePrefix("192.88.99.0/24"),
-	netip.MustParsePrefix("192.168.0.0/16"),
-	netip.MustParsePrefix("198.18.0.0/15"),
-	netip.MustParsePrefix("198.51.100.0/24"),
-	netip.MustParsePrefix("203.0.113.0/24"),
-	netip.MustParsePrefix("224.0.0.0/4"),
-	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("255.255.255.255/32"),
-	netip.MustParsePrefix("::/128"),
-	netip.MustParsePrefix("::1/128"),
-	netip.MustParsePrefix("fc00::/7"),
-	netip.MustParsePrefix("fe80::/10"),
-	netip.MustParsePrefix("ff00::/8"),
-}
-
 // geoipNetworks is the networks of code, in upper case.
 func (d *Data) geoipNetworks(code string) ([]netip.Prefix, error) {
-	var nets []netip.Prefix
-	var ok bool
 	switch {
 	case d.geoip == nil:
 		return nil, fmt.Errorf("no geoip data")
@@ -156,26 +129,23 @@ func (d *Data) geoipNetworks(code string) ([]netip.Prefix, error) {
 			}
 			d.mmdb = m
 		}
-		nets, ok = d.mmdb[strings.ToLower(code)]
+		if nets, ok := d.mmdb[strings.ToLower(code)]; ok {
+			return nets, nil
+		}
 	default:
 		e, err := lookup(&d.geoipIndex, d.geoip, "geoip", code)
 		if err != nil {
 			return nil, err
 		}
-		if ok = e.body != nil; ok {
-			if nets, err = geoIPEntry(e.body); err != nil {
+		if e.body != nil {
+			nets, err := geoIPEntry(e.body)
+			if err != nil {
 				return nil, fmt.Errorf("geoip data: %s: %w", strings.ToLower(code), err)
 			}
+			return nets, nil
 		}
 	}
-	switch {
-	case ok:
-		return nets, nil
-	case code == "PRIVATE":
-		return privateNets, nil
-	default:
-		return nil, fmt.Errorf("the geoip data has no %s", strings.ToLower(code))
-	}
+	return nil, fmt.Errorf("the geoip data has no %s", strings.ToLower(code))
 }
 
 // lookup finds code's entry in data, indexing it into *index first; a

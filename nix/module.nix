@@ -59,17 +59,20 @@ let
       "yaml";
   notSops = lib.filter (s: s.source.type != "sops") plan.secrets;
 
-  # The fleet's rule data, from which princo builds the node's rule sets.
-  presets = import ./rule-data.nix { pkgs = cfg.enginePkgs; };
+  # A preset's rule data: a nixpkgs file or a pinned URL, as the plan says
+  # (internal/fleet/rule-presets.json).
   presetData =
     kind:
     let
       source = plan.rule_data.${kind};
+      nix = source.nix or null;
     in
-    if source ? preset then
-      presets.${source.preset}.${kind}
+    if nix == null then
+      throw "services.princo: rule_data.${kind} in princo.yaml is ${source.url}, which Nix can't download without a hash; set services.princo.ruleData.${kind}."
+    else if nix ? package then
+      "${cfg.enginePkgs.${nix.package}}/${nix.path}"
     else
-      throw "services.princo: rule_data.${kind} in princo.yaml is ${source.url}, which Nix can't download without a hash; set services.princo.ruleData.${kind}.";
+      pkgs.fetchurl { inherit (nix) url hash; };
   needs = kind: lib.any (lib.hasPrefix kind) (plan.rule_sets ++ plan.site_rule_sets);
   ruleData = pkgs.linkFarm "princo-rule-data" (
     map
