@@ -15,6 +15,9 @@ const (
 	// RuleSetDir holds the geosite/geoip rule sets in the engine's format:
 	// one <tag>.srs each for sing-box, geosite.dat and geoip.dat for xray.
 	RuleSetDir = "/var/lib/princo/rules"
+	// RuleSetSitePath is where the subscription site serves the client
+	// profiles' rule sets from RuleSetDir, so they match the nodes'.
+	RuleSetSitePath = "/rules/"
 	// CertDir holds one directory per domain with fullchain.pem and key.pem.
 	CertDir = "/var/lib/princo/certs"
 	// MuxRealityPort and MuxNaivePort are the loopback ports behind the

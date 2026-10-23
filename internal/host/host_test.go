@@ -59,6 +59,7 @@ func TestPlan_Mux(t *testing.T) {
 	}, p.Mux)
 	require.Equal(t, []string{"de.example.com", "naive-de.example.com", "subs.example.com"}, p.Certificates)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
+	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
 	require.Equal(t, &Site{Domain: "subs.example.com", Root: "subscription", Listen: SiteAddr}, p.Subscription)
 	// Its own keys, the chain hop exiting here, and every user for the site.
 	require.Equal(t, []string{
@@ -124,4 +125,20 @@ func TestPlan_Xray(t *testing.T) {
 	require.Equal(t, []string{
 		"nodes/fi/reality", "nodes/fi/warp/ipv4", "nodes/fi/warp/ipv6", "nodes/fi/warp/private_key", "users/alice",
 	}, secretPaths(p))
+}
+
+// An xray node serving the subscription keeps the client profiles' rule
+// sets beside its own, apart from what the engine loads.
+func TestPlan_XraySubscription(t *testing.T) {
+	data, err := os.ReadFile(fixture + "/princo.yaml")
+	require.NoError(t, err)
+	cfg, err := config.Parse(data)
+	require.NoError(t, err)
+	cfg.Subscription.Node = "fi"
+	f, err := fleet.Build(cfg, secrets.AllPlaceholders{})
+	require.NoError(t, err)
+	p, err := NewPlan(f, "fi", func(path string) string { return "sops:s.yaml#" + path })
+	require.NoError(t, err)
+	require.Equal(t, []string{"geoip.dat", "geosite.dat"}, p.RuleSets)
+	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.SiteRuleSets)
 }

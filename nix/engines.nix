@@ -24,13 +24,6 @@
     reloads = true;
     # The engine's environment.
     environment = { };
-    # Where a file of plan.rule_sets comes from.
-    ruleSet =
-      file:
-      let
-        source = if lib.hasPrefix "geoip-" file then pkgs.sing-geoip else pkgs.sing-geosite;
-      in
-      "${source}/share/sing-box/rule-set/${file}";
   };
 
   xray = {
@@ -48,7 +41,5 @@
     configError = 23;
     # geoip.dat and geosite.dat, from the rule set dir.
     environment.XRAY_LOCATION_ASSET = "/var/lib/princo/rules";
-    # Loyalsoldier's, as princo deploy downloads.
-    ruleSet = file: "${pkgs.v2ray-rules-dat}/share/v2ray/${file}";
   };
 }

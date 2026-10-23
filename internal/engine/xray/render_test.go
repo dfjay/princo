@@ -165,3 +165,13 @@ func xrayNodes(f *fleet.Fleet) []*fleet.Node {
 	}
 	return out
 }
+
+// ip:private needs no geoip data: its ranges are in the config.
+func TestCompileMatch_Private(t *testing.T) {
+	rules := compileMatch([]fleet.Matcher{{Kind: fleet.MatchIP, Value: "private"}}, "block")
+	require.Len(t, rules, 1)
+	ips := rules[0].(map[string]any)["ip"].([]string)
+	require.Contains(t, ips, "10.0.0.0/8")
+	require.Contains(t, ips, "fc00::/7")
+	require.Empty(t, New().RuleSets([]byte(`{"ip": ["10.0.0.0/8"]}`)))
+}

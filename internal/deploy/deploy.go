@@ -75,14 +75,17 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		}
 		b.Files = append(b.Files, f)
 	}
-	for _, name := range p.RuleSets {
+	for _, name := range p.AllRuleSets() {
 		data, ok := ruleSets[name]
 		if !ok {
 			return nil, fmt.Errorf("rule set %s is missing", name)
 		}
 		f := path.Join(engine.RuleSetDir, name)
 		b.Files = append(b.Files, bundle.File{Path: f, Mode: 0o644, Data: data})
-		engineFiles = append(engineFiles, f)
+		// The site's alone don't restart the engine.
+		if slices.Contains(p.RuleSets, name) {
+			engineFiles = append(engineFiles, f)
+		}
 	}
 
 	bin := e.bin()
@@ -152,6 +155,8 @@ func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 		"SiteTLS":       siteTLS,
 		"ACMEDir":       ACMEDir,
 		"CertDir":       engine.CertDir,
+		"RuleSetDir":    engine.RuleSetDir,
+		"RuleSetPath":   engine.RuleSetSitePath,
 	}
 	if p.Subscription != nil {
 		data["Root"] = path.Join(FilesDir, p.Subscription.Root)

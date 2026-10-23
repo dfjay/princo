@@ -1,0 +1,47 @@
+# Pins the latest release of the rule data presets nixpkgs doesn't package
+# (internal/fleet/rule-presets.json), in a pull request.
+name: rule-data
+on:
+  schedule: [{ cron: "0 5 * * 1" }]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app.outputs.token }}
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go run ./internal/tools/ruledata pin internal/fleet/rule-presets.json
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BOT: ${{ steps.app.outputs.app-slug }}[bot]
+        run: |
+          git diff --quiet && exit 0
+          id=$(gh api "/users/$BOT" --jq .id)
+          git config user.name "$BOT"
+          git config user.email "$id+$BOT@users.noreply.github.com"
+          branch=rule-data/pin
+          git switch -c "$branch"
+          git commit -am "build(nix): update rule data pins"
+          git push -f origin "$branch"
+          # An open pull request takes the push.
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --fill --head "$branch"
+          fi

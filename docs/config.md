@@ -11,8 +11,9 @@ Unknown YAML fields are errors. After parsing, princo checks references and
 settings together and reports the validation problems it finds in one pass.
 
 [Defaults](#defaults) · [Nodes](#nodesname) · [Users](#usersname) ·
-[Client profiles](#client) · [Rules](#rules) · [DNS](#dns) ·
-[Engines](#engines) · [Subscriptions](#subscription) · [Secrets](#secrets)
+[Client profiles](#client) · [Rules](#rules) · [Rule data](#rule_data) ·
+[DNS](#dns) · [Engines](#engines) · [Subscriptions](#subscription) ·
+[Secrets](#secrets)
 
 ## File structure
 
@@ -28,6 +29,7 @@ secrets: {}         # where secrets live
 # subscription:    # optional site users import profiles from
 #   node: nl
 #   domain: subs.example.com
+# rule_data: runetfreedom  # where geoip: and geosite: data comes from
 ```
 
 This is an outline; add your nodes and users before rendering. Omit optional
@@ -270,8 +272,8 @@ Conditions are `kind:value`:
 
 | Kind | Example |
 | --- | --- |
-| `geosite` | `geosite:category-ru` (sing-geosite rule sets) |
-| `geoip` | `geoip:ru` (sing-geoip rule sets) |
+| `geosite` | `geosite:category-ru`, a code of the [rule data](#rule_data); `geosite:google@cn` keeps its domains with the attribute `cn`, and several (`@a@b`) must all be there, as xray reads them |
+| `geoip` | `geoip:ru`, a code of the [rule data](#rule_data) |
 | `domain`, `domain_suffix`, `domain_keyword` | `domain_suffix:example.com` |
 | `ip` | `ip:10.0.0.0/8`, or `ip:private` for private and loopback ranges |
 | `port` | `port:443` |
@@ -287,6 +289,43 @@ rules:
   - { action: sniff }
   - { match: [protocol:bittorrent], action: reject }
 ```
+
+## `rule_data`
+
+Where the data of `geoip:` and `geosite:` conditions comes from. Every node
+and client profile is built from the same data, so the countries a client
+routes by are those its node goes by; a node refusing `geoip:ru` won't get
+the Russian traffic a client takes for foreign.
+
+```yaml
+rule_data: runetfreedom           # both kinds from one preset (the default)
+
+rule_data:
+  geoip: dbip                     # or each kind on its own
+  geosite: https://example.org/geosite.dat
+```
+
+| Preset | geoip | geosite |
+| --- | --- | --- |
+| `runetfreedom` | [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat) | the same |
+| `loyalsoldier` | [Loyalsoldier/v2ray-rules-dat](https://github.com/Loyalsoldier/v2ray-rules-dat) | the same |
+| `v2fly` | [v2fly/geoip](https://github.com/v2fly/geoip) | [v2fly/domain-list-community](https://github.com/v2fly/domain-list-community) |
+| `dbip` | [DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) | — |
+
+A URL must be `https://`: a `geoip.dat` or, for geoip, a MaxMind-format
+`.mmdb`, maybe gzipped; a `geosite.dat` for geosite. In a `.mmdb`, a network
+belongs to the country it's located in, else the one it's registered in.
+Where the URL's server has `<URL>.sha256sum`, as GitHub releases of rule data
+usually do, the download must match it.
+
+princo builds each engine's rule sets from the data, keeping only the codes
+used: `<tag>.srs` for sing-box nodes, `geoip.dat` and `geosite.dat` for xray
+nodes. Client profiles download theirs from the subscription site, which
+serves the files of the node hosting it; without a `subscription`, they get
+SagerNet's, which may tell countries apart differently. `princo deploy`
+downloads the latest data; on NixOS presets come from nixpkgs or princo's
+pins, and a URL needs `services.princo.ruleData` (see the
+[deployment guide](deployment.md#nixos)).
 
 ## DNS
 

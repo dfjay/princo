@@ -96,6 +96,11 @@ type Plan struct {
 	// RuleSets are the files the server config loads from engine.RuleSetDir,
 	// in the engine's format (e.g. geoip-ru.srs for sing-box).
 	RuleSets []string `json:"rule_sets"`
+	// SiteRuleSets are the client profiles' other rule sets in
+	// engine.RuleSetDir, which the subscription site serves.
+	SiteRuleSets []string `json:"site_rule_sets"`
+	// RuleData is what the rule sets are built from.
+	RuleData fleet.RuleData `json:"rule_data"`
 	// Subscription is the site the node serves; nil on other nodes.
 	Subscription *Site `json:"subscription,omitzero"`
 	// Secrets are the ones rendering this node's files reads.
@@ -141,6 +146,9 @@ type Source struct {
 
 var certRe = regexp.MustCompile(regexp.QuoteMeta(engine.CertDir) + `/([^/"]+)/`)
 
+// siteRuleSetRe finds the rule sets client profiles get from the site.
+var siteRuleSetRe = regexp.MustCompile(`https://[^/"]+` + regexp.QuoteMeta(engine.RuleSetSitePath) + `([^/"]+\.srs)"`)
+
 // NewPlan plans node. f must be built with secrets.AllPlaceholders: the
 // plan reads the secrets, rule sets and certificates off the rendered
 // files, so it always matches what render writes. locate tells where a
@@ -165,6 +173,8 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 		Certificates:     []string{},
 		ACMEEmail:        n.ACMEEmail,
 		RuleSets:         e.RuleSets(files[ConfigFile(n.Engine)]),
+		SiteRuleSets:     []string{},
+		RuleData:         f.RuleData,
 		Secrets:          []Secret{},
 	}
 	if n.Reality != nil || n.Mux() {
@@ -192,8 +202,16 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 			}
 			p.Certificates = append(p.Certificates, d)
 		}
+		if strings.HasPrefix(name, SiteDir+"/") {
+			for _, m := range siteRuleSetRe.FindAllSubmatch(data, -1) {
+				if name := string(m[1]); !slices.Contains(p.RuleSets, name) {
+					p.SiteRuleSets = append(p.SiteRuleSets, name)
+				}
+			}
+		}
 	}
 	p.RuleSets = sortedUnique(p.RuleSets)
+	p.SiteRuleSets = sortedUnique(p.SiteRuleSets)
 	p.Certificates = sortedUnique(p.Certificates)
 	for _, s := range sortedUnique(secretPaths) {
 		kind, file, key, err := secrets.ParseLocation(locate(s))
@@ -221,6 +239,11 @@ func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {
 		m.Default = local(engine.MuxRealityPort)
 	}
 	return m
+}
+
+// AllRuleSets are the files of RuleSets and SiteRuleSets.
+func (p *Plan) AllRuleSets() []string {
+	return sortedUnique(slices.Concat(p.RuleSets, p.SiteRuleSets))
 }
 
 func sortedUnique(s []string) []string {

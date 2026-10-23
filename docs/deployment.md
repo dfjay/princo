@@ -61,12 +61,12 @@ config and certificates belong to root and the `princo-engine` group, which
 only the engine joins. nginx doesn't log subscription requests, as their URLs
 grant access.
 
-The rendered files live in `/var/lib/princo/files`. Rule sets are downloaded
-from SagerNet for sing-box and Loyalsoldier/v2ray-rules-dat for xray. xray's
-downloaded data files must match the SHA-256 checksums published with them.
-NixOS takes the same lists from nixpkgs. Each deploy gets the latest. xray's
-data files are reduced to the codes the node uses. To provide rule sets
-locally, pass `--rule-sets DIR`.
+The rendered files live in `/var/lib/princo/files`. Rule sets, in
+`/var/lib/princo/rules`, are built from the fleet's
+[`rule_data`](config.md#rule_data), which each deploy downloads anew and
+checks against the SHA-256 published with it where there is one. To provide
+the data locally, pass `--rule-sets DIR` with `geoip.dat` or `geoip.mmdb`,
+and `geosite.dat`. `princo rule-sets` builds a node's rule sets alone.
 
 ### Previewing changes and handling failures
 
@@ -150,7 +150,19 @@ deploy-rs. The module:
 - runs the engine through `princo.service` and checks its minimum required
   version.
 
-The engine and its rule sets come from `services.princo.enginePkgs`. With
+The node's rule sets are built from the preset its `rule_data` names:
+from nixpkgs, or for `runetfreedom` from princo's pin of its latest release,
+updated weekly. Where `rule_data` is a URL, which Nix can't download without
+a hash, give the data yourself, and the same on every node:
+
+```nix
+services.princo.ruleData.geosite = pkgs.fetchurl {
+  url = "https://example.org/geosite.dat";
+  hash = "sha256-...";
+};
+```
+
+The engine and nixpkgs' rule data come from `services.princo.enginePkgs`. With
 princo's flake that is its own nixpkgs input, nixos-unstable, which follows
 engine releases more closely than a stable channel. Make it follow yours with
 `inputs.princo.inputs.nixpkgs.follows`, or set `enginePkgs` or

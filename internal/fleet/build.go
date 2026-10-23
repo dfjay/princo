@@ -57,6 +57,7 @@ func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
 	b.egress()
 	b.users()
 	b.subscription()
+	b.ruleData()
 	b.client()
 	if err := errors.Join(b.errs...); err != nil {
 		return nil, err

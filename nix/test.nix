@@ -22,6 +22,11 @@ let
           jq -j --arg p "$path" 'getpath($p | split("/"))' secrets.json > "$out/$path"
         done
       '';
+  # Stand-ins for the preset's data, which is large.
+  ruleData = {
+    geoip = ../testdata/ruledata/geoip.dat;
+    geosite = ../testdata/ruledata/geosite.dat;
+  };
 in
 {
   name = "princo";
@@ -35,6 +40,7 @@ in
         config = ../testdata/fleet/princo.yaml;
         node = "de";
         secretsDir = "${secretsDir}";
+        inherit ruleData;
       };
       security.acme.acceptTerms = true;
       # Keep the stand-ins: never ask a real CA.
@@ -54,6 +60,7 @@ in
         config = ../testdata/fleet/princo.yaml;
         node = "fi";
         secretsDir = "${secretsDir}";
+        inherit ruleData;
       };
       security.acme.acceptTerms = true;
       environment.systemPackages = [ pkgs.xray ];
@@ -84,6 +91,14 @@ in
     assert "#alice-de-reality" in links, links
     profile = machine.succeed(curl + "/ -A 'SFA (sing-box 1.14)'")
     assert '"outbounds"' in profile, profile
+    # The profile's rule sets come from the site: the node's own.
+    assert "https://subs.example.com/rules/geoip-ru.srs" in profile, profile
+    rules = "curl -sfk --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/rules/"
+    machine.succeed(rules + "geoip-ru.srs -o /tmp/geoip-ru.srs")
+    machine.succeed("cmp /tmp/geoip-ru.srs /var/lib/princo/rules/geoip-ru.srs")
+    assert "match" in machine.succeed("sing-box rule-set match -f binary /tmp/geoip-ru.srs 5.3.1.1 2>&1")
+    assert "etag" not in machine.succeed(rules + "geoip-ru.srs -D - -o /dev/null").lower()
+    machine.fail(rules + "missing.srs")
     assert "qr-sub.svg" in machine.succeed(curl + "/qr")
     assert "<svg" in machine.succeed(curl + "/qr-sub.svg")
     machine.fail("curl -sfk --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/tokens.txt")

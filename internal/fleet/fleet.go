@@ -11,6 +11,7 @@ type Fleet struct {
 	Users        []*User
 	Client       Client
 	Subscription *Subscription
+	RuleData     RuleData
 
 	nodes map[string]*Node
 	users map[string]*User

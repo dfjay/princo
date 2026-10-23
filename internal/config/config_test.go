@@ -65,3 +65,20 @@ secrets:
 		{Pattern: "nodes/fr/reality", Target: "sops:../secrets/fr.yaml#reality_private_key"},
 	}, cfg.SecretMappings())
 }
+
+func TestParse_RuleData(t *testing.T) {
+	cfg, err := Parse([]byte("princo: v1\nrule_data: loyalsoldier\n"))
+	require.NoError(t, err)
+	require.Equal(t, &RuleData{GeoIP: "loyalsoldier", Geosite: "loyalsoldier"}, cfg.RuleData)
+
+	cfg, err = Parse([]byte("princo: v1\nrule_data: { geoip: dbip }\n"))
+	require.NoError(t, err)
+	require.Equal(t, &RuleData{GeoIP: "dbip"}, cfg.RuleData)
+
+	cfg, err = Parse([]byte("princo: v1\nrule_data: { <<: { geoip: dbip }, geosite: v2fly }\n"))
+	require.NoError(t, err)
+	require.Equal(t, &RuleData{GeoIP: "dbip", Geosite: "v2fly"}, cfg.RuleData)
+
+	_, err = Parse([]byte("princo: v1\nrule_data: { geoipp: dbip }\n"))
+	require.ErrorContains(t, err, "field geoipp not found")
+}

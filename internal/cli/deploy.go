@@ -29,8 +29,9 @@ certificates the host lacks; then apply the node's bundle with princo
 host apply: its rendered files, rule sets, a systemd unit for the
 engine, and nginx for the SNI multiplexer and the subscription site.
 
-Rule sets are downloaded from the engine's upstream unless --rule-sets
-names a directory holding them.`,
+Rule sets are built from the fleet's rule_data, downloaded unless
+--rule-sets names a directory holding it: geoip.dat or geoip.mmdb, and
+geosite.dat.`,
 		Example: `  princo deploy --node fr
   princo deploy --node fr --dry-run
   princo deploy --node fr --host admin@fr.example.com`,
@@ -78,7 +79,7 @@ names a directory holding them.`,
 				}
 			}
 			client := &http.Client{Timeout: time.Minute}
-			ruleSets, err := deploy.RuleSets(ctx, client, ruleSetDir, p.Engine, p.RuleSets, files[p.Config])
+			ruleSets, err := deploy.RuleSets(ctx, client, ruleSetDir, f.RuleData, p.AllRuleSets(), files[p.Config])
 			if err != nil {
 				return err
 			}
@@ -112,7 +113,7 @@ names a directory holding them.`,
 	}
 	cmd.Flags().StringVar(&nodeName, "node", "", "Node to deploy")
 	cmd.Flags().StringVar(&target, "host", "", "SSH target, user@host (default: the node's ssh: in princo.yaml)")
-	cmd.Flags().StringVar(&ruleSetDir, "rule-sets", "", "Directory holding the node's rule sets, instead of downloading them")
+	cmd.Flags().StringVar(&ruleSetDir, "rule-sets", "", "Directory holding the fleet's rule data, instead of downloading it")
 	cmd.Flags().StringVar(&debPath, "princo-deb", "", "princo .deb to install on the host, instead of this version's release")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print what would change in the host's files, and change nothing; the host must have princo")
 	return cmd

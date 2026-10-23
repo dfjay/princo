@@ -21,6 +21,7 @@ type Config struct {
 	Users        Ordered[User]   `yaml:"users"`
 	Client       Client          `yaml:"client"`
 	Subscription *Subscription   `yaml:"subscription"`
+	RuleData     *RuleData       `yaml:"rule_data"`
 	Secrets      Ordered[string] `yaml:"secrets"`
 }
 
@@ -153,6 +154,23 @@ type Group struct {
 type Subscription struct {
 	Node   string `yaml:"node"`
 	Domain string `yaml:"domain"`
+}
+
+// RuleData is where the geoip and geosite data of every node and client
+// profile comes from: a preset or an https:// URL each. A plain string sets
+// both.
+type RuleData struct {
+	GeoIP   string `yaml:"geoip"`
+	Geosite string `yaml:"geosite"`
+}
+
+func (r *RuleData) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		r.GeoIP, r.Geosite = node.Value, node.Value
+		return nil
+	}
+	type plain RuleData
+	return decodeStrict(node, (*plain)(r))
 }
 
 // Parse decodes a princo.yaml document strictly: unknown fields anywhere
