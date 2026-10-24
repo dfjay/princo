@@ -61,7 +61,7 @@ users:
 	require.Empty(t, a.Hysteria2.Obfs)
 	require.Empty(t, a.Hysteria2.ObfsPassword)
 	require.Equal(t, EgressWarp, a.Egress.Kind)
-	require.Equal(t, &Warp{PrivateKey: "wk", IPv4: "v4", IPv6: "v6"}, a.Warp)
+	require.Equal(t, &Warp{PrivateKey: "wk", IPv4: "v4", IPv6: "v6", Host: "engage.cloudflareclient.com", Port: 2408}, a.Warp)
 	require.Len(t, a.Rules, 1)
 
 	b, _ := f.Node("b")
@@ -280,6 +280,31 @@ users:
   u: {}
 `, conventionalSecrets())
 	require.ErrorContains(t, err, "nodes.a.warp.reserved: want 3 bytes")
+}
+
+func TestBuild_WarpEndpoint(t *testing.T) {
+	cfg := func(warp string) string {
+		return `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    egress: warp
+    warp: ` + warp + `
+users:
+  u: {}
+`
+	}
+
+	f, err := build(t, cfg(`{ endpoint: "162.159.192.1:4500" }`), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, "162.159.192.1", f.Nodes[0].Warp.Host)
+	require.Equal(t, 4500, f.Nodes[0].Warp.Port)
+
+	for _, bad := range []string{"162.159.192.1", ":4500", "example.com:0", "example.com:http", "example.com:65536"} {
+		_, err := build(t, cfg(`{ endpoint: "`+bad+`" }`), conventionalSecrets())
+		require.ErrorContains(t, err, "nodes.a.warp.endpoint: want host:port", bad)
+	}
 }
 
 func TestBuild_EngineLimits(t *testing.T) {

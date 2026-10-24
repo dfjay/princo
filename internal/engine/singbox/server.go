@@ -177,8 +177,8 @@ func serverAction(r fleet.Rule) map[string]any {
 
 func warpEndpoint(w *fleet.Warp) map[string]any {
 	peer := map[string]any{
-		"address":     engine.WarpPeer,
-		"port":        engine.WarpPeerPort,
+		"address":     w.Host,
+		"port":        w.Port,
 		"public_key":  engine.WarpPeerPublicKey,
 		"allowed_ips": []any{"0.0.0.0/0", "::/0"},
 	}

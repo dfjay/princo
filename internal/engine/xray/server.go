@@ -3,6 +3,7 @@ package xray
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"slices"
 	"strconv"
 
@@ -186,7 +187,7 @@ func warpOutbound(w *fleet.Warp) map[string]any {
 		"address":   []any{w.IPv4, w.IPv6},
 		"peers": []any{map[string]any{
 			"publicKey":  engine.WarpPeerPublicKey,
-			"endpoint":   engine.WarpPeer + ":" + strconv.Itoa(engine.WarpPeerPort),
+			"endpoint":   net.JoinHostPort(w.Host, strconv.Itoa(w.Port)),
 			"allowedIPs": []any{"0.0.0.0/0", "::/0"},
 		}},
 		"mtu": 1280,

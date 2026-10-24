@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -256,6 +257,12 @@ func (b *builder) egress() {
 			if w.Reserved != nil && (len(w.Reserved) != 3 || slices.ContainsFunc(w.Reserved, func(v int) bool { return v < 0 || v > 255 })) {
 				b.errorf("%s.warp.reserved: want 3 bytes, e.g. [12, 34, 56]", where)
 			}
+			host, port, err := net.SplitHostPort(cmp.Or(w.Endpoint, DefaultWarpEndpoint))
+			p, perr := strconv.ParseUint(port, 10, 16)
+			if err != nil || perr != nil || host == "" || p == 0 {
+				b.errorf("%s.warp.endpoint: want host:port, e.g. engage.cloudflareclient.com:4500", where)
+			}
+			n.Warp.Host, n.Warp.Port = host, int(p)
 		default:
 			up, ok := b.f.nodes[egress]
 			switch {

@@ -53,7 +53,7 @@ nodes:
       public_key: x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc
     xhttp:
       path: /f7Kq2m
-    warp: { reserved: [12, 34, 56] }
+    warp: { reserved: [12, 34, 56], endpoint: "[2606:4700:d0::a29f:c001]:4500" }
 
   relay:
     ssh: root@relay.example.ru

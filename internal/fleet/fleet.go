@@ -138,7 +138,13 @@ type Warp struct {
 	IPv6       string
 	// Reserved is the account's client ID as 3 bytes, when it needs one.
 	Reserved []int
+	// Host and Port are the WARP peer.
+	Host string
+	Port int
 }
+
+// DefaultWarpEndpoint is Cloudflare's WARP peer.
+const DefaultWarpEndpoint = "engage.cloudflareclient.com:2408"
 
 type EgressKind int
 
