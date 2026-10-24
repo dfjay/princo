@@ -44,6 +44,10 @@ var xhttpPathRe = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
 // up in file and secret paths, outbound tags and links.
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
 
+// hostnameRe is a DNS name: dot-separated labels of letters, digits and
+// inner hyphens.
+var hostnameRe = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+
 func (b *builder) checkName(where, name string) {
 	if !ValidName(name) {
 		b.errorf("%s: name %q: use lowercase letters, digits, - and _, starting and ending with a letter or digit", where, name)
@@ -259,7 +263,8 @@ func (b *builder) egress() {
 			}
 			host, port, err := net.SplitHostPort(cmp.Or(w.Endpoint, DefaultWarpEndpoint))
 			p, perr := strconv.ParseUint(port, 10, 16)
-			if err != nil || perr != nil || host == "" || p == 0 {
+			_, aerr := netip.ParseAddr(host)
+			if err != nil || perr != nil || p == 0 || (aerr != nil && !hostnameRe.MatchString(host)) {
 				b.errorf("%s.warp.endpoint: want host:port, e.g. engage.cloudflareclient.com:4500", where)
 			}
 			n.Warp.Host, n.Warp.Port = host, int(p)

@@ -301,7 +301,7 @@ users:
 	require.Equal(t, "162.159.192.1", f.Nodes[0].Warp.Host)
 	require.Equal(t, 4500, f.Nodes[0].Warp.Port)
 
-	for _, bad := range []string{"162.159.192.1", ":4500", "example.com:0", "example.com:http", "example.com:65536"} {
+	for _, bad := range []string{"162.159.192.1", ":4500", "example.com:0", "example.com:http", "example.com:65536", "bad host:4500", "-bad.example.com:4500"} {
 		_, err := build(t, cfg(`{ endpoint: "`+bad+`" }`), conventionalSecrets())
 		require.ErrorContains(t, err, "nodes.a.warp.endpoint: want host:port", bad)
 	}
