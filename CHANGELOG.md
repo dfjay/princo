@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/dfjay/princo/compare/v0.3.0...v0.4.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* build every rule set from one fleet-wide rule_data
+
+### Features
+
+* build every rule set from one fleet-wide rule_data ([7a44184](https://github.com/dfjay/princo/commit/7a44184d6b4588af922d6137dac8e1004288ca70))
+* let nodes pick the WARP endpoint ([#30](https://github.com/dfjay/princo/issues/30)) ([892093e](https://github.com/dfjay/princo/commit/892093e18390ff62535b98d244a203f1eb5d62c8))
+
 ## [0.3.0](https://github.com/dfjay/princo/compare/v0.2.0...v0.3.0) (2026-10-22)
 
 
