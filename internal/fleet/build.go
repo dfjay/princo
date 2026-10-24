@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -42,6 +43,10 @@ var xhttpPathRe = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
 // nameRe is what names of nodes, users and client groups may be: they end
 // up in file and secret paths, outbound tags and links.
 var nameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$`)
+
+// hostnameRe is a DNS name: dot-separated labels of letters, digits and
+// inner hyphens.
+var hostnameRe = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 
 func (b *builder) checkName(where, name string) {
 	if !ValidName(name) {
@@ -256,6 +261,13 @@ func (b *builder) egress() {
 			if w.Reserved != nil && (len(w.Reserved) != 3 || slices.ContainsFunc(w.Reserved, func(v int) bool { return v < 0 || v > 255 })) {
 				b.errorf("%s.warp.reserved: want 3 bytes, e.g. [12, 34, 56]", where)
 			}
+			host, port, err := net.SplitHostPort(cmp.Or(w.Endpoint, DefaultWarpEndpoint))
+			p, perr := strconv.ParseUint(port, 10, 16)
+			_, aerr := netip.ParseAddr(host)
+			if err != nil || perr != nil || p == 0 || (aerr != nil && !hostnameRe.MatchString(host)) {
+				b.errorf("%s.warp.endpoint: want host:port, e.g. engage.cloudflareclient.com:4500", where)
+			}
+			n.Warp.Host, n.Warp.Port = host, int(p)
 		default:
 			up, ok := b.f.nodes[egress]
 			switch {
