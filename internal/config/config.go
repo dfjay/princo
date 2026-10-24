@@ -94,6 +94,7 @@ type Warp struct {
 	IPv4       *secrets.SecretOrPlain `yaml:"ipv4"`
 	IPv6       *secrets.SecretOrPlain `yaml:"ipv6"`
 	Reserved   []int                  `yaml:"reserved"`
+	Endpoint   string                 `yaml:"endpoint"`
 }
 
 // DNS configures a resolver, on a server or in the client profile.

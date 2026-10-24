@@ -177,6 +177,11 @@ All three fields are *secret* and can be omitted when stored at their
 conventional paths. Some accounts also need `reserved`, the 3 bytes of
 their client ID, e.g. `reserved: [12, 34, 56]`.
 
+`endpoint` overrides the WARP peer, `engage.cloudflareclient.com:2408` by
+default. Cloudflare also answers on UDP 500, 1701 and 4500, useful where 2408
+is blocked, e.g. `endpoint: engage.cloudflareclient.com:4500`. Bracket IPv6
+addresses: `"[2606:4700:d0::a29f:c001]:4500"`.
+
 ### `passthrough`
 
 The node multiplexes 443 by TLS server name: Naive's domain and the
