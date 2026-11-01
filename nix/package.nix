@@ -27,7 +27,7 @@
   # Repository tooling, not part of princo.
   excludedPackages = [ "internal/tools" ];
 
-  vendorHash = "sha256-MpU7Od7xVa3+38+jP0ybPI4moZ2Ez+x8A/3VkIKwHys=";
+  vendorHash = "sha256-9ObQ3erq5kMPzD9TJiQVBvRO+HcL31hL4ngz/bjlq80=";
 
   ldflags = [
     "-s"
