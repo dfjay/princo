@@ -107,6 +107,7 @@ func (b *builder) secret(where string, ref *secrets.SecretOrPlain, convention st
 
 func (b *builder) nodes() {
 	d := b.cfg.Defaults
+	defaultLog := b.logLevel("defaults.log", d.Log)
 	for _, name := range slices.Sorted(slices.Values(b.cfg.Nodes.Keys())) {
 		c, _ := b.cfg.Nodes.Get(name)
 		where := "nodes." + name
@@ -119,6 +120,10 @@ func (b *builder) nodes() {
 			ACMEEmail: cmp.Or(c.ACMEEmail, d.ACMEEmail),
 			Tags:      c.Tags,
 			IPv6:      c.IPv6 == nil || *c.IPv6,
+			Log:       defaultLog,
+		}
+		if c.Log != "" {
+			n.Log = b.logLevel(where+".log", c.Log)
 		}
 		if _, ok := engineProtocols[n.Engine]; !ok {
 			b.errorf("%s: engine %q is not supported (have: %s)", where, n.Engine, strings.Join(slices.Sorted(maps.Keys(engineProtocols)), ", "))
@@ -375,10 +380,22 @@ func (b *builder) client() {
 	}
 	// Client profiles sniff before any rule.
 	b.f.Client.Rules = b.rules("client.rules", c.Rules, []string{ActionDirect, ActionReject}, groups, true)
+	b.f.Client.Log = b.logLevel("client.log", c.Log)
 	b.f.Client.Final = cmp.Or(c.Final, "direct")
 	if b.f.Client.Final != "direct" && !slices.Contains(groups, b.f.Client.Final) {
 		b.errorf("client.final: want direct or a group, got %q", b.f.Client.Final)
 	}
+}
+
+// logLevel checks a log level, LogWarn when unset.
+func (b *builder) logLevel(where, level string) string {
+	if level == "" {
+		return LogWarn
+	}
+	if !slices.Contains(LogLevels, level) {
+		b.errorf("%s: want one of %s, got %q", where, strings.Join(LogLevels, ", "), level)
+	}
+	return level
 }
 
 // rules converts rules allowing the given actions; groups, if non-nil,

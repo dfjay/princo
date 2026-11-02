@@ -76,6 +76,8 @@ type Node struct {
 	DNS         *DNS
 	Rules       []Rule
 	Passthrough []Passthrough
+	// Log is the engine's log level, one of LogLevels.
+	Log string
 
 	// ServesSubscription is set on the node hosting the subscription site.
 	ServesSubscription bool
@@ -218,7 +220,19 @@ type Client struct {
 	DNS    *DNS
 	Rules  []Rule
 	Final  string
+	// Log is the apps' log level, one of LogLevels.
+	Log string
 }
+
+// LogLevels are the log levels, most verbose first; engines map them to
+// their own names. LogNone turns logging off.
+var LogLevels = []string{"debug", "info", LogWarn, "error", LogNone}
+
+const (
+	// LogWarn is the default: errors and warnings, no destinations.
+	LogWarn = "warn"
+	LogNone = "none"
+)
 
 // Group is a selector in the client app.
 type Group struct {

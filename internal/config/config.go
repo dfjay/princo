@@ -45,6 +45,7 @@ type Defaults struct {
 	Egress    string     `yaml:"egress"`
 	DNS       *DNS       `yaml:"dns"`
 	Rules     []Rule     `yaml:"rules"`
+	Log       string     `yaml:"log"`
 }
 
 // Node is one server. Unset fields inherit from Defaults; Rules, when
@@ -65,6 +66,7 @@ type Node struct {
 	DNS         *DNS            `yaml:"dns"`
 	Rules       []Rule          `yaml:"rules"`
 	Passthrough Ordered[string] `yaml:"passthrough"`
+	Log         string          `yaml:"log"`
 }
 
 type Reality struct {
@@ -140,6 +142,8 @@ type Client struct {
 	DNS    *DNS           `yaml:"dns"`
 	Rules  []Rule         `yaml:"rules"`
 	Final  string         `yaml:"final"`
+	// Log is the apps' log level; above warn they log every destination.
+	Log string `yaml:"log"`
 }
 
 // Group is a selector in the client app over some of the user's nodes.
