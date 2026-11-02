@@ -24,7 +24,7 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	}
 	cfg := map[string]any{
 		"version":   map[string]any{"min": minVersion},
-		"log":       map[string]any{"loglevel": "warning"},
+		"log":       renderLog(n.Log),
 		"inbounds":  serverInbounds(f, n),
 		"outbounds": serverOutbounds(n),
 	}
@@ -214,5 +214,18 @@ func ipStrategy(strategy string) string {
 		return "IPv6"
 	default:
 		return "IP"
+	}
+}
+
+// renderLog renders a fleet log level in xray's names. none also drops
+// the access log.
+func renderLog(level string) map[string]any {
+	switch level {
+	case fleet.LogWarn:
+		return map[string]any{"loglevel": "warning"}
+	case fleet.LogNone:
+		return map[string]any{"loglevel": "none", "access": "none"}
+	default:
+		return map[string]any{"loglevel": level}
 	}
 }

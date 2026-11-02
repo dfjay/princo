@@ -175,3 +175,9 @@ func TestCompileMatch_Private(t *testing.T) {
 	require.Contains(t, ips, "fc00::/7")
 	require.Empty(t, New().RuleSets([]byte(`{"ip": ["10.0.0.0/8"]}`)))
 }
+
+func TestRenderLog(t *testing.T) {
+	require.Equal(t, map[string]any{"loglevel": "warning"}, renderLog(fleet.LogWarn))
+	require.Equal(t, map[string]any{"loglevel": "debug"}, renderLog("debug"))
+	require.Equal(t, map[string]any{"loglevel": "none", "access": "none"}, renderLog(fleet.LogNone))
+}

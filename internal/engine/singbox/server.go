@@ -17,7 +17,7 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	}
 	var sets ruleSets
 	cfg := map[string]any{
-		"log":          map[string]any{"level": "warn", "timestamp": true},
+		"log":          renderLog(n.Log),
 		"experimental": map[string]any{"cache_file": map[string]any{"enabled": true}},
 		"inbounds":     serverInbounds(f, n),
 		"outbounds":    serverOutbounds(f, n),

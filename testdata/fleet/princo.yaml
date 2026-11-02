@@ -6,6 +6,7 @@ princo: v1
 
 defaults:
   acme_email: admin@example.com
+  log: info
   reality:
     server_name: www.samsung.com
   egress: warp
@@ -43,11 +44,13 @@ nodes:
       short_id: 2b4398e0
       public_key: P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk
     egress: direct
+    log: none
 
   fi:
     ssh: root@fi.example.com
     address: fi.example.com
     engine: xray
+    log: warn
     reality:
       short_id: 3c5409f1
       public_key: x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc
@@ -74,6 +77,7 @@ users:
   bob: { nodes: [us, relay] }
 
 client:
+  log: error
   groups:
     select:
       nodes: "!domestic"

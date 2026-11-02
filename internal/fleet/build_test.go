@@ -410,3 +410,38 @@ func TestBuild_RuleData(t *testing.T) {
 	_, err = build(t, "rule_data: http://example.org/geo.dat\n", nil)
 	require.ErrorContains(t, err, `rule_data.geoip: "http://example.org/geo.dat" isn't an https:// URL`)
 }
+
+func TestBuild_Log(t *testing.T) {
+	cfg := func(defaults, node, client string) string {
+		return `
+defaults: { ` + defaults + ` }
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    ` + node + `
+  b:
+    address: b.example.com
+    reality: { server_name: s, short_id: "2", public_key: p }
+users:
+  u: {}
+client: { ` + client + ` }
+`
+	}
+
+	f, err := build(t, cfg("", "", ""), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, LogWarn, f.Nodes[0].Log)
+	require.Equal(t, LogWarn, f.Client.Log)
+
+	f, err = build(t, cfg("log: info", "log: none", "log: error"), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, LogNone, f.Nodes[0].Log, "a's own level")
+	require.Equal(t, "info", f.Nodes[1].Log, "b inherits the default")
+	require.Equal(t, "error", f.Client.Log)
+
+	_, err = build(t, cfg("log: warning", "log: trace", "log: verbose"), conventionalSecrets())
+	require.ErrorContains(t, err, `defaults.log: want one of debug, info, warn, error, none, got "warning"`)
+	require.ErrorContains(t, err, `nodes.a.log: want one of debug, info, warn, error, none, got "trace"`)
+	require.ErrorContains(t, err, `client.log: want one of debug, info, warn, error, none, got "verbose"`)
+}

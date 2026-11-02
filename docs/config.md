@@ -82,6 +82,7 @@ Every node inherits these; a node's own value wins.
 | `egress` | `direct` | see `nodes.<name>.egress` |
 | `dns` | — | see [DNS](#dns); a node's block replaces the default block |
 | `rules` | — | see [Rules](#rules); a node's `rules`, even empty, replace them |
+| `log` | `warn` | the engine's log level: `debug`, `info`, `warn`, `error` or `none` |
 
 A protocol block in `defaults` only supplies values: a node serves a
 protocol when it has its own block, even an empty one (`hysteria2: {}`).
@@ -100,7 +101,7 @@ protocol when it has its own block, even an empty one (`hysteria2: {}`).
 | `tags` | labels client groups select nodes by |
 | `ipv6` | defaults to `true`; set `false` when the node has no IPv6, so the client refuses IPv6 destinations and AAAA answers for traffic routed through it |
 | `passthrough` | other TLS sites on 443: `host: target` (see below) |
-| `dns`, `rules`, `engine`, `acme_email` | override `defaults` |
+| `dns`, `rules`, `engine`, `acme_email`, `log` | override `defaults` |
 | `ssh` | `user@host` or a `~/.ssh/config` Host that `princo deploy` connects to |
 
 A node needs at least one protocol. All of them share port 443: Reality,
@@ -218,6 +219,11 @@ The sing-box profile users import.
 | `dns` | the app's resolver, see [DNS](#dns) |
 | `rules` | see [Rules](#rules) |
 | `final` | where unmatched traffic goes: a group or `direct` (the default) |
+| `log` | the app's log level, as for nodes; `warn` by default |
+
+At `info` and `debug`, sing-box, in the app or on a node, logs every
+destination it connects to. The client's level reaches every user's app with the next
+subscription update; raise it for diagnosis and lower it afterwards.
 
 ### `client.groups.<name>`
 
