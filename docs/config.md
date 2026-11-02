@@ -358,6 +358,10 @@ dns:
 | `optimistic` | answer from an expired cache while refreshing |
 | `rules` | `{ match: [...], server: <name> }`; domain conditions only |
 
+A node queries its servers directly, not through its `egress`: a stalled
+WARP or upstream must not break the lookups the node itself needs, such as
+the REALITY handshake target.
+
 ## Engines
 
 | Protocol | sing-box | xray |
@@ -369,8 +373,8 @@ dns:
 
 On xray nodes:
 
-- DNS servers can't be `tls://`, and are queried directly; their host
-  names are resolved by the system, as xray has no `resolver` per server.
+- DNS servers can't be `tls://`; their host names are resolved by the
+  system, as xray has no `resolver` per server.
 - `network:icmp` can't be matched.
 - `action: sniff` turns on sniffing for the whole inbound, so every rule
   sees the sniffed domain, wherever the `sniff` rule stands.
