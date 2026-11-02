@@ -8,14 +8,12 @@ permissions:
 
 jobs:
   update:
-    # Only Dependabot's own pushes: the hash commit below doesn't need another run.
     if: github.event.pull_request.user.login == 'dependabot[bot]' && github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - id: app
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          # A variable for Actions runs, a Dependabot secret for Dependabot's.
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID || secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
