@@ -3,12 +3,14 @@
     "final": "quad9",
     "servers": [
       {
+        "detour": "direct",
         "domain_resolver": "bootstrap",
         "server": "dns.quad9.net",
         "tag": "quad9",
         "type": "https"
       },
       {
+        "detour": "direct",
         "server": "9.9.9.9",
         "tag": "bootstrap",
         "type": "udp"
