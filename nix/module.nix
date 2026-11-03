@@ -97,8 +97,6 @@ let
   acmeWebroot = "/var/lib/acme/acme-challenge";
 
   needsNginx = mux != null || plan.certificates != [ ];
-  # nginx's connections per worker on a multiplexer.
-  muxConnections = 16384;
   http = [
     {
       addr = "0.0.0.0";
@@ -410,9 +408,7 @@ in
           # A REALITY client opens a connection per connection it carries, and
           # each takes nginx two: the 512 nginx defaults to let a couple of
           # users fill it and the node stop accepting anyone.
-          eventsConfig = lib.mkIf (mux != null) (
-            lib.mkDefault "worker_connections ${toString muxConnections};"
-          );
+          eventsConfig = lib.mkIf (mux != null) (lib.mkDefault "worker_connections 16384;");
           streamConfig = lib.mkIf (mux != null) ''
             map $ssl_preread_server_name $princo_backend {
               ${lib.concatMapStringsSep "\n  " (r: "${r.sni} ${r.target};") mux.routes}
@@ -500,9 +496,10 @@ in
             wants = [ "princo-render.service" ];
             after = [ "princo-render.service" ];
           })
-          # A connection is a file; the soft limit of 1024 would cap the above.
+          # A connection is a file, and the soft limit of 1024 would cap the
+          # above; high enough not to cap a host's own worker_connections either.
           (lib.mkIf (mux != null) {
-            serviceConfig.LimitNOFILE = lib.mkDefault (2 * muxConnections + 1024);
+            serviceConfig.LimitNOFILE = lib.mkDefault 1048576;
           })
         ];
       }

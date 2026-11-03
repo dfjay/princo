@@ -85,7 +85,8 @@ in
     conf = machine.succeed("systemctl cat nginx.service | grep -o '/nix/store/[^ ]*nginx.conf' | head -1").strip()
     machine.succeed(f"grep -q 'worker_connections 16384;' {conf}")
     machine.succeed(f"grep -q 'listen 443 so_keepalive=' {conf}")
-    machine.succeed("grep -Eq '^Max open files +33792' /proc/$(systemctl show -P MainPID nginx.service)/limits")
+    machine.succeed(f"grep -q 'listen \\[::\\]:443 so_keepalive=' {conf}")
+    machine.succeed("grep -Eq '^Max open files +1048576' /proc/$(systemctl show -P MainPID nginx.service)/limits")
 
     # Through the multiplexer to the subscription site.
     token = machine.succeed("awk '$1 == \"alice\" {print $2}' /run/princo/files/tokens.txt").strip()
