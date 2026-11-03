@@ -136,12 +136,14 @@ type Secret struct {
 	Source Source `json:"source"`
 }
 
-// Source is where a secret is stored: Key in an encrypted File (relative to
-// princo.yaml's directory) of Type sops or age.
+// Source is where a secret is stored: Key in an encrypted File of Type
+// sops or age. File is relative to the directory of config file Config,
+// an index into the --config files.
 type Source struct {
-	Type string `json:"type"`
-	File string `json:"file"`
-	Key  string `json:"key"`
+	Type   string `json:"type"`
+	File   string `json:"file"`
+	Key    string `json:"key"`
+	Config int    `json:"config"`
 }
 
 var certRe = regexp.MustCompile(regexp.QuoteMeta(engine.CertDir) + `/([^/"]+)/`)
@@ -152,8 +154,8 @@ var siteRuleSetRe = regexp.MustCompile(`https://[^/"]+` + regexp.QuoteMeta(engin
 // NewPlan plans node. f must be built with secrets.AllPlaceholders: the
 // plan reads the secrets, rule sets and certificates off the rendered
 // files, so it always matches what render writes. locate tells where a
-// secret path is stored.
-func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Plan, error) {
+// secret path is stored and which config file that location is relative to.
+func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)) (*Plan, error) {
 	files, err := Files(f, node)
 	if err != nil {
 		return nil, err
@@ -214,11 +216,12 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) string) (*Pla
 	p.SiteRuleSets = sortedUnique(p.SiteRuleSets)
 	p.Certificates = sortedUnique(p.Certificates)
 	for _, s := range sortedUnique(secretPaths) {
-		kind, file, key, err := secrets.ParseLocation(locate(s))
+		location, config := locate(s)
+		kind, file, key, err := secrets.ParseLocation(location)
 		if err != nil {
 			return nil, err
 		}
-		p.Secrets = append(p.Secrets, Secret{Path: s, File: secrets.FileName(s), Source: Source{Type: kind, File: file, Key: key}})
+		p.Secrets = append(p.Secrets, Secret{Path: s, File: s, Source: Source{Type: kind, File: file, Key: key, Config: config}})
 	}
 	return p, nil
 }

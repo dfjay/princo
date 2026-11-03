@@ -36,7 +36,7 @@ func plan(t *testing.T, node string) (*host.Plan, map[string][]byte, map[string]
 	require.NoError(t, err)
 	placeholders, err := fleet.Build(cfg, secrets.AllPlaceholders{})
 	require.NoError(t, err)
-	p, err := host.NewPlan(placeholders, node, func(path string) string { return "sops:s.yaml#" + path })
+	p, err := host.NewPlan(placeholders, node, func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
 
 	files, err := host.Files(fleettest.Load(t, fixture), node)

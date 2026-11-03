@@ -23,6 +23,9 @@ func (s *SecretOrPlain) UnmarshalYAML(value *yaml.Node) error {
 	}
 	switch value.Tag {
 	case "!secret":
+		if err := CheckPath(value.Value); err != nil {
+			return fmt.Errorf("line %d: !secret %w", value.Line, err)
+		}
 		s.SecretPath = value.Value
 		return nil
 	case "!!str", "", "!!null":

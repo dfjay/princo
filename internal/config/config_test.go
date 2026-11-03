@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,4 +82,45 @@ func TestParse_RuleData(t *testing.T) {
 
 	_, err = Parse([]byte("princo: v1\nrule_data: { geoipp: dbip }\n"))
 	require.ErrorContains(t, err, "field geoipp not found")
+}
+
+func TestParse_SecretTakesPaths(t *testing.T) {
+	_, err := Parse([]byte("princo: v1\nusers:\n  a: { uuid: !secret sops:s.yaml#a }\n"))
+	require.ErrorContains(t, err, "!secret sops:s.yaml#a: a storage location, not a secret path")
+	cfg, err := Parse([]byte("princo: v1\nusers:\n  a: { uuid: !secret shared/uuid }\n"))
+	require.NoError(t, err)
+	a, _ := cfg.Users.Get("a")
+	require.Equal(t, "shared/uuid", a.UUID.SecretPath)
+}
+
+func TestParse_AliasesAndMergeKeys(t *testing.T) {
+	cfg, err := Parse([]byte(`princo: v1
+nodes:
+  us: &node { address: us.example.com, egress: warp }
+  de: *node
+users:
+  <<: { alice: {} }
+  bob: {}
+secrets:
+  <<: { users/*: "sops:s.yaml#uuid_*" }
+`))
+	require.NoError(t, err)
+	require.Equal(t, []string{"us", "de"}, cfg.Nodes.Keys())
+	de, _ := cfg.Nodes.Get("de")
+	require.Equal(t, "warp", de.Egress)
+	require.Equal(t, []string{"alice", "bob"}, cfg.Users.Keys(), "merged keys take the place of <<")
+	require.Equal(t, []string{"users/*"}, cfg.Secrets.Keys())
+
+	_, err = Parse([]byte("princo: v1\nusers:\n  <<: { alice: { nodez: [] } }\n"))
+	require.ErrorContains(t, err, "not found in type", "what a merge key brings in is checked too")
+}
+
+func TestParse_BoundsAliasExpansion(t *testing.T) {
+	// Each level doubles the one before: 2^30 nodes once resolved.
+	doc := "princo: v1\nx0: &a0 [y]\n"
+	for i := 1; i <= 30; i++ {
+		doc += fmt.Sprintf("x%d: &a%d [*a%d, *a%d]\n", i, i, i-1, i-1)
+	}
+	_, err := Parse([]byte(doc))
+	require.ErrorContains(t, err, "nodes with its aliases resolved")
 }

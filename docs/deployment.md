@@ -140,6 +140,27 @@ Pass `config` as a Nix path, as above. Secret file references are relative
 to its directory, so include the referenced encrypted files in the source
 available to Nix.
 
+To keep addresses, keys and users out of a public repository, put them in
+a private flake input and pass both files to `config`. The private file
+overrides the public one using the [merge rules](config.md#several-files):
+
+```nix
+# In flake.nix:
+inputs.fleet = {
+  url = "git+ssh://git@github.com/you/fleet";
+  flake = false;
+};
+
+# In your NixOS module, with inputs passed as a module argument:
+services.princo.config = [
+  ./vpn/princo.yaml
+  "${inputs.fleet}/princo.yaml"
+];
+```
+
+Each file's secret references are relative to its own directory, so the
+private repository can hold its sops files too.
+
 Deploy through your usual tool: `nixos-rebuild --target-host`, colmena or
 deploy-rs. The module:
 

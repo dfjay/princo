@@ -30,7 +30,7 @@ func placeholderFleet(t *testing.T) *fleet.Fleet {
 
 func plan(t *testing.T, node string) *Plan {
 	t.Helper()
-	p, err := NewPlan(placeholderFleet(t), node, func(path string) string { return "sops:s.yaml#" + path })
+	p, err := NewPlan(placeholderFleet(t), node, func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
 	return p
 }
@@ -72,7 +72,7 @@ func TestPlan_Mux(t *testing.T) {
 func TestPlan_SiteSharesEngineCertificate(t *testing.T) {
 	f := placeholderFleet(t)
 	f.Subscription.Domain = "de.example.com"
-	_, err := NewPlan(f, "de", func(path string) string { return "sops:s.yaml#" + path })
+	_, err := NewPlan(f, "de", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.ErrorContains(t, err, "subscription.domain: node de's engine has a certificate for de.example.com too")
 }
 
@@ -137,7 +137,7 @@ func TestPlan_XraySubscription(t *testing.T) {
 	cfg.Subscription.Node = "fi"
 	f, err := fleet.Build(cfg, secrets.AllPlaceholders{})
 	require.NoError(t, err)
-	p, err := NewPlan(f, "fi", func(path string) string { return "sops:s.yaml#" + path })
+	p, err := NewPlan(f, "fi", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
 	require.Equal(t, []string{"geoip.dat", "geosite.dat"}, p.RuleSets)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.SiteRuleSets)

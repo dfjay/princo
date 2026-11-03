@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -142,7 +139,7 @@ func (g *generator) value(path string) (string, bool, error) {
 
 // sameSecret reports whether paths a and b are stored in the same place.
 func (g *generator) sameSecret(a, b string) bool {
-	return g.resolver.Locate(a) == g.resolver.Locate(b)
+	return g.resolver.Identity(a) == g.resolver.Identity(b)
 }
 
 func (g *generator) use(match func(fleet.SecretUse) bool) (fleet.SecretUse, bool) {
@@ -213,46 +210,66 @@ func (g *generator) set(path, value string) error {
 
 // publicKeyEdit prepares writing public next to every field that reads the
 // private key at path, failing before the key changes; commit saves it.
+// The key goes to the last config file that has the field.
 func (g *generator) publicKeyEdit(path, public string) (commit func() error, err error) {
+	files, err := readConfigFiles(g.global)
+	if err != nil {
+		return nil, err
+	}
 	var set, absent []string
-	out, err := editedConfig(g.global, func(data []byte) ([]byte, error) {
-		for _, u := range g.uses {
-			if u.Path != path {
-				continue
-			}
-			keys := strings.Split(u.Field, ".")
-			keys[len(keys)-1] = "public_key"
-			field := strings.Join(keys, ".")
-			edited, ok, err := config.SetValue(data, keys, public)
+	wrote := map[string]bool{}
+	var fields []string
+	out := files
+	for _, u := range g.uses {
+		if u.Path != path {
+			continue
+		}
+		keys := strings.Split(u.Field, ".")
+		keys[len(keys)-1] = "public_key"
+		field := strings.Join(keys, ".")
+		fields = append(fields, field)
+		for i := out.last(); i >= 0 && !wrote[field]; i-- {
+			edited, ok, err := config.SetValue(out.data[i], keys, public)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s: %w; its public key is %s", out.paths[i], err, public)
 			}
-			if !ok {
-				absent = append(absent, field)
-				continue
+			if ok {
+				out = out.with(i, edited)
+				set = append(set, field+": updated in "+out.name(i))
+				wrote[field] = true
 			}
-			data = edited
-			set = append(set, field)
 		}
-		if len(set) == 0 {
-			return nil, nil
+		if !wrote[field] {
+			absent = append(absent, field)
 		}
-		return data, nil
-	})
+	}
+	// A YAML merge key can supply the field where princo can't edit it.
+	cfg, err := out.config()
 	if err != nil {
 		return nil, fmt.Errorf("%w; its public key is %s", err, public)
 	}
-	return func() error {
-		if out != nil {
-			if err := saveConfig(g.global, out); err != nil {
-				return err
-			}
+	for _, field := range fields {
+		var v string // fields are nodes.<name>.reality.public_key
+		if n, ok := cfg.Nodes.Get(strings.Split(field, ".")[1]); ok && n.Reality != nil {
+			v = n.Reality.PublicKey
 		}
-		for _, f := range set {
-			logf(g.log, "%s: updated in %s", f, filepath.Base(g.global.ConfigPath))
+		want := ""
+		if wrote[field] {
+			want = public
+		}
+		if v != want {
+			return nil, fmt.Errorf("%s: can't set it where its value comes from, such as a YAML merge key; write it out in the config's last file that sets it, then generate %s again", field, path)
+		}
+	}
+	return func() error {
+		if err := out.save(files); err != nil {
+			return err
+		}
+		for _, s := range set {
+			logf(g.log, "%s", s)
 		}
 		for _, f := range absent {
-			logf(g.log, "%s: add it to princo.yaml: %s", f, public)
+			logf(g.log, "%s: add it to %s: %s", f, files.name(files.last()), public)
 		}
 		return nil
 	}, nil
@@ -260,48 +277,4 @@ func (g *generator) publicKeyEdit(path, public string) (commit func() error, err
 
 func logf(w io.Writer, format string, args ...any) {
 	_, _ = fmt.Fprintf(w, format+"\n", args...)
-}
-
-// editConfig rewrites princo.yaml with edit, unless edit returns nil.
-func editConfig(global *globalFlags, edit func([]byte) ([]byte, error)) error {
-	out, err := editedConfig(global, edit)
-	if err != nil || out == nil {
-		return err
-	}
-	return saveConfig(global, out)
-}
-
-// editedConfig returns princo.yaml with edit applied, checked to parse, or
-// nil when edit returns nil.
-func editedConfig(global *globalFlags, edit func([]byte) ([]byte, error)) ([]byte, error) {
-	data, err := os.ReadFile(global.ConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
-	}
-	out, err := edit(data)
-	if err != nil || out == nil {
-		return nil, err
-	}
-	if _, err := config.Parse(out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func saveConfig(global *globalFlags, out []byte) error {
-	path := global.ConfigPath
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".princo.yaml.*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(f.Name()) }()
-	_, err = f.Write(out)
-	if err = errors.Join(err, f.Chmod(info.Mode().Perm()), f.Close()); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
 }

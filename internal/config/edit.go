@@ -145,6 +145,25 @@ func RemoveEntry(data []byte, section, name string) ([]byte, error) {
 	return nil, fmt.Errorf("%s.%s doesn't exist", section, name)
 }
 
+// DropEmpty removes the top-level section when it is left empty, as after
+// RemoveEntry took its last entry.
+func DropEmpty(data []byte, section string) ([]byte, error) {
+	root, err := parseRoot(data)
+	if err != nil {
+		return nil, err
+	}
+	k, v := lookupKey(root, section)
+	if k == nil || v.Kind != yaml.ScalarNode || v.Tag != "!!null" || v.Value != "" || v.Line != k.Line {
+		return data, nil
+	}
+	lines := splitLines(data)
+	out := []byte(strings.Join(append(lines[:k.Line-1:k.Line-1], lines[k.Line:]...), ""))
+	if err := checkEdit(data, out, func(doc map[string]any) { delete(doc, section) }); err != nil {
+		return nil, fmt.Errorf("%s: %w", section, err)
+	}
+	return out, nil
+}
+
 func parseRoot(data []byte) (*yaml.Node, error) {
 	var doc yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))

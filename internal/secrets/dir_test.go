@@ -18,13 +18,11 @@ func TestDir(t *testing.T) {
 	}
 	write("users/alice", "uuid-a")
 	write("nodes/fr/reality", "rk\n")
-	write(FileName("sops:s.yaml#k"), "by-location")
 
 	d := Dir(dir)
 	for path, want := range map[string]string{
 		"users/alice":      "uuid-a",
 		"nodes/fr/reality": "rk",
-		"sops:s.yaml#k":    "by-location",
 	} {
 		got, err := d.Get(path)
 		require.NoError(t, err, path)
@@ -39,12 +37,12 @@ func TestDir(t *testing.T) {
 }
 
 func TestPlaceholders(t *testing.T) {
-	paths := []string{"users/alice", "sops:../s.yaml#k", "nodes/fr/warp/ipv4"}
+	paths := []string{"users/alice", "shared/hysteria2_obfs", "nodes/fr/warp/ipv4"}
 	var data []byte
 	for _, p := range append(paths, paths[0]) {
 		data = append(data, `{"x":"`+Placeholder(p)+`"}`...)
 	}
-	require.Equal(t, []string{"nodes/fr/warp/ipv4", "sops:../s.yaml#k", "users/alice"}, Placeholders(data))
+	require.Equal(t, []string{"nodes/fr/warp/ipv4", "shared/hysteria2_obfs", "users/alice"}, Placeholders(data))
 
 	g := OrPlaceholder{NewStore(map[string]any{"users": map[string]any{"alice": "a"}})}
 	v, err := g.Get("users/alice")

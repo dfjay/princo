@@ -1,0 +1,10 @@
+# The private half of testdata/split, beside its secrets.
+princo: v1
+
+nodes:
+  fr:
+    address: fr.example.com
+    reality: { public_key: rTfvDnYUF2iyaHAreWAuNEJ2MipD-PGBiDysUvNJHjM }
+
+secrets:
+  nodes/fr/*: sops:secrets/fr.yaml

@@ -58,7 +58,10 @@ recipients file there, princo init writes one for the age identity at
 --key, creating the identity unless it exists.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := global.ConfigPath
+			if len(global.ConfigPaths) > 1 {
+				return fmt.Errorf("--config: init writes one file")
+			}
+			path := global.configPath()
 			if fileExists(path) {
 				return fmt.Errorf("%s already exists", path)
 			}

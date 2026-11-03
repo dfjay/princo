@@ -38,9 +38,16 @@ func newUserAddCommand(global *globalFlags) *cobra.Command {
 			if !fleet.ValidName(name) {
 				return fmt.Errorf("user name %q: use lowercase letters, digits, - and _, starting and ending with a letter or digit", name)
 			}
-			cfg, err := loadConfig(global)
+			files, err := readConfigFiles(global)
 			if err != nil {
 				return err
+			}
+			cfg, err := files.config()
+			if err != nil {
+				return err
+			}
+			if _, ok := cfg.Users.Get(name); ok {
+				return fmt.Errorf("users.%s already exists", name)
 			}
 			for _, n := range nodes {
 				if _, ok := cfg.Nodes.Get(n); !ok {
@@ -51,23 +58,28 @@ func newUserAddCommand(global *globalFlags) *cobra.Command {
 			if len(nodes) > 0 {
 				entry = "{ nodes: [" + strings.Join(nodes, ", ") + "] }"
 			}
-			if err := editConfig(global, func(data []byte) ([]byte, error) {
-				return config.AddEntry(data, "users", name, entry)
-			}); err != nil {
+			last := files.last()
+			data, err := config.AddEntry(files.data[last], "users", name, entry)
+			if err != nil {
 				return err
 			}
-			logf(cmd.ErrOrStderr(), "users.%s: added to princo.yaml", name)
+			added := files.with(last, data)
+			if _, err := added.config(); err != nil {
+				return err
+			}
+			if err := added.save(files); err != nil {
+				return err
+			}
+			logf(cmd.ErrOrStderr(), "users.%s: added to %s", name, files.name(last))
 
 			err = addUUID(cmd, global, name)
 			if err == nil {
 				return nil
 			}
-			if rerr := editConfig(global, func(data []byte) ([]byte, error) {
-				return config.RemoveEntry(data, "users", name)
-			}); rerr != nil {
-				return fmt.Errorf("%w; removing users.%s from princo.yaml also failed: %v", err, name, rerr)
+			if rerr := files.save(added); rerr != nil {
+				return fmt.Errorf("%w; removing users.%s from %s also failed: %v", err, name, files.name(last), rerr)
 			}
-			return fmt.Errorf("%w; users.%s removed from princo.yaml again", err, name)
+			return fmt.Errorf("%w; users.%s removed from %s again", err, name, files.name(last))
 		},
 	}
 	cmd.Flags().StringSliceVar(&nodes, "nodes", nil, "Nodes the user may use, in the order their app lists them (default all)")
@@ -104,20 +116,42 @@ func newUserRemoveCommand(global *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			out, err := editedConfig(global, func(data []byte) ([]byte, error) {
-				return config.RemoveEntry(data, "users", name)
-			})
+			files, err := readConfigFiles(global)
+			if err != nil {
+				return err
+			}
+			// From every file that has them, or a merge brings them back.
+			out, removed := files, false
+			for i := range files.paths {
+				if c, err := config.Parse(out.data[i]); err != nil {
+					return fmt.Errorf("%s: %w", out.paths[i], err)
+				} else if _, ok := c.Users.Get(name); !ok {
+					continue
+				}
+				edited, err := config.RemoveEntry(out.data[i], "users", name)
+				if err == nil {
+					edited, err = config.DropEmpty(edited, "users")
+				}
+				if err != nil {
+					return fmt.Errorf("%s: %w", out.paths[i], err)
+				}
+				out, removed = out.with(i, edited), true
+			}
+			if !removed {
+				return fmt.Errorf("users.%s doesn't exist", name)
+			}
+			cfg, err := out.config()
 			if err != nil {
 				return err
 			}
 			// The UUID goes first: if that fails, the user is still there to retry.
 			restore := func() error { return nil }
 			if u, ok := g.userUUID(name); ok {
-				if restore, err = g.removeUnused(u, out); err != nil {
+				if restore, err = g.removeUnused(u, cfg); err != nil {
 					return err
 				}
 			}
-			if err := saveConfig(global, out); err != nil {
+			if err := out.save(files); err != nil {
 				if rerr := restore(); rerr != nil {
 					return fmt.Errorf("%w; restoring the UUID also failed: %v", err, rerr)
 				}
@@ -129,14 +163,10 @@ func newUserRemoveCommand(global *globalFlags) *cobra.Command {
 	}
 }
 
-// removeUnused deletes u's secret unless the config in data still reads
-// it, returning how to put it back.
-func (g *generator) removeUnused(u fleet.SecretUse, data []byte) (restore func() error, err error) {
+// removeUnused deletes u's secret unless cfg still reads it, returning
+// how to put it back.
+func (g *generator) removeUnused(u fleet.SecretUse, cfg *config.Config) (restore func() error, err error) {
 	restore = func() error { return nil }
-	cfg, err := config.Parse(data)
-	if err != nil {
-		return nil, err
-	}
 	if slices.ContainsFunc(fleet.Secrets(cfg), func(v fleet.SecretUse) bool { return g.sameSecret(v.Path, u.Path) }) {
 		logf(g.log, "%s: kept, princo.yaml still uses it", u.Path)
 		return restore, nil

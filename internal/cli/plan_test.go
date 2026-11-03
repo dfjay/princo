@@ -87,7 +87,7 @@ func TestExamples(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, configs)
 	for _, c := range configs {
-		cfg, err := loadConfig(&globalFlags{ConfigPath: c})
+		cfg, err := loadConfig(&globalFlags{ConfigPaths: []string{c}})
 		require.NoError(t, err, c)
 		for _, node := range cfg.Nodes.Keys() {
 			_, err := run(t, "--config", c, "plan", "--node", node)

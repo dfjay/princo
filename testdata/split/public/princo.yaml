@@ -1,0 +1,17 @@
+# The public half of a fleet split in two; "private repo" has the rest.
+princo: v1
+
+defaults:
+  reality:
+    server_name: www.example.com
+  egress: direct
+
+nodes:
+  fr:
+    reality: { short_id: 1a3287df }
+
+users:
+  alice: {}
+
+secrets:
+  users/*: sops:../secrets/shared.yaml#vless_uuid_*

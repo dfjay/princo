@@ -49,7 +49,7 @@ NixOS module builds the node's rule sets with this.`,
 			if err != nil {
 				return err
 			}
-			p, err := host.NewPlan(f, nodeName, resolver.Locate)
+			p, err := host.NewPlan(f, nodeName, resolver.Where)
 			if err != nil {
 				return err
 			}

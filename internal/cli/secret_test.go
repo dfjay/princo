@@ -70,21 +70,50 @@ func TestSecret_SetCreatesFile(t *testing.T) {
 }
 
 func TestSecret_List(t *testing.T) {
-	configPath, keyPath, recPath := newSecretFixture(t)
-	require.NoError(t, secrets.Save(
-		filepath.Join(filepath.Dir(configPath), "secrets.age"),
-		recPath,
-		map[string]any{"uuids": map[string]any{"alice": "a", "bob": "b"}},
-	))
+	configPath, keyPath, _ := newSecretFixture(t)
+	require.NoError(t, os.WriteFile(configPath, []byte(`princo: v1
+nodes:
+  fr: { address: fr.example.com, reality: { server_name: www.example.com, short_id: "01" } }
+users:
+  alice: {}
+  bob: {}
+secrets:
+  users/*: age:users.age
+`), 0o644))
+	list := func(args ...string) (string, error) {
+		t.Helper()
+		var stdout bytes.Buffer
+		cmd := NewRootCommand()
+		cmd.SetOut(&stdout)
+		cmd.SetIn(strings.NewReader("uuid-a\n"))
+		cmd.SetArgs(append([]string{"--config", configPath, "--key", keyPath, "secret"}, args...))
+		err := cmd.Execute()
+		return stdout.String(), err
+	}
 
-	var stdout bytes.Buffer
-	cmd := NewRootCommand()
-	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{
-		"--config", configPath, "--key", keyPath,
-		"secret", "list",
-	})
-	require.NoError(t, cmd.Execute())
-	require.Contains(t, stdout.String(), "uuids/alice")
-	require.Contains(t, stdout.String(), "uuids/bob")
+	// Without --check, nothing is decrypted: the key may as well be gone.
+	require.NoError(t, os.Rename(keyPath, keyPath+".away"))
+	out, err := list("list")
+	require.NoError(t, err)
+	require.Equal(t, []string{"nodes/fr/reality", "users/alice", "users/bob"}, listedPaths(out))
+	require.Contains(t, out, "age:users.age#alice")
+	require.Contains(t, out, "age:secrets.age#nodes/fr/reality")
+	require.NotContains(t, out, "VALUE")
+	require.NoError(t, os.Rename(keyPath+".away", keyPath))
+
+	_, err = list("set", "users/alice")
+	require.NoError(t, err)
+	out, err = list("list", "--check")
+	require.ErrorContains(t, err, "2 secrets have no value: nodes/fr/reality, users/bob")
+	require.Regexp(t, `users/alice\s+age:users.age#alice\s+\S+princo.yaml\s+set`, out)
+	require.Regexp(t, `users/bob\s+.*missing`, out)
+}
+
+// listedPaths returns the paths secret list printed, in order.
+func listedPaths(out string) []string {
+	var paths []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n")[1:] {
+		paths = append(paths, strings.Fields(line)[0])
+	}
+	return paths
 }

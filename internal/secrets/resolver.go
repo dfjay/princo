@@ -9,13 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 // Resolver finds secrets by princo's logical paths (users/alice,
-// nodes/de/reality, ...). Each path is looked up in the first mapping whose
-// pattern matches, or in the default age file. A path may also be a
-// location itself: `sops:file.yaml#key` or `age:file#key`.
+// nodes/de/reality, ...). Each path is looked up in the most specific
+// mapping whose pattern matches, or in the default age file.
 //
 // Files are decrypted on first use and kept in memory.
 type Resolver struct {
@@ -23,7 +23,7 @@ type Resolver struct {
 	// encrypted to when written.
 	Recipients string
 
-	baseDir      string
+	dirs         []string
 	identityPath string
 	mappings     []Mapping
 	cache        map[string]map[string]any
@@ -34,22 +34,36 @@ type Resolver struct {
 
 // Mapping sends logical paths matching Pattern to Target.
 //
-// Pattern is a path, optionally ending in `*` to match any rest. Target is
+// Pattern is a path, optionally ending in `*` to match any rest; of those
+// matching a path, an exact one wins, then the longest. Target is
 // `sops:<file>` or `age:<file>`, optionally followed by `#<key>`; a `*` in
 // the key is replaced by what the pattern's `*` matched. Without a key, the
 // key is the matched rest (or the whole path for an exact pattern). Files
-// are relative to the directory of princo.yaml.
+// are relative to the directory of the config file that has the mapping.
 type Mapping struct {
 	Pattern string
 	Target  string
+	// File is the index of that config file.
+	File int
 }
 
 // DefaultFile is the age file used for paths no mapping covers.
 const DefaultFile = "secrets.age"
 
-// NewResolver checks the mappings and returns a resolver for files under
-// baseDir; identityPath is the age identity for age files.
-func NewResolver(baseDir, identityPath string, mappings []Mapping) (*Resolver, error) {
+// NewResolver checks the mappings and returns a resolver for files
+// relative to dirs, the config files' directories in merge order, with the
+// default age file in the last one. identityPath is the age identity.
+func NewResolver(dirs []string, identityPath string, mappings []Mapping) (*Resolver, error) {
+	if len(dirs) == 0 {
+		return nil, fmt.Errorf("secrets: no config directories")
+	}
+	abs := make([]string, len(dirs))
+	for i, d := range dirs {
+		var err error
+		if abs[i], err = filepath.Abs(d); err != nil {
+			return nil, err
+		}
+	}
 	for _, m := range mappings {
 		if strings.Contains(strings.TrimSuffix(m.Pattern, "*"), "*") {
 			return nil, fmt.Errorf("secrets: pattern %q: `*` is only allowed at the end", m.Pattern)
@@ -57,9 +71,12 @@ func NewResolver(baseDir, identityPath string, mappings []Mapping) (*Resolver, e
 		if _, _, _, err := ParseLocation(m.Target); err != nil {
 			return nil, fmt.Errorf("secrets: %s: %w", m.Pattern, err)
 		}
+		if m.File < 0 || m.File >= len(dirs) {
+			return nil, fmt.Errorf("secrets: %s: config file %d of %d", m.Pattern, m.File, len(dirs))
+		}
 	}
 	return &Resolver{
-		baseDir:      baseDir,
+		dirs:         abs,
 		identityPath: identityPath,
 		mappings:     mappings,
 		cache:        map[string]map[string]any{},
@@ -67,14 +84,17 @@ func NewResolver(baseDir, identityPath string, mappings []Mapping) (*Resolver, e
 	}, nil
 }
 
-// Get resolves a logical path or an explicit location.
+// Get resolves a logical path.
 func (r *Resolver) Get(path string) (string, error) {
-	location := r.Locate(path)
+	if err := CheckPath(path); err != nil {
+		return "", err
+	}
+	location, dir := r.Where(path)
 	kind, file, key, err := ParseLocation(location)
 	if err != nil {
 		return "", err
 	}
-	values, err := r.open(kind, file)
+	values, err := r.open(kind, r.abs(file, dir))
 	if err != nil {
 		return "", err
 	}
@@ -90,20 +110,49 @@ func (r *Resolver) Get(path string) (string, error) {
 
 // Locate returns where path is looked up: a location like sops:file#key.
 func (r *Resolver) Locate(path string) string {
-	if isLocation(path) {
-		return path
+	location, _ := r.Where(path)
+	return location
+}
+
+// Identity is where path is stored, with its file as an absolute path:
+// paths with the same identity share a value.
+func (r *Resolver) Identity(path string) string {
+	location, dir := r.Where(path)
+	kind, file, key, err := ParseLocation(location)
+	if err != nil {
+		return location
 	}
-	for _, m := range r.mappings {
+	return kind + ":" + r.abs(file, dir) + "#" + key
+}
+
+// Where returns where path is stored, and the index of the config file its
+// file is relative to.
+func (r *Resolver) Where(path string) (location string, file int) {
+	best, bestRest := -1, ""
+	for i, m := range r.mappings {
 		rest, ok := match(m.Pattern, path)
-		if !ok {
-			continue
+		if ok && (best < 0 || moreSpecific(m.Pattern, r.mappings[best].Pattern)) {
+			best, bestRest = i, rest
 		}
-		if _, _, key, _ := ParseLocation(m.Target); key != "" {
-			return strings.Replace(m.Target, "*", rest, 1)
-		}
-		return m.Target + "#" + rest
 	}
-	return "age:" + DefaultFile + "#" + path
+	if best < 0 {
+		return "age:" + DefaultFile + "#" + path, len(r.dirs) - 1
+	}
+	m := r.mappings[best]
+	if _, _, key, _ := ParseLocation(m.Target); key != "" {
+		return strings.Replace(m.Target, "*", bestRest, 1), m.File
+	}
+	return m.Target + "#" + bestRest, m.File
+}
+
+// moreSpecific reports whether pattern a wins over b when both match.
+func moreSpecific(a, b string) bool {
+	aPrefix, aWild := strings.CutSuffix(a, "*")
+	bPrefix, bWild := strings.CutSuffix(b, "*")
+	if aWild != bWild {
+		return !aWild
+	}
+	return len(aPrefix) > len(bPrefix)
 }
 
 // match reports whether path fits pattern and what `*` covered; for an
@@ -115,6 +164,21 @@ func match(pattern, path string) (string, bool) {
 	}
 	return path, pattern == path
 }
+
+// CheckPath rejects what isn't a secret path, such as a storage location.
+func CheckPath(path string) error {
+	if isLocation(path) {
+		return fmt.Errorf("%s: a storage location, not a secret path; map a path to it in the secrets block", path)
+	}
+	if !pathRe.MatchString(path) {
+		return fmt.Errorf("secret path %q: want parts of letters, digits, - and _ joined by /, like users/alice", path)
+	}
+	return nil
+}
+
+// pathRe is a secret path. No dots: stores split keys at them, and a
+// secrets dir reads paths as files.
+var pathRe = regexp.MustCompile(`^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$`)
 
 func isLocation(s string) bool {
 	return strings.HasPrefix(s, "sops:") || strings.HasPrefix(s, "age:")
@@ -136,12 +200,13 @@ func ParseLocation(s string) (kind, file, key string, err error) {
 // Has reports whether path has a value. A missing age file has none; a
 // missing sops file is an error, since princo can't create one.
 func (r *Resolver) Has(path string) (bool, error) {
-	kind, file, _, err := ParseLocation(r.Locate(path))
+	location, dir := r.Where(path)
+	kind, file, _, err := ParseLocation(location)
 	if err != nil {
 		return false, err
 	}
 	if kind == "age" {
-		if _, err := os.Stat(r.abs(file)); errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(r.abs(file, dir)); errors.Is(err, fs.ErrNotExist) {
 			return false, nil
 		}
 	}
@@ -161,11 +226,15 @@ func (r *Resolver) Delete(path string) error { return r.write(path, nil) }
 
 // write sets path to value, or removes it when value is nil.
 func (r *Resolver) write(path string, value *string) error {
-	kind, file, key, err := ParseLocation(r.Locate(path))
+	if err := CheckPath(path); err != nil {
+		return err
+	}
+	location, dir := r.Where(path)
+	kind, file, key, err := ParseLocation(location)
 	if err != nil {
 		return err
 	}
-	file = r.abs(file)
+	file = r.abs(file, dir)
 	delete(r.cache, kind+":"+file)
 	if kind == "sops" {
 		if value == nil {
@@ -230,15 +299,15 @@ func runSops(stdin []byte, args ...string) error {
 	return nil
 }
 
-func (r *Resolver) abs(file string) string {
+// abs is file in the directory of config file dir.
+func (r *Resolver) abs(file string, dir int) string {
 	if filepath.IsAbs(file) {
 		return file
 	}
-	return filepath.Join(r.baseDir, file)
+	return filepath.Join(r.dirs[dir], file)
 }
 
-func (r *Resolver) open(kind, file string) (map[string]any, error) {
-	path := r.abs(file)
+func (r *Resolver) open(kind, path string) (map[string]any, error) {
 	id := kind + ":" + path
 	if v, ok := r.cache[id]; ok {
 		return v, nil
