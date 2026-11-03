@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"html/template"
 	"net/url"
+	"path"
 	"strings"
 
 	"rsc.io/qr"
 
+	"github.com/dfjay/princo/internal/engine"
 	"github.com/dfjay/princo/internal/fleet"
 )
 
@@ -33,43 +35,51 @@ type Links struct {
 	QR string
 }
 
+// Profile is the URL of the profile in format, an engine's name, for
+// platform p.
+func (l Links) Profile(format string, p engine.Platform) string {
+	return l.Universal + path.Join(format, string(p))
+}
+
 // UserLinks returns the user's links, or false when the fleet has no
 // subscription.
 func UserLinks(f *fleet.Fleet, u *fleet.User) (Links, bool) {
 	if f.Subscription == nil {
 		return Links{}, false
 	}
-	universal := "https://" + f.Subscription.Domain + "/" + Token(u) + "/"
-	return Links{
-		Universal: universal,
-		// https://sing-box.sagernet.org/clients/general/#remote-profile
-		SingBox: "sing-box://import-remote-profile?url=" + url.QueryEscape(universal+"sing-box") +
-			"#" + (&url.URL{Fragment: u.Name}).EscapedFragment(),
-		QR: universal + "qr",
-	}, true
+	l := Links{Universal: "https://" + f.Subscription.Domain + "/" + Token(u) + "/"}
+	l.QR = l.Universal + "qr"
+	// https://sing-box.sagernet.org/clients/general/#remote-profile
+	l.SingBox = "sing-box://import-remote-profile?url=" + url.QueryEscape(l.Profile("sing-box", engine.AnyPlatform)) +
+		"#" + (&url.URL{Fragment: u.Name}).EscapedFragment()
+	return l, true
 }
 
 // Site renders the subscription site as files relative to its root, for
 // every user of the fleet:
 //
-//	<token>/base64          share links, one per line, base64-encoded
-//	<token>/sing-box/config the sing-box profile
-//	<token>/index.html      both subscription links with QR codes
-//	<token>/qr-*.svg        the QR codes
+//	<token>/base64                     share links, one per line, base64-encoded
+//	<token>/sing-box/config            the sing-box profile for the apps
+//	<token>/sing-box/<platform>/config the profile for each of client's platforms
+//	<token>/index.html                 both subscription links with QR codes
+//	<token>/qr-*.svg                   the QR codes
 //
 // The web server maps https://<domain>/<token>/ to base64 (or to the
-// profile for sing-box apps) and /<token>/sing-box to the profile, which
-// Site gets from profile.
-func Site(f *fleet.Fleet, profile func(user string) ([]byte, error)) (map[string][]byte, error) {
+// profile for sing-box apps), /<token>/base64 to base64 and
+// /<token>/sing-box[/<platform>] to the profile.
+func Site(f *fleet.Fleet, client engine.Engine) (map[string][]byte, error) {
 	if f.Subscription == nil {
 		return nil, fmt.Errorf("the fleet has no subscription")
 	}
 	files := map[string][]byte{}
 	for _, u := range f.Users {
 		token := Token(u)
-		p, err := profile(u.Name)
-		if err != nil {
-			return nil, fmt.Errorf("profile of %s: %w", u.Name, err)
+		for _, p := range append([]engine.Platform{engine.AnyPlatform}, client.ClientPlatforms()...) {
+			profile, err := client.RenderClient(f, u.Name, p)
+			if err != nil {
+				return nil, fmt.Errorf("profile of %s: %w", u.Name, err)
+			}
+			files[path.Join(token, client.Name(), string(p), "config")] = profile
 		}
 		links, _ := UserLinks(f, u)
 		subQR, err := qrSVG(links.Universal)
@@ -92,7 +102,6 @@ func Site(f *fleet.Fleet, profile func(user string) ([]byte, error)) (map[string
 
 		uris := strings.Join(URIs(u), "\n")
 		files[token+"/base64"] = []byte(base64.StdEncoding.EncodeToString([]byte(uris)))
-		files[token+"/sing-box/config"] = p
 		files[token+"/index.html"] = page.Bytes()
 		files[token+"/qr-sub.svg"] = subQR
 		files[token+"/qr-singbox.svg"] = singBoxQR

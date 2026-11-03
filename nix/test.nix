@@ -96,6 +96,11 @@ in
     assert "#alice-de-reality" in links, links
     profile = machine.succeed(curl + "/ -A 'SFA (sing-box 1.14)'")
     assert '"outbounds"' in profile, profile
+    assert machine.succeed(curl + "/sing-box") == profile
+    assert '"auto_redirect": true' in machine.succeed(curl + "/sing-box/linux")
+    assert '"auto_redirect"' not in profile, profile
+    machine.fail(curl + "/sing-box/macos")
+    assert machine.succeed(curl + "/base64 -A 'SFA (sing-box 1.14)' | base64 -d") == links
     # The profile's rule sets come from the site: the node's own.
     assert "https://subs.example.com/rules/geoip-ru.srs" in profile, profile
     rules = "curl -sfk --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/rules/"

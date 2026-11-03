@@ -54,7 +54,7 @@ func Merge(files []File) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := decode(data)
+	cfg, err := decode(data, merged)
 	if err != nil {
 		return nil, fmt.Errorf("merged config: %w", err)
 	}

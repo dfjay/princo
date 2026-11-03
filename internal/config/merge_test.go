@@ -162,3 +162,16 @@ func TestMerge_NullSecretWithoutEarlierMapping(t *testing.T) {
 		{Pattern: "nodes/*", Target: "sops:c.yaml", File: 2},
 	}, cfg.SecretMappings())
 }
+
+func TestMerge_UserClient(t *testing.T) {
+	cfg, err := Merge([]File{
+		{Path: "pub.yaml", Data: []byte("princo: v1\nclient:\n  final: select\n  groups:\n    select: { nodes: all }\n")},
+		{Path: "priv.yaml", Data: []byte("princo: v1\nusers:\n  router:\n    client: { groups: { select: { auto: true } } }\n")},
+	})
+	require.NoError(t, err)
+	c, err := cfg.UserClient("router")
+	require.NoError(t, err)
+	sel, _ := c.Groups.Get("select")
+	require.Equal(t, Group{Nodes: "all", Auto: true}, sel)
+	require.Equal(t, "select", c.Final)
+}

@@ -33,6 +33,17 @@ const WarpPeerPublicKey = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
 // sing-box profiles are what the apps import.
 const ClientEngine = "sing-box"
 
+// Platform is what a client profile runs on.
+type Platform string
+
+const (
+	// AnyPlatform is a profile for the apps, whatever they run on.
+	AnyPlatform Platform = ""
+	// Linux is a profile for sing-box or another engine running as a
+	// Linux service, a router's included.
+	Linux Platform = "linux"
+)
+
 // Engine renders the fleet into one engine's config format.
 type Engine interface {
 	Name() string
@@ -40,8 +51,11 @@ type Engine interface {
 	MinVersion() string
 	// RenderServer renders the config of the named node.
 	RenderServer(f *fleet.Fleet, node string) ([]byte, error)
-	// RenderClient renders the profile the named user imports into their app.
-	RenderClient(f *fleet.Fleet, user string) ([]byte, error)
+	// RenderClient renders the named user's profile for platform p.
+	RenderClient(f *fleet.Fleet, user string, p Platform) ([]byte, error)
+	// ClientPlatforms are the platforms besides AnyPlatform it renders
+	// profiles for.
+	ClientPlatforms() []Platform
 	// RuleSets lists the files in RuleSetDir a rendered server config loads.
 	RuleSets(config []byte) []string
 }

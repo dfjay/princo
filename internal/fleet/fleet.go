@@ -173,6 +173,8 @@ type User struct {
 	UUID string
 	// Nodes the user may use, in subscription order.
 	Nodes []*Node
+	// Client is the user's profile: Fleet.Client, or their own.
+	Client *Client
 }
 
 type DNS struct {

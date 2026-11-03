@@ -211,6 +211,30 @@ See [Sharing port 443](deployment.md#sharing-port-443) for host setup.
 | --- | --- |
 | `nodes` | node names the user may use, in the order their app lists them; all nodes when unset |
 | `uuid` | *secret*, `users/<name>` |
+| `client` | the user's own profile settings, merged over [`client`](#client) |
+
+A user's `client:` takes the fields of `client:` and merges over it as
+[several files](#merge-rules) do: mappings key by key, lists replaced
+whole. For example, a router, with nobody to pick a node, uses whichever
+works:
+
+```yaml
+client:
+  groups:
+    select: { nodes: all }
+  final: select
+
+users:
+  router:
+    nodes: [fr, us]
+    client:            # select picks a working node; final stays select
+      groups:
+        select: { auto: true, default: auto }
+```
+
+The subscription site serves each user their own profile. What a device
+runs on is no user's setting, as one user has several: see
+[platforms](#platforms).
 
 Manage users with `princo user add`, `rotate` and `remove`; see
 [Writing secrets](#writing-secrets).
@@ -405,10 +429,30 @@ their UUID: share links for most apps, the profile for sing-box apps, and
 a QR page at `/qr`. Apps that read subscription headers name the profile
 after the domain, link to the QR page and refresh it daily.
 `princo render --user <name> --links` prints them.
-The sing-box profile is served at `/<token>/sing-box`. Tokens stay stable
-across renders; changing a user's UUID changes their subscription URL.
+Under the token:
+
+| Path | Serves |
+| --- | --- |
+| `/` | the share links, or the sing-box profile to sing-box apps |
+| `/base64` | the share links, whatever the app |
+| `/sing-box` | the sing-box profile for the apps |
+| `/sing-box/<platform>` | the sing-box profile for a [platform](#platforms) |
+| `/qr` | a page with the links as QR codes |
+
+Tokens stay stable across renders; changing a user's UUID changes their
+subscription URL.
 Deploy the subscription node after changing users or their access so its
 published profiles are updated.
+
+### Platforms
+
+Profiles for the apps work wherever the apps run. A platform's profile
+also uses what only that platform has; `princo render --user <name>
+--platform <platform>` prints it.
+
+| Platform | sing-box |
+| --- | --- |
+| `linux` | sing-box running as a service, on a router or a desktop: TCP is redirected in the kernel with nftables (`auto_redirect`), faster than the TUN stack, and on a router that takes in the LAN's traffic |
 
 ## `secrets`
 

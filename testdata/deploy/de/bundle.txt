@@ -8,11 +8,13 @@ file 0640 www-data /var/lib/princo/files/subscription/40dcd5639946db76d72a779de6
 file 0640 www-data /var/lib/princo/files/subscription/40dcd5639946db76d72a779de6104b30/qr-singbox.svg
 file 0640 www-data /var/lib/princo/files/subscription/40dcd5639946db76d72a779de6104b30/qr-sub.svg
 file 0640 www-data /var/lib/princo/files/subscription/40dcd5639946db76d72a779de6104b30/sing-box/config
+file 0640 www-data /var/lib/princo/files/subscription/40dcd5639946db76d72a779de6104b30/sing-box/linux/config
 file 0640 www-data /var/lib/princo/files/subscription/f8cb68efcef124689abd331ff3fa5241/base64
 file 0640 www-data /var/lib/princo/files/subscription/f8cb68efcef124689abd331ff3fa5241/index.html
 file 0640 www-data /var/lib/princo/files/subscription/f8cb68efcef124689abd331ff3fa5241/qr-singbox.svg
 file 0640 www-data /var/lib/princo/files/subscription/f8cb68efcef124689abd331ff3fa5241/qr-sub.svg
 file 0640 www-data /var/lib/princo/files/subscription/f8cb68efcef124689abd331ff3fa5241/sing-box/config
+file 0640 www-data /var/lib/princo/files/subscription/f8cb68efcef124689abd331ff3fa5241/sing-box/linux/config
 file 0600 root     /var/lib/princo/files/tokens.txt
 file 0644 root     /var/lib/princo/rules/geoip-ru.srs
 file 0644 root     /var/lib/princo/rules/geosite-category-ru.srs

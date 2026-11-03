@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -21,13 +22,14 @@ import (
 )
 
 func newRenderCommand(global *globalFlags) *cobra.Command {
-	var nodeName, userName, outDir string
+	var nodeName, userName, outDir, platform string
 	var uris, links bool
 	cmd := &cobra.Command{
 		Use:   "render",
 		Short: "Print a node's engine config, or a user's client profile or share links",
 		Example: `  princo render --node fr        # server config of node fr
   princo render --user alice     # alice's client profile
+  princo render --user router --platform linux  # for sing-box as a Linux service
   princo render --user alice --uris
   princo render --user alice --links  # alice's subscription links
   princo render --node fr --out /run/princo  # every file node fr runs from`,
@@ -43,6 +45,17 @@ func newRenderCommand(global *globalFlags) *cobra.Command {
 			}
 			if outDir != "" && nodeName == "" {
 				return fmt.Errorf("--out needs --node")
+			}
+			client, err := engine.Lookup(engine.ClientEngine)
+			if err != nil {
+				return err
+			}
+			p := engine.Platform(platform)
+			switch {
+			case p != engine.AnyPlatform && (userName == "" || uris || links):
+				return fmt.Errorf("--platform needs --user, without --uris or --links")
+			case p != engine.AnyPlatform && !slices.Contains(client.ClientPlatforms(), p):
+				return fmt.Errorf("--platform %s: %s has profiles for %s", p, client.Name(), joinPlatforms(client.ClientPlatforms()))
 			}
 			f, err := loadFleet(global)
 			if err != nil {
@@ -95,12 +108,11 @@ func newRenderCommand(global *globalFlags) *cobra.Command {
 					return fmt.Errorf("princo.yaml has no subscription")
 				}
 				out = fmt.Appendf(nil, "QR page:   %s\nUniversal: %s\nsing-box:  %s", l.QR, l.Universal, l.SingBox)
-			default:
-				e, err := engine.Lookup(engine.ClientEngine)
-				if err != nil {
-					return err
+				for _, p := range client.ClientPlatforms() {
+					out = fmt.Appendf(out, "\n%-10s %s", string(p)+":", l.Profile(client.Name(), p))
 				}
-				if out, err = e.RenderClient(f, userName); err != nil {
+			default:
+				if out, err = client.RenderClient(f, userName, p); err != nil {
 					return err
 				}
 			}
@@ -115,8 +127,21 @@ func newRenderCommand(global *globalFlags) *cobra.Command {
 	cmd.Flags().StringVar(&userName, "user", "", "User whose client profile to render")
 	cmd.Flags().BoolVar(&uris, "uris", false, "With --user: print share links instead of the profile")
 	cmd.Flags().BoolVar(&links, "links", false, "With --user: print the user's subscription links instead of the profile")
+	var platforms []engine.Platform
+	if e, err := engine.Lookup(engine.ClientEngine); err == nil {
+		platforms = e.ClientPlatforms()
+	}
+	cmd.Flags().StringVar(&platform, "platform", "", "With --user: the platform the profile runs on, for what only it supports ("+joinPlatforms(platforms)+"); the apps' profile when unset")
 	cmd.Flags().StringVar(&outDir, "out", "", "With --node: write the config and, on the subscription node, the site into this directory, replacing it")
 	return cmd
+}
+
+func joinPlatforms(ps []engine.Platform) string {
+	names := make([]string, len(ps))
+	for i, p := range ps {
+		names[i] = string(p)
+	}
+	return strings.Join(names, ", ")
 }
 
 // loadFleet reads princo.yaml and resolves its secrets.

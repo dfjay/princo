@@ -10,11 +10,16 @@ import (
 	"github.com/dfjay/princo/internal/fleet"
 )
 
-// RenderClient renders the sing-box profile a user imports into their app.
-func (e *Engine) RenderClient(f *fleet.Fleet, name string) ([]byte, error) {
+func (e *Engine) ClientPlatforms() []engine.Platform { return []engine.Platform{engine.Linux} }
+
+// RenderClient renders a user's sing-box profile for platform p.
+func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([]byte, error) {
 	u, ok := f.User(name)
 	if !ok {
 		return nil, fmt.Errorf("no user named %q", name)
+	}
+	if p != engine.AnyPlatform && !slices.Contains(e.ClientPlatforms(), p) {
+		return nil, fmt.Errorf("sing-box has no profiles for %s", p)
 	}
 	c := newClientView(f, u)
 	var sets ruleSets
@@ -23,7 +28,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string) ([]byte, error) {
 	// ahead of everything else, so apps fall back to IPv4 instead of timing
 	// out on whichever rule would have matched.
 	var noIPv6 []any
-	for _, r := range f.Client.Rules {
+	for _, r := range u.Client.Rules {
 		if r.Action == fleet.ActionVia && c.ipv4Only(c.resolve(r.Via)) {
 			if ips := ipOnly(r.Match); len(ips) > 0 {
 				noIPv6 = append(noIPv6, withAction(compileMatch(ips, &sets), map[string]any{
@@ -37,7 +42,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string) ([]byte, error) {
 		map[string]any{"action": "sniff"},
 		map[string]any{"protocol": "dns", "action": "hijack-dns"},
 	)
-	for _, r := range f.Client.Rules {
+	for _, r := range u.Client.Rules {
 		bodies := compileMatch(r.Match, &sets)
 		switch r.Action {
 		case fleet.ActionVia:
@@ -49,21 +54,26 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string) ([]byte, error) {
 		}
 	}
 
-	final := c.resolve(f.Client.Final)
+	final := c.resolve(u.Client.Final)
+	tun := map[string]any{
+		"type":         "tun",
+		"tag":          "tun-in",
+		"address":      []any{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
+		"auto_route":   true,
+		"strict_route": true,
+	}
+	if p == engine.Linux {
+		// nftables redirect TCP in the kernel, the LAN's on a router too.
+		tun["auto_redirect"] = true
+	}
 	cfg := map[string]any{
 		// Above warn, the apps' logs list where the user went.
-		"log":          renderLog(f.Client.Log),
+		"log":          renderLog(u.Client.Log),
 		"experimental": map[string]any{"cache_file": map[string]any{"enabled": true, "store_dns": true}},
 		// Remote rule sets are fetched through the proxy.
 		"http_clients": []any{map[string]any{"tag": "proxy-http", "detour": final}},
-		"inbounds": []any{map[string]any{
-			"type":         "tun",
-			"tag":          "tun-in",
-			"address":      []any{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
-			"auto_route":   true,
-			"strict_route": true,
-		}},
-		"outbounds": c.outbounds(),
+		"inbounds":     []any{tun},
+		"outbounds":    c.outbounds(),
 	}
 	route := map[string]any{
 		"rules":                 rules,
@@ -71,7 +81,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string) ([]byte, error) {
 		"final":                 final,
 		"default_http_client":   "proxy-http",
 	}
-	if d := f.Client.DNS; d != nil {
+	if d := u.Client.DNS; d != nil {
 		cfg["dns"] = renderDNS(d, &sets,
 			func(s fleet.DNSServer) string {
 				if s.Via == "" {
@@ -113,7 +123,7 @@ type clientView struct {
 
 func newClientView(f *fleet.Fleet, u *fleet.User) *clientView {
 	c := &clientView{f: f, user: u, members: map[string][]*fleet.Node{}}
-	for _, g := range f.Client.Groups {
+	for _, g := range u.Client.Groups {
 		for _, n := range u.Nodes {
 			if g.Members.Matches(n) {
 				c.members[g.Name] = append(c.members[g.Name], n)
@@ -124,17 +134,17 @@ func newClientView(f *fleet.Fleet, u *fleet.User) *clientView {
 }
 
 func (c *clientView) group(name string) (fleet.Group, bool) {
-	i := slices.IndexFunc(c.f.Client.Groups, func(g fleet.Group) bool { return g.Name == name })
+	i := slices.IndexFunc(c.user.Client.Groups, func(g fleet.Group) bool { return g.Name == name })
 	if i < 0 {
 		return fleet.Group{}, false
 	}
-	return c.f.Client.Groups[i], true
+	return c.user.Client.Groups[i], true
 }
 
 // resolve maps a group name to the outbound traffic actually takes: the
 // group's selector, or its fallback chain when the user has no members.
 func (c *clientView) resolve(name string) string {
-	for range len(c.f.Client.Groups) + 1 {
+	for range len(c.user.Client.Groups) + 1 {
 		if name == "direct" || len(c.members[name]) > 0 {
 			return name
 		}
@@ -154,7 +164,7 @@ func (c *clientView) ipv4Only(outbound string) bool {
 
 func (c *clientView) outbounds() []any {
 	var out []any
-	for _, g := range c.f.Client.Groups {
+	for _, g := range c.user.Client.Groups {
 		nodes := c.members[g.Name]
 		if len(nodes) == 0 {
 			continue

@@ -450,9 +450,11 @@ in
                   log_not_found off;
                   add_header X-Robots-Tag "noindex, nofollow" always;
                 '';
-                locations."~ ^/([a-f0-9]+)/sing-box$".extraConfig = ''
+                # /<token>/sing-box is the apps' profile,
+                # /<token>/sing-box/<platform> a platform's.
+                locations."~ ^/([a-f0-9]+)/sing-box(/[a-z]+)?$".extraConfig = ''
                   default_type application/json;
-                  try_files /$1/sing-box/config =404;
+                  try_files /$1/sing-box$2/config =404;
                 '';
                 locations."~ ^/([a-f0-9]+)/qr$".extraConfig = ''
                   default_type text/html;
@@ -475,6 +477,15 @@ in
                   }
                   default_type text/plain;
                   # add_header here drops the server's.
+                  add_header X-Robots-Tag "noindex, nofollow" always;
+                  add_header profile-update-interval "24";
+                  add_header profile-title "${site.domain}";
+                  add_header profile-web-page-url "https://${site.domain}/$token/qr";
+                  try_files /$token/base64 =404;
+                '';
+                # The share links, whatever the app.
+                locations."~ ^/(?<token>[a-f0-9]+)/base64$".extraConfig = ''
+                  default_type text/plain;
                   add_header X-Robots-Tag "noindex, nofollow" always;
                   add_header profile-update-interval "24";
                   add_header profile-title "${site.domain}";
