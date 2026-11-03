@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.5.0](https://github.com/dfjay/princo/compare/v0.4.0...v0.5.0) (2026-11-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* per-user client profiles and client platforms ([#39](https://github.com/dfjay/princo/issues/39))
+* merge several config files ([#38](https://github.com/dfjay/princo/issues/38))
+
+### Features
+
+* configurable log levels for nodes and client profiles ([#34](https://github.com/dfjay/princo/issues/34)) ([7d199fe](https://github.com/dfjay/princo/commit/7d199febf11011b3e1559591508addf110170cf8))
+* merge several config files ([#38](https://github.com/dfjay/princo/issues/38)) ([8d0150c](https://github.com/dfjay/princo/commit/8d0150c337f912f456171a3d431bf0995e7448e8))
+* per-user client profiles and client platforms ([#39](https://github.com/dfjay/princo/issues/39)) ([85a1599](https://github.com/dfjay/princo/commit/85a1599c01e8a8c0a82271a4749d83736275390e))
+
+
+### Bug Fixes
+
+* **nix:** room for more than a couple of users on the multiplexer ([#37](https://github.com/dfjay/princo/issues/37)) ([23789f4](https://github.com/dfjay/princo/commit/23789f4edfe69a664b20bd127832854679477987))
+* query the node's DNS directly, not through the egress ([#33](https://github.com/dfjay/princo/issues/33)) ([55799e1](https://github.com/dfjay/princo/commit/55799e128bc36e7740000bc78e2a96214031811e))
+
 ## [0.4.0](https://github.com/dfjay/princo/compare/v0.3.0...v0.4.0) (2026-11-02)
 
 
