@@ -13,7 +13,7 @@ settings together and reports the validation problems it finds in one pass.
 [Defaults](#defaults) · [Nodes](#nodesname) · [Users](#usersname) ·
 [Client profiles](#client) · [Rules](#rules) · [Rule data](#rule_data) ·
 [DNS](#dns) · [Engines](#engines) · [Subscriptions](#subscription) ·
-[Secrets](#secrets)
+[Secrets](#secrets) · [Several files](#several-files)
 
 ## File structure
 
@@ -63,10 +63,16 @@ can be shared without exposing them.
 pairs (writing the public half to the node's `reality.public_key`) and the
 Hysteria2 obfuscation password. WARP credentials come from an existing account.
 
-To use another path, set the field to `!secret <path>`, or point it at a
-file directly with `!secret sops:<file>#<key>` or `!secret age:<file>#<key>`.
-Literal strings are also accepted. The [`secrets` section](#secrets) describes
-storage, mapping rules and host-side secret files.
+To use another path, set the field to `!secret <path>`: for example, two
+nodes can share a Reality key with `private_key: !secret shared/reality`.
+A path consists of segments containing letters, digits, `-` and `_`,
+separated by `/`. Literal secret values are also accepted, but expose the
+credential in the config.
+
+Storage locations belong in the [`secrets:` block](#secrets).
+`!secret sops:<file>#<key>` and `!secret age:<file>#<key>` are no longer
+supported. Replace them with a logical path, then map it to the same
+storage location in `secrets:`.
 
 ## `defaults`
 
@@ -406,16 +412,21 @@ published profiles are updated.
 
 ## `secrets`
 
-Maps secret paths to where they're stored: `sops:<file>` or
-`age:<file>`, optionally with `#<key>`, relative to princo.yaml. The first
-matching pattern wins; unmatched paths come from `secrets.age` next to
-princo.yaml.
+Maps logical secret paths to storage locations: `sops:<file>` or
+`age:<file>`, optionally followed by `#<key>`. File paths are relative to
+the config file that defines the mapping.
+
+The most specific match wins, regardless of order: an exact path takes
+precedence over a wildcard pattern; among wildcard patterns, the longest
+prefix wins. Unmatched paths use `secrets.age` next to the config file, or
+next to the last file when [merging several files](#several-files).
 
 ```yaml
 secrets:
   users/*: sops:../secrets/shared.yaml#vless_uuid_*
   shared/hysteria2_obfs: sops:../secrets/shared.yaml#hysteria2_obfs_password
   nodes/fr/*: sops:../secrets/fr.yaml
+  nodes/fr/warp/*: sops:../secrets/warp.yaml  # wins over nodes/fr/* for these
 ```
 
 `*` may only end a pattern; in the key it stands for what it matched.
@@ -437,7 +448,7 @@ to `secrets.age`, which is created when needed.
 | `princo secret gen [path...]` | generate missing secrets, or the given ones; `--force` replaces existing values |
 | `princo secret set <path>` | store a value read from a hidden prompt or the first line of stdin |
 | `princo secret get <path>` | print the resolved value |
-| `princo secret list` | list the paths in `secrets.age` |
+| `princo secret list [--check]` | list the secrets the config uses, where each is stored and which config file maps it; `--check` decrypts and fails on ones without a value |
 | `princo user add <name> [--nodes a,b]` | add a user to `princo.yaml` and generate their UUID |
 | `princo user rotate <name>` | replace the user's UUID; their subscription link changes with it |
 | `princo user remove <name>` | remove the user from `princo.yaml` and delete their UUID |
@@ -452,10 +463,88 @@ indented block.
 
 Pass `--secrets-dir DIR` to read already decrypted files instead of the
 encrypted stores. Logical paths retain their structure: `users/alice` reads
-`DIR/users/alice`. Explicit `sops:` or `age:` locations use derived filenames;
-`princo plan --node <name>` lists the exact names in its `secrets[].file` fields.
+`DIR/users/alice`. `princo plan --node <name>` lists the names in its
+`secrets[].file` fields.
 
 Only the secrets needed for the node's runtime files must be present. A node
 serving subscriptions also needs credentials used to generate its users'
 profiles. See the [NixOS guide](deployment.md#nixos) for sops-nix and custom
 secret directories.
+
+## Several files
+
+Repeat `--config` to merge files in the order given. For example, keep
+protocols and routing in a public repository, and addresses, users and
+secret mappings in a private one. Later files override earlier values.
+
+```sh
+princo -c vpn/princo.yaml -c ../fleet/princo.yaml plan --node fr
+```
+
+```yaml
+# vpn/princo.yaml, public
+princo: v1
+defaults:
+  reality: { server_name: www.samsung.com }
+nodes:
+  fr: { reality: {}, hysteria2: {} }
+```
+
+```yaml
+# ../fleet/princo.yaml, private
+princo: v1
+nodes:
+  fr:
+    address: fr.example.com
+    reality: { short_id: 1a3287df, public_key: rTfvDnYUF2iyaHAreWAuNEJ2MipD-PGBiDysUvNJHjM }
+users:
+  alice: {}
+secrets:
+  users/*: sops:secrets/shared.yaml#vless_uuid_*
+  nodes/fr/*: sops:secrets/fr.yaml
+```
+
+### Merge rules
+
+- Mappings merge key by key at every depth.
+- Lists and scalar values replace the earlier value. For example, a later
+  `rules` list replaces the entire earlier list; rules are not appended.
+- Null values, including an empty `users:`, leave earlier values unchanged.
+  To remove a key, remove it from every file that defines it.
+- Existing keys keep their order; new keys are appended in the order they
+  appear. This preserves the order of nodes, users and client groups.
+- YAML anchors, aliases and `<<` merge keys are resolved within each file
+  before the files are merged. An alias keeps its original value even if
+  a later file overrides the field containing its anchor.
+
+Each file must declare `princo: v1` and use known fields. Fleet validation
+runs on the merged result, so individual files may describe only part of
+the fleet.
+
+### Secret locations
+
+Each `secrets:` mapping resolves file paths relative to the config file
+that defines it. If a later file replaces the same pattern, its directory
+is used instead. A null value preserves the earlier mapping and directory.
+More specific patterns still win, regardless of which file defines them.
+
+The default `secrets.age` and the recipients file (`.princo/recipients`,
+falling back to `recipients`) are next to the last config file.
+
+`princo plan` reports each secret's location in `source.file`, relative to
+the config file identified by `source.config`. This index starts at 0 and
+follows the order of the `--config` flags.
+
+### Editing commands
+
+- `user add` adds the user to the last config file.
+- `user remove` removes the user from every file that defines them, dropping
+  any `users:` section left empty.
+- `secret gen` updates an existing Reality public key in the file that
+  supplies its effective value. If the key is absent, it prints the public
+  key for you to add. If a YAML merge key prevents a safe edit, generation
+  stops before replacing the private key.
+- `init` accepts only one config file.
+
+On NixOS, pass the files as a list to
+[`services.princo.config`](deployment.md#nixos).

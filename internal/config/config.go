@@ -23,13 +23,16 @@ type Config struct {
 	Subscription *Subscription   `yaml:"subscription"`
 	RuleData     *RuleData       `yaml:"rule_data"`
 	Secrets      Ordered[string] `yaml:"secrets"`
+
+	// The index of the file Merge took each secrets: pattern from.
+	secretFiles map[string]int
 }
 
 // SecretMappings returns the secrets: block in document order.
 func (c *Config) SecretMappings() []secrets.Mapping {
 	var out []secrets.Mapping
 	for pattern, target := range c.Secrets.All() {
-		out = append(out, secrets.Mapping{Pattern: pattern, Target: target})
+		out = append(out, secrets.Mapping{Pattern: pattern, Target: target, File: c.secretFiles[pattern]})
 	}
 	return out
 }
@@ -179,8 +182,29 @@ func (r *RuleData) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // Parse decodes a princo.yaml document strictly: unknown fields anywhere
-// are errors, and the schema version must be v1.
+// are errors, and the schema version must be v1. Anchors, aliases and
+// `<<` merge keys are resolved first, so they work in every section.
 func Parse(data []byte) (*Config, error) {
+	cfg, _, err := parse(data)
+	return cfg, err
+}
+
+// parse is Parse that also returns the document with its aliases resolved.
+func parse(data []byte) (*Config, *yaml.Node, error) {
+	root, resolved, err := normalize(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse princo.yaml: %w", err)
+	}
+	if resolved { // otherwise errors keep the file's line numbers
+		if data, err = yaml.Marshal(root); err != nil {
+			return nil, nil, err
+		}
+	}
+	cfg, err := decode(data)
+	return cfg, root, err
+}
+
+func decode(data []byte) (*Config, error) {
 	var cfg Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)

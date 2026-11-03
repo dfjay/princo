@@ -144,11 +144,7 @@ func checkSecrets(global *globalFlags, data []byte) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	files := make([]string, len(missing))
-	for i, p := range missing {
-		files[i] = secrets.FileName(p)
-	}
-	return fmt.Errorf("secrets missing from %s: %s", global.SecretsDir, strings.Join(files, ", "))
+	return fmt.Errorf("secrets missing from %s: %s", global.SecretsDir, strings.Join(missing, ", "))
 }
 
 // writeDir replaces dir with files: they are written to a sibling first
@@ -183,16 +179,20 @@ func writeDir(dir string, files map[string][]byte) error {
 }
 
 func loadConfig(global *globalFlags) (*config.Config, error) {
-	data, err := os.ReadFile(global.ConfigPath)
+	files, err := readConfigFiles(global)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return nil, err
 	}
-	return config.Parse(data)
+	return files.config()
 }
 
-// newResolver looks secrets up as princo.yaml's secrets: block says, with paths relative to the config file.
+// newResolver looks secrets up as the config's secrets: block says.
 func newResolver(global *globalFlags, cfg *config.Config) (*secrets.Resolver, error) {
-	r, err := secrets.NewResolver(filepath.Dir(global.ConfigPath), identityPath(global), cfg.SecretMappings())
+	dirs := make([]string, len(global.ConfigPaths))
+	for i, p := range global.ConfigPaths {
+		dirs[i] = filepath.Dir(p)
+	}
+	r, err := secrets.NewResolver(dirs, identityPath(global), cfg.SecretMappings())
 	if err != nil {
 		return nil, err
 	}

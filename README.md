@@ -169,10 +169,13 @@ updated server configs and subscriptions.
 | Replace a user's UUID, revoking their old links | `princo user rotate carol` |
 | Remove a user and their UUID | `princo user remove carol` |
 | Generate missing credentials after editing the config | `princo secret gen` |
-| List paths in the local age store | `princo secret list` |
+| List the secrets the config uses and where they are stored | `princo secret list` |
+| Check that every secret has a value | `princo secret list --check` |
 
-Use `--config PATH` (`-c`) to select another fleet config, `--key PATH` (`-k`)
-for another age identity, and `princo <command> --help` for command options.
+Use `--config PATH` (`-c`) to select a fleet config. Repeat the flag to
+[merge several files](docs/config.md#several-files), with later files taking
+precedence. Use `--key PATH` (`-k`) for another age identity and
+`princo <command> --help` for command options.
 `render --out` replaces its destination directory. Rendered configs and
 subscription links contain credentials; share them only with their intended users.
 

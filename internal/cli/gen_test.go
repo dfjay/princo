@@ -44,10 +44,10 @@ func TestInit(t *testing.T) {
 	require.Contains(t, stderr, "key.txt: created")
 	require.FileExists(t, filepath.Join(dir, "recipients"))
 
-	out, _, err := runIn(t, dir, "secret", "list")
+	out, _, err := runIn(t, dir, "secret", "list", "--check")
 	require.NoError(t, err)
-	require.ElementsMatch(t, []string{"nodes/nl/reality", "users/alice", "users/bob"},
-		strings.Fields(out))
+	require.Equal(t, []string{"nodes/nl/reality", "users/alice", "users/bob"}, listedPaths(out))
+	require.Contains(t, out, "age:secrets.age#users/alice")
 
 	data, err := os.ReadFile(filepath.Join(dir, "princo.yaml"))
 	require.NoError(t, err)
@@ -216,7 +216,7 @@ func TestUserRemove_KeepsSecretStoredForAnother(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte(`princo: v1
 users:
   alice: {}
-  bob: { uuid: !secret "age:secrets.age#users/alice" }
+  bob: { uuid: !secret users/alice }
 `), 0o644))
 	_, _, err := runIn(t, dir, "secret", "gen")
 	require.NoError(t, err)
@@ -242,9 +242,8 @@ nodes:
 	require.NoError(t, os.WriteFile(configPath, []byte(cfg), 0o644))
 	_, _, err := runIn(t, dir, "secret", "gen", "nodes/fr/reality")
 	require.ErrorContains(t, err, "can't edit this value in place")
-	has, _, err := runIn(t, dir, "secret", "list")
-	require.NoError(t, err)
-	require.NotContains(t, has, "nodes/fr/reality")
+	_, _, err = runIn(t, dir, "secret", "list", "--check")
+	require.ErrorContains(t, err, "1 secrets have no value: nodes/fr/reality")
 	data, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 	require.Equal(t, cfg, string(data))
@@ -315,4 +314,22 @@ func TestUserRemove_KeepsUserWhenUUIDStays(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "alice: {}")
 	require.NotEmpty(t, secretGet(t, dir, "users/alice"))
+}
+
+func TestSecretList_CheckContinuesAfterError(t *testing.T) {
+	configPath, _, _ := newSecretFixture(t)
+	dir := filepath.Dir(configPath)
+	require.NoError(t, os.WriteFile(configPath, []byte(`princo: v1
+secrets:
+  users/alice: age:broken.age
+users:
+  alice: {}
+  bob: {}
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.age"), []byte("not age\n"), 0o600))
+	out, _, err := runIn(t, dir, "secret", "list", "--check")
+	require.ErrorContains(t, err, "1 secrets could not be checked: users/alice")
+	require.ErrorContains(t, err, "1 secrets have no value: users/bob")
+	require.Regexp(t, `users/alice\s+age:broken.age#users/alice\s+\S+\s+error: `, out)
+	require.Regexp(t, `users/bob\s+\S+\s+\S+\s+missing`, out)
 }

@@ -7,12 +7,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/dfjay/princo/internal/secrets"
+	"github.com/dfjay/princo/internal/fleet"
 )
 
 func newSecretCommand(global *globalFlags) *cobra.Command {
@@ -105,39 +106,77 @@ func readValue(cmd *cobra.Command, path string) (string, error) {
 }
 
 func newSecretListCommand(global *globalFlags) *cobra.Command {
-	return &cobra.Command{
+	var check bool
+	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all secret paths (values not shown)",
+		Short: "List the secrets the config uses and where each is stored",
+		Long: `List every secret path the config uses, where its secrets: block stores
+it, and the config file that says so; values are never shown. Without
+--check nothing is decrypted. With --check, princo also decrypts the
+stores and fails when a secret has no value.`,
+		Example: `  princo secret list
+  princo secret list --check  # which ones secret gen or secret set still has to fill in`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := openSecretStore(global)
+			cfg, err := loadConfig(global)
 			if err != nil {
 				return err
 			}
-			paths := store.List()
-			sort.Strings(paths)
-			for _, p := range paths {
-				if _, err := fmt.Fprintln(cmd.OutOrStdout(), p); err != nil {
-					return err
-				}
+			resolver, err := newResolver(global, cfg)
+			if err != nil {
+				return err
 			}
-			return nil
+			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+			header := "PATH\tLOCATION\tCONFIG"
+			if check {
+				header += "\tVALUE"
+			}
+			_, _ = fmt.Fprintln(w, header) // Flush reports errors
+			var missing, failed []string
+			seen := map[string]bool{}
+			for _, u := range fleet.Secrets(cfg) {
+				if seen[u.Path] {
+					continue
+				}
+				seen[u.Path] = true
+				location, file := resolver.Where(u.Path)
+				line := u.Path + "\t" + location + "\t" + global.ConfigPaths[file]
+				if check {
+					has, err := resolver.Has(u.Path)
+					switch {
+					case err != nil:
+						line += "\terror: " + err.Error()
+						failed = append(failed, u.Path)
+					case has:
+						line += "\tset"
+					default:
+						line += "\tmissing"
+						missing = append(missing, u.Path)
+					}
+				}
+				_, _ = fmt.Fprintln(w, line)
+			}
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			var errs []error
+			if len(failed) > 0 {
+				errs = append(errs, fmt.Errorf("%d secrets could not be checked: %s", len(failed), strings.Join(failed, ", ")))
+			}
+			if len(missing) > 0 {
+				errs = append(errs, fmt.Errorf("%d secrets have no value: %s", len(missing), strings.Join(missing, ", ")))
+			}
+			return errors.Join(errs...)
 		},
 	}
-}
-
-// openSecretStore loads the secrets.age next to the config file.
-func openSecretStore(global *globalFlags) (*secrets.Store, error) {
-	path := secretsPath(global.ConfigPath)
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return secrets.NewStore(map[string]any{}), nil
-	}
-	return secrets.Open(path, identityPath(global))
+	cmd.Flags().BoolVar(&check, "check", false, "Decrypt the stores and fail when a secret has no value")
+	return cmd
 }
 
 // recipientsPath is the recipients file next to the config:
 // `.princo/recipients` if it exists, else `recipients`.
 func recipientsPath(global *globalFlags) string {
-	dir := filepath.Dir(global.ConfigPath)
+	dir := filepath.Dir(global.configPath())
 	if p := filepath.Join(dir, ".princo", "recipients"); fileExists(p) {
 		return p
 	}
@@ -147,11 +186,6 @@ func recipientsPath(global *globalFlags) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return !errors.Is(err, fs.ErrNotExist)
-}
-
-// secretsPath converts /path/to/princo.yaml → /path/to/secrets.age.
-func secretsPath(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), secrets.DefaultFile)
 }
 
 // identityPath is the age identity for age-encrypted secrets.

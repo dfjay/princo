@@ -8,10 +8,15 @@ import (
 
 // Flags shared by every command that loads config + secrets.
 type globalFlags struct {
-	ConfigPath string
-	KeyPath    string
-	SecretsDir string
+	// ConfigPaths merge in order; new entries, the default age file and
+	// the recipients go with the last one.
+	ConfigPaths []string
+	KeyPath     string
+	SecretsDir  string
 }
+
+// configPath is the last config file.
+func (g *globalFlags) configPath() string { return g.ConfigPaths[len(g.ConfigPaths)-1] }
 
 func NewRootCommand() *cobra.Command {
 	flags := &globalFlags{}
@@ -22,7 +27,7 @@ func NewRootCommand() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.PersistentFlags().StringVarP(&flags.ConfigPath, "config", "c", "princo.yaml", "Path to princo.yaml")
+	root.PersistentFlags().StringArrayVarP(&flags.ConfigPaths, "config", "c", []string{"princo.yaml"}, "Path to princo.yaml; repeat to merge more files over it, later ones winning")
 	root.PersistentFlags().StringVarP(&flags.KeyPath, "key", "k", "", "Path to age identity (default ~/.config/princo/key.txt)")
 
 	root.PersistentFlags().StringVar(&flags.SecretsDir, "secrets-dir", "", "Read secrets from files under this directory, one per path (as on a host), instead of where princo.yaml says")

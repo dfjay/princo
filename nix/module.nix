@@ -16,6 +16,10 @@
 
 let
   cfg = config.services.princo;
+  configArgs = lib.concatMap (c: [
+    "--config"
+    "${c}"
+  ]) cfg.config;
 
   # The plan is read at evaluation, so princo runs where the system is
   # evaluated, not where it runs.
@@ -26,7 +30,7 @@ let
       cfg.planPkgs.callPackage ./package.nix { };
   plan = lib.importJSON (
     cfg.planPkgs.runCommand "princo-plan-${cfg.node}" { } ''
-      ${lib.getExe planPrinco} --config ${cfg.config} plan --node ${lib.escapeShellArg cfg.node} > $out
+      ${lib.getExe planPrinco} ${lib.escapeShellArgs configArgs} plan --node ${lib.escapeShellArg cfg.node} > $out
     ''
   );
 
@@ -88,7 +92,7 @@ let
       )
   );
   ruleSetDir = pkgs.runCommand "princo-rule-sets-${cfg.node}" { } ''
-    ${lib.getExe cfg.package} --config ${cfg.config} rule-sets --node ${lib.escapeShellArg cfg.node} \
+    ${lib.getExe cfg.package} ${lib.escapeShellArgs configArgs} rule-sets --node ${lib.escapeShellArg cfg.node} \
       --from ${ruleData} --out $out
   '';
   certUnits = map (d: "acme-${d}.service") plan.certificates;
@@ -171,11 +175,14 @@ in
     };
 
     config = lib.mkOption {
-      type = lib.types.path;
-      example = lib.literalExpression "./vpn/princo.yaml";
+      type = with lib.types; coercedTo path lib.toList (nonEmptyListOf path);
+      example = lib.literalExpression ''[ ./vpn/princo.yaml "''${inputs.fleet}/princo.yaml" ]'';
       description = ''
-        The fleet's princo.yaml. Secret files it names are relative to its
-        directory, so pass it as a Nix path, not a string.
+        The fleet's princo.yaml, or several merged in order as repeated
+        `princo --config` merges them: mappings key by key, anything else
+        replaced by later files. Secret files each names are relative to
+        its own directory, so pass Nix paths or strings into the store, and
+        one file can sit in a private repository beside its secrets.
       '';
     };
 
@@ -311,18 +318,19 @@ in
             RuntimeDirectory = "princo";
             RuntimeDirectoryPreserve = true;
             UMask = "0027";
-            ExecStart = lib.escapeShellArgs [
-              (lib.getExe cfg.package)
-              "--config"
-              "${cfg.config}"
-              "--secrets-dir"
-              secretsDir
-              "render"
-              "--node"
-              cfg.node
-              "--out"
-              outDir
-            ];
+            ExecStart = lib.escapeShellArgs (
+              [ (lib.getExe cfg.package) ]
+              ++ configArgs
+              ++ [
+                "--secrets-dir"
+                secretsDir
+                "render"
+                "--node"
+                cfg.node
+                "--out"
+                outDir
+              ]
+            );
             # The engine reads its config, nginx serves the subscription
             # site; the rest stays root's.
             ExecStartPost = [
@@ -514,7 +522,8 @@ in
             map (s: {
               name = "princo/${s.file}";
               value = {
-                sopsFile = dirOf cfg.config + "/${s.source.file}";
+                # source.config indexes the config files.
+                sopsFile = dirOf (lib.elemAt cfg.config s.source.config) + "/${s.source.file}";
                 format = sopsFormat s.source.file;
                 key = s.source.key;
                 restartUnits = [ "princo-render.service" ];

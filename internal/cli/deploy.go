@@ -54,7 +54,7 @@ geosite.dat.`,
 			if err != nil {
 				return err
 			}
-			p, err := host.NewPlan(placeholders, nodeName, resolver.Locate)
+			p, err := host.NewPlan(placeholders, nodeName, resolver.Where)
 			if err != nil {
 				return err
 			}
