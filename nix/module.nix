@@ -97,6 +97,8 @@ let
   acmeWebroot = "/var/lib/acme/acme-challenge";
 
   needsNginx = mux != null || plan.certificates != [ ];
+  # nginx's connections per worker on a multiplexer.
+  muxConnections = 16384;
   http = [
     {
       addr = "0.0.0.0";
@@ -405,14 +407,22 @@ in
 
         services.nginx = lib.mkIf needsNginx {
           enable = true;
+          # A REALITY client opens a connection per connection it carries, and
+          # each takes nginx two: the 512 nginx defaults to let a couple of
+          # users fill it and the node stop accepting anyone.
+          eventsConfig = lib.mkIf (mux != null) (
+            lib.mkDefault "worker_connections ${toString muxConnections};"
+          );
           streamConfig = lib.mkIf (mux != null) ''
             map $ssl_preread_server_name $princo_backend {
               ${lib.concatMapStringsSep "\n  " (r: "${r.sni} ${r.target};") mux.routes}
               ${lib.optionalString (mux.default or "" != "") "default ${mux.default};"}
             }
             server {
-              listen ${toString mux.port};
-              listen [::]:${toString mux.port};
+              # Keepalive closes the connections of clients gone without a
+              # word, which the timeout below would keep for an hour.
+              listen ${toString mux.port} so_keepalive=3m:30s:4;
+              listen [::]:${toString mux.port} so_keepalive=3m:30s:4;
               ssl_preread on;
               proxy_pass $princo_backend;
               # Tunnels idle longer than nginx's 10 minutes.
@@ -484,11 +494,17 @@ in
               };
             };
         };
-        # nginx reads the site that princo-render writes.
-        systemd.services.nginx = lib.mkIf (site != null) {
-          wants = [ "princo-render.service" ];
-          after = [ "princo-render.service" ];
-        };
+        systemd.services.nginx = lib.mkMerge [
+          # nginx reads the site that princo-render writes.
+          (lib.mkIf (site != null) {
+            wants = [ "princo-render.service" ];
+            after = [ "princo-render.service" ];
+          })
+          # A connection is a file; the soft limit of 1024 would cap the above.
+          (lib.mkIf (mux != null) {
+            serviceConfig.LimitNOFILE = lib.mkDefault (2 * muxConnections + 1024);
+          })
+        ];
       }
 
       {
