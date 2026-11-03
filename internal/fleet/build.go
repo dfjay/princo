@@ -341,32 +341,60 @@ func (b *builder) subscription() {
 }
 
 func (b *builder) client() {
-	c := b.cfg.Client
+	before := len(b.errs)
+	b.f.Client = b.buildClient("client", b.cfg.Client)
+	shared := map[string]bool{}
+	for _, err := range b.errs[before:] {
+		shared[err.Error()] = true
+	}
+	for _, u := range b.f.Users {
+		u.Client = &b.f.Client
+		if uc, _ := b.cfg.Users.Get(u.Name); uc.Client == nil {
+			continue
+		}
+		where := "users." + u.Name + ".client"
+		c, err := b.cfg.UserClient(u.Name)
+		if err != nil {
+			b.errorf("%s: %w", where, err)
+			continue
+		}
+		start := len(b.errs)
+		own := b.buildClient(where, c)
+		// Drop what the override inherits from a broken client:.
+		inherited := func(err error) bool { return shared[strings.Replace(err.Error(), where, "client", 1)] }
+		b.errs = append(b.errs[:start], slices.DeleteFunc(b.errs[start:], inherited)...)
+		u.Client = &own
+	}
+}
+
+// buildClient checks a client: section, at where, and converts it.
+func (b *builder) buildClient(where string, c config.Client) Client {
+	var out Client
 	groups := c.Groups.Keys()
 	for name, g := range c.Groups.All() {
-		where := "client.groups." + name
-		b.checkName(where, name)
+		w := where + ".groups." + name
+		b.checkName(w, name)
 		if name == "direct" {
-			b.errorf("%s: \"direct\" is reserved", where)
+			b.errorf("%s: \"direct\" is reserved", w)
 		}
 		sel, err := parseSelector(g.Nodes)
 		if err != nil {
-			b.errorf("%s.nodes: %w", where, err)
+			b.errorf("%s.nodes: %w", w, err)
 		}
 		if g.Fallback != "" && g.Fallback != "direct" && (g.Fallback == name || !slices.Contains(groups, g.Fallback)) {
-			b.errorf("%s.fallback: want direct or another group, got %q", where, g.Fallback)
+			b.errorf("%s.fallback: want direct or another group, got %q", w, g.Fallback)
 		}
 		def := cmp.Or(g.Default, "first")
 		if g.Auto && g.Default == "" {
 			def = "auto"
 		}
 		if g.Auto && slices.Contains(groups, name+"-auto") {
-			b.errorf("%s.auto: its member is named %s-auto, like another group", where, name)
+			b.errorf("%s.auto: its member is named %s-auto, like another group", w, name)
 		}
 		if def == "auto" && !g.Auto {
-			b.errorf("%s.default: auto needs auto: true", where)
+			b.errorf("%s.default: auto needs auto: true", w)
 		}
-		b.f.Client.Groups = append(b.f.Client.Groups, Group{
+		out.Groups = append(out.Groups, Group{
 			Name:          name,
 			Members:       sel,
 			Default:       def,
@@ -376,15 +404,16 @@ func (b *builder) client() {
 		})
 	}
 	if c.DNS != nil {
-		b.f.Client.DNS = b.dns("client.dns", c.DNS, groups)
+		out.DNS = b.dns(where+".dns", c.DNS, groups)
 	}
 	// Client profiles sniff before any rule.
-	b.f.Client.Rules = b.rules("client.rules", c.Rules, []string{ActionDirect, ActionReject}, groups, true)
-	b.f.Client.Log = b.logLevel("client.log", c.Log)
-	b.f.Client.Final = cmp.Or(c.Final, "direct")
-	if b.f.Client.Final != "direct" && !slices.Contains(groups, b.f.Client.Final) {
-		b.errorf("client.final: want direct or a group, got %q", b.f.Client.Final)
+	out.Rules = b.rules(where+".rules", c.Rules, []string{ActionDirect, ActionReject}, groups, true)
+	out.Log = b.logLevel(where+".log", c.Log)
+	out.Final = cmp.Or(c.Final, "direct")
+	if out.Final != "direct" && !slices.Contains(groups, out.Final) {
+		b.errorf("%s.final: want direct or a group, got %q", where, out.Final)
 	}
+	return out
 }
 
 // logLevel checks a log level, LogWarn when unset.

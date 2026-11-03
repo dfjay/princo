@@ -124,3 +124,49 @@ func TestParse_BoundsAliasExpansion(t *testing.T) {
 	_, err := Parse([]byte(doc))
 	require.ErrorContains(t, err, "nodes with its aliases resolved")
 }
+
+func TestUserClient(t *testing.T) {
+	cfg, err := Parse([]byte(`princo: v1
+users:
+  alice: {}
+  router:
+    client:
+      groups:
+        select: { auto: true, default: auto }
+      rules:
+        - { action: sniff }
+client:
+  groups:
+    select: { nodes: "!domestic", default: first }
+    ru-select: { nodes: domestic }
+  rules:
+    - { match: [port:25], action: reject }
+  final: select
+`))
+	require.NoError(t, err)
+
+	alice, err := cfg.UserClient("alice")
+	require.NoError(t, err)
+	require.Equal(t, cfg.Client, alice, "no client: of their own")
+
+	router, err := cfg.UserClient("router")
+	require.NoError(t, err)
+	require.Equal(t, []string{"select", "ru-select"}, router.Groups.Keys())
+	sel, _ := router.Groups.Get("select")
+	require.Equal(t, Group{Nodes: "!domestic", Default: "auto", Auto: true}, sel)
+	require.Equal(t, []Rule{{Action: "sniff"}}, router.Rules, "lists are replaced")
+	require.Equal(t, "select", router.Final)
+}
+
+func TestUserClient_WithoutClient(t *testing.T) {
+	cfg, err := Parse([]byte("princo: v1\nusers:\n  r: { client: { final: direct } }\n"))
+	require.NoError(t, err)
+	c, err := cfg.UserClient("r")
+	require.NoError(t, err)
+	require.Equal(t, "direct", c.Final)
+}
+
+func TestUserClient_Strict(t *testing.T) {
+	_, err := Parse([]byte("princo: v1\nusers:\n  r:\n    client: { finl: direct }\n"))
+	require.ErrorContains(t, err, "field finl not found in type config.Client")
+}

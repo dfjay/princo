@@ -27,9 +27,11 @@ func (e *Engine) Name() string { return "xray" }
 func (e *Engine) MinVersion() string { return minVersion }
 
 // RenderClient fails: users' apps get sing-box profiles and share links.
-func (e *Engine) RenderClient(*fleet.Fleet, string) ([]byte, error) {
+func (e *Engine) RenderClient(*fleet.Fleet, string, engine.Platform) ([]byte, error) {
 	return nil, errors.New("xray renders no client profiles")
 }
+
+func (e *Engine) ClientPlatforms() []engine.Platform { return nil }
 
 // RuleSets lists the geodata files a rendered config loads.
 func (e *Engine) RuleSets(config []byte) []string {

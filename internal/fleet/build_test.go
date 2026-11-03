@@ -445,3 +445,63 @@ client: { ` + client + ` }
 	require.ErrorContains(t, err, `nodes.a.log: want one of debug, info, warn, error, none, got "trace"`)
 	require.ErrorContains(t, err, `client.log: want one of debug, info, warn, error, none, got "verbose"`)
 }
+
+func TestBuild_UserClient(t *testing.T) {
+	src := func(router string) string {
+		return `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+  r: { client: ` + router + ` }
+client:
+  groups:
+    proxy: { nodes: all }
+  final: proxy
+`
+	}
+	values := conventionalSecrets()
+	values["users"].(map[string]any)["r"] = "uuid-r"
+
+	f, err := build(t, src("{ groups: { proxy: { auto: true } } }"), values)
+	require.NoError(t, err)
+	u, _ := f.User("u")
+	require.Same(t, &f.Client, u.Client)
+	require.Equal(t, "first", f.Client.Groups[0].Default)
+	r, _ := f.User("r")
+	require.Equal(t, "auto", r.Client.Groups[0].Default)
+	require.Equal(t, "proxy", r.Client.Final)
+
+	_, err = build(t, src("{ groups: { proxy: { default: auto } }, final: nowhere }"), values)
+	require.ErrorContains(t, err, "users.r.client.groups.proxy.default: auto needs auto: true")
+	require.ErrorContains(t, err, `users.r.client.final: want direct or a group, got "nowhere"`)
+	require.NotContains(t, err.Error(), "\nclient.")
+}
+
+func TestBuild_UserClient_EveryOverrideChecked(t *testing.T) {
+	values := conventionalSecrets()
+	values["users"].(map[string]any)["v"] = "uuid-v"
+	_, err := build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: { client: { final: nowhere } }
+  v: { client: { final: nowhere } }
+`, values)
+	require.ErrorContains(t, err, "users.u.client.final")
+	require.ErrorContains(t, err, "users.v.client.final")
+}
+
+func TestBuild_UserClient_BrokenClient(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: { client: { log: verbose } }
+client:
+  final: nowhere
+`, conventionalSecrets())
+	require.ErrorContains(t, err, `client.final: want direct or a group, got "nowhere"`)
+	require.ErrorContains(t, err, `users.u.client.log: want one of`, "the override's own error")
+	require.NotContains(t, err.Error(), "users.u.client.final", "not what it inherits")
+}

@@ -67,6 +67,19 @@ func TestRender_MatchesGolden(t *testing.T) {
 	}
 }
 
+func TestRender_Platform(t *testing.T) {
+	out, err := runRender(t, "--user", "alice", "--platform", "linux")
+	require.NoError(t, err)
+	require.Contains(t, out, `"auto_redirect": true`)
+
+	_, err = runRender(t, "--user", "alice", "--platform", "macos")
+	require.EqualError(t, err, "--platform macos: sing-box has profiles for linux")
+	_, err = runRender(t, "--node", "de", "--platform", "linux")
+	require.EqualError(t, err, "--platform needs --user, without --uris or --links")
+	_, err = runRender(t, "--user", "alice", "--uris", "--platform", "linux")
+	require.EqualError(t, err, "--platform needs --user, without --uris or --links")
+}
+
 func TestRender_URIs(t *testing.T) {
 	out, err := runRender(t, "--user", "bob", "--uris")
 	require.NoError(t, err)
@@ -82,7 +95,8 @@ func TestRender_Links(t *testing.T) {
 	const sub = "https://subs.example.com/f8cb68efcef124689abd331ff3fa5241/"
 	require.Equal(t, "QR page:   "+sub+"qr\n"+
 		"Universal: "+sub+"\n"+
-		"sing-box:  sing-box://import-remote-profile?url="+url.QueryEscape(sub+"sing-box")+"#alice\n", out)
+		"sing-box:  sing-box://import-remote-profile?url="+url.QueryEscape(sub+"sing-box")+"#alice\n"+
+		"linux:     "+sub+"sing-box/linux\n", out)
 }
 
 func TestRender_LinksMissingUUID(t *testing.T) {

@@ -142,7 +142,9 @@ princo render --user alice --links
 ```
 
 Import the **Universal** link into a compatible client, use the **sing-box**
-import link, or open the **QR page** on another device. Protocol support
+import link, or open the **QR page** on another device. On Linux, where
+sing-box runs as a service, a router included, fetch the **linux** profile.
+Protocol support
 depends on the client:
 
 - sing-box apps (SFA, SFI, SFM) 1.14 or newer import the full profile, with
@@ -161,6 +163,7 @@ updated server configs and subscriptions.
 | Print a server config | `princo render --node nl` |
 | Write all runtime files, including the subscription site | `princo render --node nl --out ./out` |
 | Print a sing-box client profile | `princo render --user alice` |
+| Print the profile for sing-box as a Linux service, a router's included | `princo render --user alice --platform linux` |
 | Print individual protocol share links | `princo render --user alice --uris` |
 | Print subscription and QR links | `princo render --user alice --links` |
 | Deploy using the node's `ssh:` setting | `princo deploy --node nl` |

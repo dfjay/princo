@@ -61,7 +61,7 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	site, err := subscription.Site(f, func(user string) ([]byte, error) { return client.RenderClient(f, user) })
+	site, err := subscription.Site(f, client)
 	if err != nil {
 		return nil, err
 	}

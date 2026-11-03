@@ -26,6 +26,24 @@ type Config struct {
 
 	// The index of the file Merge took each secrets: pattern from.
 	secretFiles map[string]int
+	// client: and each user's client:, as written, for UserClient.
+	clientNode  *yaml.Node
+	userClients map[string]*yaml.Node
+}
+
+// UserClient returns the profile of the named user: client: with the
+// user's own client: merged over it as Merge merges files.
+func (c *Config) UserClient(name string) (Client, error) {
+	over := c.userClients[name]
+	if over == nil {
+		return c.Client, nil
+	}
+	if c.clientNode != nil {
+		over = mergeNode(c.clientNode, over)
+	}
+	var out Client
+	err := over.Decode(&out)
+	return out, err
 }
 
 // SecretMappings returns the secrets: block in document order.
@@ -137,6 +155,8 @@ type User struct {
 	// Nodes the user may use, in subscription order; nil means all.
 	Nodes []string               `yaml:"nodes"`
 	UUID  *secrets.SecretOrPlain `yaml:"uuid"`
+	// Client overrides client: for this user; see Config.UserClient.
+	Client *Client `yaml:"client"`
 }
 
 // Client describes the sing-box profile served to users.
@@ -200,11 +220,12 @@ func parse(data []byte) (*Config, *yaml.Node, error) {
 			return nil, nil, err
 		}
 	}
-	cfg, err := decode(data)
+	cfg, err := decode(data, root)
 	return cfg, root, err
 }
 
-func decode(data []byte) (*Config, error) {
+// decode decodes data, whose document is root.
+func decode(data []byte, root *yaml.Node) (*Config, error) {
 	var cfg Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
@@ -213,10 +234,32 @@ func decode(data []byte) (*Config, error) {
 	}
 	switch cfg.Princo {
 	case "v1":
+		cfg.keepClientNodes(root)
 		return &cfg, nil
 	case "":
 		return nil, fmt.Errorf("princo: required (set `princo: v1` at the top of the file)")
 	default:
 		return nil, fmt.Errorf("unsupported schema version %q (expected v1)", cfg.Princo)
+	}
+}
+
+func (c *Config) keepClientNodes(root *yaml.Node) {
+	if root == nil {
+		return
+	}
+	if _, v := lookupKey(root, "client"); v != nil && !isNull(v) {
+		c.clientNode = v
+	}
+	_, users := lookupKey(root, "users")
+	if users == nil || users.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(users.Content); i += 2 {
+		if _, v := lookupKey(users.Content[i+1], "client"); v != nil && !isNull(v) {
+			if c.userClients == nil {
+				c.userClients = map[string]*yaml.Node{}
+			}
+			c.userClients[users.Content[i].Value] = v
+		}
 	}
 }

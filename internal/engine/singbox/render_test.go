@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -44,7 +45,7 @@ func TestGolden(t *testing.T) {
 	}
 	for _, u := range f.Users {
 		t.Run("client-"+u.Name, func(t *testing.T) {
-			got, err := e.RenderClient(f, u.Name)
+			got, err := e.RenderClient(f, u.Name, engine.AnyPlatform)
 			require.NoError(t, err)
 			golden(t, "client-"+u.Name+".json", got)
 		})
@@ -100,7 +101,7 @@ func TestClientGroups(t *testing.T) {
 	f := fleettest.Load(t, fixture)
 	e := New()
 
-	bob := renderJSON(t, e.RenderClient, f, "bob")
+	bob := renderJSON(t, client(e, engine.AnyPlatform), f, "bob")
 	selectors := map[string][]any{}
 	for _, ob := range bob["outbounds"].([]any) {
 		ob := ob.(map[string]any)
@@ -116,14 +117,14 @@ func TestClientGroups(t *testing.T) {
 	require.Equal(t, "reject", first["action"])
 
 	// alice can't reach relay, so ru-select falls back to direct.
-	alice := renderJSON(t, e.RenderClient, f, "alice")
+	alice := renderJSON(t, client(e, engine.AnyPlatform), f, "alice")
 	for _, ob := range alice["outbounds"].([]any) {
 		require.NotEqual(t, "ru-select", ob.(map[string]any)["tag"])
 	}
 
 	// A default this user can't use gives way to the first member.
 	f.Client.Groups[0].Default = "de-reality"
-	bob = renderJSON(t, e.RenderClient, f, "bob")
+	bob = renderJSON(t, client(e, engine.AnyPlatform), f, "bob")
 	for _, ob := range bob["outbounds"].([]any) {
 		if ob := ob.(map[string]any); ob["tag"] == "select" {
 			require.Equal(t, "us-reality", ob["default"])
@@ -170,15 +171,33 @@ func TestSingBoxCheck(t *testing.T) {
 		t.Run("server-"+n.Name, func(t *testing.T) { check(t, renderJSON(t, e.RenderServer, f, n.Name)) })
 	}
 	for _, u := range f.Users {
-		t.Run("client-"+u.Name, func(t *testing.T) { check(t, renderJSON(t, e.RenderClient, f, u.Name)) })
+		t.Run("client-"+u.Name, func(t *testing.T) { check(t, renderJSON(t, client(e, engine.AnyPlatform), f, u.Name)) })
+	}
+	if runtime.GOOS == "linux" {
+		t.Run("client-linux", func(t *testing.T) { check(t, renderJSON(t, client(e, engine.Linux), f, "bob")) })
 	}
 	for _, obfs := range []string{"salamander", "gecko"} {
 		t.Run("obfs-"+obfs, func(t *testing.T) {
 			f := withObfs(t, obfs)
 			check(t, renderJSON(t, e.RenderServer, f, "de"))
-			check(t, renderJSON(t, e.RenderClient, f, "alice"))
+			check(t, renderJSON(t, client(e, engine.AnyPlatform), f, "alice"))
 		})
 	}
+}
+
+// client renders profiles for p, in renderJSON's shape.
+func client(e *Engine, p engine.Platform) func(*fleet.Fleet, string) ([]byte, error) {
+	return func(f *fleet.Fleet, user string) ([]byte, error) { return e.RenderClient(f, user, p) }
+}
+
+func TestClientPlatforms(t *testing.T) {
+	e := New()
+	f := fleettest.Load(t, fixture)
+	tun := func(cfg map[string]any) map[string]any { return cfg["inbounds"].([]any)[0].(map[string]any) }
+	require.Equal(t, true, tun(renderJSON(t, client(e, engine.Linux), f, "bob"))["auto_redirect"])
+	require.NotContains(t, tun(renderJSON(t, client(e, engine.AnyPlatform), f, "bob")), "auto_redirect")
+	_, err := e.RenderClient(f, "bob", "macos")
+	require.ErrorContains(t, err, "sing-box has no profiles for macos")
 }
 
 // withObfs is the fixture fleet with de's Hysteria2 obfuscated.
@@ -206,14 +225,14 @@ func TestHysteria2Obfs(t *testing.T) {
 	in := hysteria2(renderJSON(t, e.RenderServer, f, "de"), "inbounds")
 	require.NotContains(t, in, "obfs")
 	require.Equal(t, "https://example.com", in["masquerade"].(map[string]any)["url"])
-	require.NotContains(t, hysteria2(renderJSON(t, e.RenderClient, f, "alice"), "outbounds"), "obfs")
+	require.NotContains(t, hysteria2(renderJSON(t, client(e, engine.AnyPlatform), f, "alice"), "outbounds"), "obfs")
 
 	f = withObfs(t, "salamander")
 	in = hysteria2(renderJSON(t, e.RenderServer, f, "de"), "inbounds")
 	obfs := map[string]any{"type": "salamander", "password": "obfs-password"}
 	require.Equal(t, obfs, in["obfs"])
 	require.NotContains(t, in, "masquerade", "nothing reaches it through obfs")
-	out := hysteria2(renderJSON(t, e.RenderClient, f, "alice"), "outbounds")
+	out := hysteria2(renderJSON(t, client(e, engine.AnyPlatform), f, "alice"), "outbounds")
 	require.Equal(t, obfs, out["obfs"])
 	require.Equal(t, "de-hysteria2", out["tag"])
 }

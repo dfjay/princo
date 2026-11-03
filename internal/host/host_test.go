@@ -103,6 +103,8 @@ func TestFiles_Subscription(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, strings.Join(subscription.URIs(alice), "\n"), string(links))
 	require.Contains(t, string(files["subscription/"+token+"/sing-box/config"]), alice.UUID)
+	require.Contains(t, string(files["subscription/"+token+"/sing-box/linux/config"]), `"auto_redirect": true`)
+	require.NotContains(t, string(files["subscription/"+token+"/sing-box/config"]), "auto_redirect")
 	page := string(files["subscription/"+token+"/index.html"])
 	require.Contains(t, page, `href="sing-box://import-remote-profile?url=https%3A%2F%2Fsubs.example.com%2F`+token+`%2Fsing-box#alice"`)
 	require.Contains(t, string(files["subscription/"+token+"/qr-sub.svg"]), "<svg")
