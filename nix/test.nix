@@ -81,6 +81,11 @@ in
     machine.wait_for_open_port(8444)  # vless-reality behind it
     machine.wait_for_open_port(8445)  # naive behind it
     machine.succeed("ss -Hlun 'sport = :443' | grep -q .")  # hysteria2
+    conf = machine.succeed("systemctl cat nginx.service | grep -o '/nix/store/[^ ]*nginx.conf' | head -1").strip()
+    machine.succeed(f"grep -q 'worker_connections 16384;' {conf}")
+    machine.succeed(f"grep -Fq 'listen 443 so_keepalive=3m:30s:4;' {conf}")
+    machine.succeed(f"grep -Fq 'listen [::]:443 so_keepalive=3m:30s:4;' {conf}")
+    machine.succeed("grep -Eq '^Max open files +1048576' /proc/$(systemctl show -P MainPID nginx.service)/limits")
 
     # Through the multiplexer to the subscription site.
     token = machine.succeed("awk '$1 == \"alice\" {print $2}' /run/princo/files/tokens.txt").strip()
