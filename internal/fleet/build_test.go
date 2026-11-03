@@ -505,3 +505,43 @@ client:
 	require.ErrorContains(t, err, `users.u.client.log: want one of`, "the override's own error")
 	require.NotContains(t, err.Error(), "users.u.client.final", "not what it inherits")
 }
+
+func TestBuild_RealityTarget(t *testing.T) {
+	node := func(reality, extra string) string {
+		return "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p" + reality + " }\n" + extra
+	}
+	f, err := build(t, node("", ""), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, "s.example.com", f.Nodes[0].Reality.TargetHost, "the server name by default")
+	require.Equal(t, 443, f.Nodes[0].Reality.TargetPort)
+
+	f, err = build(t, "defaults: { reality: { target: 127.0.0.1:8443 } }\n"+node("", ""), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1", f.Nodes[0].Reality.TargetHost, "from defaults")
+	require.Equal(t, 8443, f.Nodes[0].Reality.TargetPort)
+
+	for _, bad := range []string{"127.0.0.1", "127.0.0.1:0", "127.0.0.1:99999", ":8443", "bad_host:443"} {
+		_, err = build(t, node(", target: \""+bad+"\"", ""), conventionalSecrets())
+		require.ErrorContains(t, err, `nodes.a.reality.target: want host:port, e.g. 127.0.0.1:8443, got "`+bad+`"`)
+	}
+}
+
+func TestBuild_RealityNameTakenByMux(t *testing.T) {
+	for taken, extra := range map[string]string{
+		"passthrough; drop that entry and set reality.target to 127.0.0.1:8443": "    passthrough: { S.Example.com: 127.0.0.1:8443 }\n",
+		"naive; give one of them another name":                                  "    naive: { domain: s.example.com }\n",
+		"the subscription site; give one of them another name":                  "subscription: { node: a, domain: s.example.com }\n",
+	} {
+		_, err := build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n"+extra, conventionalSecrets())
+		require.ErrorContains(t, err, "nodes.a.reality.server_name: the multiplexer sends s.example.com to "+taken, taken)
+	}
+
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: a.example.com, short_id: "1", public_key: p, target: 127.0.0.1:8443 }
+    passthrough: { site.example.com: 127.0.0.1:8443 }
+`, conventionalSecrets())
+	require.NoError(t, err, "self-steal: the node's own name, its site behind")
+}

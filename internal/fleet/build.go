@@ -62,6 +62,7 @@ func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
 	b.egress()
 	b.users()
 	b.subscription()
+	b.realityNames()
 	b.ruleData()
 	b.client()
 	if err := errors.Join(b.errs...); err != nil {
@@ -139,6 +140,13 @@ func (b *builder) nodes() {
 			}
 			if n.Reality.ServerName == "" || n.Reality.ShortID == "" || n.Reality.PublicKey == "" {
 				b.errorf("%s.reality: server_name, short_id and public_key are required", where)
+			}
+			n.Reality.TargetHost, n.Reality.TargetPort = n.Reality.ServerName, 443
+			if target := cmp.Or(c.Reality.Target, def.Target); target != "" {
+				var ok bool
+				if n.Reality.TargetHost, n.Reality.TargetPort, ok = hostPort(target); !ok {
+					b.errorf("%s.reality.target: want host:port, e.g. 127.0.0.1:8443, got %q", where, target)
+				}
 			}
 		}
 		if c.Hysteria2 != nil {
@@ -227,6 +235,14 @@ func (b *builder) nodes() {
 	}
 }
 
+// hostPort splits host:port, where host is an IP or a hostname.
+func hostPort(s string) (string, int, bool) {
+	host, port, err := net.SplitHostPort(s)
+	p, perr := strconv.ParseUint(port, 10, 16)
+	_, aerr := netip.ParseAddr(host)
+	return host, int(p), err == nil && perr == nil && p != 0 && (aerr == nil || hostnameRe.MatchString(host))
+}
+
 // xrayLimits reports what an xray node can't do that sing-box can.
 func (b *builder) xrayLimits(where string, n *Node) {
 	if n.DNS != nil {
@@ -266,13 +282,10 @@ func (b *builder) egress() {
 			if w.Reserved != nil && (len(w.Reserved) != 3 || slices.ContainsFunc(w.Reserved, func(v int) bool { return v < 0 || v > 255 })) {
 				b.errorf("%s.warp.reserved: want 3 bytes, e.g. [12, 34, 56]", where)
 			}
-			host, port, err := net.SplitHostPort(cmp.Or(w.Endpoint, DefaultWarpEndpoint))
-			p, perr := strconv.ParseUint(port, 10, 16)
-			_, aerr := netip.ParseAddr(host)
-			if err != nil || perr != nil || p == 0 || (aerr != nil && !hostnameRe.MatchString(host)) {
+			var ok bool
+			if n.Warp.Host, n.Warp.Port, ok = hostPort(cmp.Or(w.Endpoint, DefaultWarpEndpoint)); !ok {
 				b.errorf("%s.warp.endpoint: want host:port, e.g. engage.cloudflareclient.com:4500", where)
 			}
-			n.Warp.Host, n.Warp.Port = host, int(p)
 		default:
 			up, ok := b.f.nodes[egress]
 			switch {
@@ -338,6 +351,30 @@ func (b *builder) subscription() {
 	}
 	n.ServesSubscription = true
 	b.f.Subscription = &Subscription{Node: n, Domain: c.Domain}
+}
+
+// realityNames checks that the multiplexer leaves each node's Reality
+// server name to Reality: clients connect with it.
+func (b *builder) realityNames() {
+	for _, n := range b.f.Nodes {
+		if n.Reality == nil || !n.Mux() {
+			continue
+		}
+		// Names match whatever their case, as in the multiplexer.
+		taken := map[string]string{}
+		for _, pt := range n.Passthrough {
+			taken[strings.ToLower(pt.Host)] = "passthrough; drop that entry and set reality.target to " + pt.Target
+		}
+		if n.ServesSubscription {
+			taken[strings.ToLower(b.f.Subscription.Domain)] = "the subscription site; give one of them another name"
+		}
+		if n.Naive != nil {
+			taken[strings.ToLower(n.Naive.Domain)] = "naive; give one of them another name"
+		}
+		if to, ok := taken[strings.ToLower(n.Reality.ServerName)]; ok {
+			b.errorf("nodes.%s.reality.server_name: the multiplexer sends %s to %s", n.Name, n.Reality.ServerName, to)
+		}
+	}
 }
 
 func (b *builder) client() {

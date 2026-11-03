@@ -112,6 +112,10 @@ func (n *Node) Mux() bool {
 
 type Reality struct {
 	ServerName string
+	// TargetHost:TargetPort is the site that takes the TLS handshakes of
+	// whoever isn't a client: ServerName's, or a local one for self-steal.
+	TargetHost string
+	TargetPort int
 	ShortID    string
 	PublicKey  string
 	PrivateKey string

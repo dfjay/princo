@@ -93,7 +93,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 				"server_name": r.ServerName,
 				"reality": map[string]any{
 					"enabled":     true,
-					"handshake":   map[string]any{"server": r.ServerName, "server_port": 443},
+					"handshake":   map[string]any{"server": r.TargetHost, "server_port": r.TargetPort},
 					"private_key": r.PrivateKey,
 					"short_id":    []any{r.ShortID},
 				},

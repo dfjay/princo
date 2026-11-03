@@ -118,9 +118,32 @@ XHTTP and Naive over TCP, Hysteria2 over UDP.
 | Field | Description |
 | --- | --- |
 | `server_name` | a real HTTPS site the node imitates, e.g. `www.microsoft.com`; pick one reachable from the node |
+| `target` | `host:port` of the site that takes the handshakes of whoever isn't a client; `<server_name>:443` by default |
 | `short_id` | hex, up to 16 characters (`openssl rand -hex 4`) |
 | `public_key` | set by `princo secret gen nodes/<node>/reality`, or from `sing-box generate reality-keypair` or `xray x25519` (its `Password`) |
 | `private_key` | *secret*, `nodes/<node>/reality` |
+
+Whoever connects without being a client, a scanner included, gets
+`server_name`'s site. By default that is someone else's, while the node's
+own domain points at it. With self-steal, the node imitates a site of its
+own instead, so its name, certificate and site agree:
+
+```yaml
+nodes:
+  fr:
+    address: fr.example.com
+    reality:
+      server_name: fr.example.com
+      target: 127.0.0.1:8443   # an HTTPS site for fr.example.com on the node
+```
+
+The site is yours to serve, with a certificate for `server_name`. Reality
+uses it for clients' handshakes too, so it must speak TLS 1.3 with X25519
+key exchange, as nginx does by default, and should speak HTTP/2; check it
+with `curl -v --resolve <server_name>:<port>:<host> https://<server_name>:<port>/`.
+Hysteria2's default masquerade, `https://<server_name>`, reaches it too.
+`server_name` can't be a name the multiplexer sends elsewhere: drop a
+`passthrough` entry for it and set `target` to that entry's address.
 
 ### `xhttp`
 
