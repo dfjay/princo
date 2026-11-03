@@ -315,3 +315,21 @@ func TestUserRemove_KeepsUserWhenUUIDStays(t *testing.T) {
 	require.Contains(t, string(data), "alice: {}")
 	require.NotEmpty(t, secretGet(t, dir, "users/alice"))
 }
+
+func TestSecretList_CheckContinuesAfterError(t *testing.T) {
+	configPath, _, _ := newSecretFixture(t)
+	dir := filepath.Dir(configPath)
+	require.NoError(t, os.WriteFile(configPath, []byte(`princo: v1
+secrets:
+  users/alice: age:broken.age
+users:
+  alice: {}
+  bob: {}
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.age"), []byte("not age\n"), 0o600))
+	out, _, err := runIn(t, dir, "secret", "list", "--check")
+	require.ErrorContains(t, err, "1 secrets could not be checked: users/alice")
+	require.ErrorContains(t, err, "1 secrets have no value: users/bob")
+	require.Regexp(t, `users/alice\s+age:broken.age#users/alice\s+\S+\s+error: `, out)
+	require.Regexp(t, `users/bob\s+\S+\s+\S+\s+missing`, out)
+}

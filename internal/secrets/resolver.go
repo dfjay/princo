@@ -302,7 +302,7 @@ func runSops(stdin []byte, args ...string) error {
 // abs is file in the directory of config file dir.
 func (r *Resolver) abs(file string, dir int) string {
 	if filepath.IsAbs(file) {
-		return file
+		return filepath.Clean(file)
 	}
 	return filepath.Join(r.dirs[dir], file)
 }

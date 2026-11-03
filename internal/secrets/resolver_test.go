@@ -274,3 +274,12 @@ func TestResolver_TakesPathsOnly(t *testing.T) {
 		require.ErrorContains(t, err, "want parts of letters", "%q", bad)
 	}
 }
+
+func TestResolver_IdentityCleansAbsolutePaths(t *testing.T) {
+	r, err := NewResolver([]string{"/fleet"}, "", []Mapping{
+		{Pattern: "users/*", Target: "age:/fleet/old/../shared.age#x/*"},
+		{Pattern: "nodes/*", Target: "age:shared.age#x/*"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, r.Identity("users/alice"), r.Identity("nodes/alice"))
+}

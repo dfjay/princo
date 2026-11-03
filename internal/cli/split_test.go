@@ -133,8 +133,7 @@ func TestConfigFilesSave_AllOrNone(t *testing.T) {
 	files, err := readConfigFiles(&globalFlags{ConfigPaths: []string{a, b}})
 	require.NoError(t, err)
 
-	require.NoError(t, os.Chmod(filepath.Dir(b), 0o555))
-	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(b), 0o755) })
+	require.NoError(t, os.RemoveAll(filepath.Dir(b)))
 	edited := files.with(0, []byte("princo: v1\nusers: { x: {} }\n")).with(1, []byte("princo: v1\nusers: { y: {} }\n"))
 	require.Error(t, edited.save(files))
 
@@ -184,4 +183,22 @@ func TestSecretGen_RefusesPublicKeyFromMergeKey(t *testing.T) {
 	}
 	_, _, err := runIn(t, filepath.Dir(private), "secret", "get", "nodes/fr/reality")
 	require.Error(t, err, "no private key was stored")
+}
+
+func TestConfigFilesSave_FollowsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	target, link := filepath.Join(dir, "target.yaml"), filepath.Join(dir, "princo.yaml")
+	require.NoError(t, os.WriteFile(target, []byte("princo: v1\n"), 0o644))
+	require.NoError(t, os.Symlink(target, link))
+	files, err := readConfigFiles(&globalFlags{ConfigPaths: []string{link}})
+	require.NoError(t, err)
+
+	edited := []byte("princo: v1\nusers: { x: {} }\n")
+	require.NoError(t, files.with(0, edited).save(files))
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, string(edited), string(data))
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink)
 }

@@ -35,11 +35,14 @@ func Merge(files []File) (*Config, error) {
 			return nil, fmt.Errorf("%s: %w", f.Path, err)
 		}
 		if _, v := lookupKey(root, "secrets"); v != nil && v.Kind == yaml.MappingNode {
+			kept := v.Content[:0]
 			for j := 0; j+1 < len(v.Content); j += 2 {
 				if !isNull(v.Content[j+1]) {
 					secretFiles[v.Content[j].Value] = i
+					kept = append(kept, v.Content[j], v.Content[j+1])
 				}
 			}
+			v.Content = kept
 		}
 		if merged == nil {
 			merged = root

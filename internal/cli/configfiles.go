@@ -53,8 +53,8 @@ func (c *configFiles) with(i int, data []byte) *configFiles {
 // content back.
 func (c *configFiles) save(prev *configFiles) error {
 	type staged struct {
-		i   int
-		tmp string
+		i           int
+		target, tmp string
 	}
 	var stage []staged
 	defer func() {
@@ -66,16 +66,20 @@ func (c *configFiles) save(prev *configFiles) error {
 		if bytes.Equal(c.data[i], prev.data[i]) {
 			continue
 		}
-		tmp, err := stageFile(p, c.data[i])
+		target, err := filepath.EvalSymlinks(p)
 		if err != nil {
 			return err
 		}
-		stage = append(stage, staged{i, tmp})
+		tmp, err := stageFile(target, c.data[i])
+		if err != nil {
+			return err
+		}
+		stage = append(stage, staged{i, target, tmp})
 	}
 	for n, s := range stage {
-		if err := os.Rename(s.tmp, c.paths[s.i]); err != nil {
+		if err := os.Rename(s.tmp, s.target); err != nil {
 			for _, done := range stage[:n] {
-				if rerr := saveFile(c.paths[done.i], prev.data[done.i]); rerr != nil {
+				if rerr := saveFile(done.target, prev.data[done.i]); rerr != nil {
 					err = errors.Join(err, fmt.Errorf("restoring %s: %w", c.paths[done.i], rerr))
 				}
 			}

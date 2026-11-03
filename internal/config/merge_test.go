@@ -150,3 +150,15 @@ nodes:
 	require.Equal(t, "xray", us.Engine, "earlier merged mappings win over later ones")
 	require.Equal(t, "warp", us.Egress, "a mapping's own key wins over merged ones")
 }
+
+func TestMerge_NullSecretWithoutEarlierMapping(t *testing.T) {
+	cfg, err := Merge([]File{
+		{Path: "/a/princo.yaml", Data: []byte("princo: v1\n")},
+		{Path: "/b/princo.yaml", Data: []byte("princo: v1\nsecrets:\n  users/*: ~\n")},
+		{Path: "/c/princo.yaml", Data: []byte("princo: v1\nsecrets:\n  nodes/*: sops:c.yaml\n  chains/*: ~\n")},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []secrets.Mapping{
+		{Pattern: "nodes/*", Target: "sops:c.yaml", File: 2},
+	}, cfg.SecretMappings())
+}

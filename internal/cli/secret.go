@@ -132,7 +132,7 @@ stores and fails when a secret has no value.`,
 				header += "\tVALUE"
 			}
 			_, _ = fmt.Fprintln(w, header) // Flush reports errors
-			var missing []string
+			var missing, failed []string
 			seen := map[string]bool{}
 			for _, u := range fleet.Secrets(cfg) {
 				if seen[u.Path] {
@@ -143,12 +143,13 @@ stores and fails when a secret has no value.`,
 				line := u.Path + "\t" + location + "\t" + global.ConfigPaths[file]
 				if check {
 					has, err := resolver.Has(u.Path)
-					if err != nil {
-						return err
-					}
-					if has {
+					switch {
+					case err != nil:
+						line += "\terror: " + err.Error()
+						failed = append(failed, u.Path)
+					case has:
 						line += "\tset"
-					} else {
+					default:
 						line += "\tmissing"
 						missing = append(missing, u.Path)
 					}
@@ -158,10 +159,14 @@ stores and fails when a secret has no value.`,
 			if err := w.Flush(); err != nil {
 				return err
 			}
-			if len(missing) > 0 {
-				return fmt.Errorf("%d secrets have no value: %s", len(missing), strings.Join(missing, ", "))
+			var errs []error
+			if len(failed) > 0 {
+				errs = append(errs, fmt.Errorf("%d secrets could not be checked: %s", len(failed), strings.Join(failed, ", ")))
 			}
-			return nil
+			if len(missing) > 0 {
+				errs = append(errs, fmt.Errorf("%d secrets have no value: %s", len(missing), strings.Join(missing, ", ")))
+			}
+			return errors.Join(errs...)
 		},
 	}
 	cmd.Flags().BoolVar(&check, "check", false, "Decrypt the stores and fail when a secret has no value")

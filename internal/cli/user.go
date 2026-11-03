@@ -76,7 +76,7 @@ func newUserAddCommand(global *globalFlags) *cobra.Command {
 			if err == nil {
 				return nil
 			}
-			if rerr := files.save(added); rerr != nil {
+			if rerr := removeAdded(global, name, last); rerr != nil {
 				return fmt.Errorf("%w; removing users.%s from %s also failed: %v", err, name, files.name(last), rerr)
 			}
 			return fmt.Errorf("%w; users.%s removed from %s again", err, name, files.name(last))
@@ -84,6 +84,22 @@ func newUserAddCommand(global *globalFlags) *cobra.Command {
 	}
 	cmd.Flags().StringSliceVar(&nodes, "nodes", nil, "Nodes the user may use, in the order their app lists them (default all)")
 	return cmd
+}
+
+// removeAdded removes users.name from file i as it is now.
+func removeAdded(global *globalFlags, name string, i int) error {
+	files, err := readConfigFiles(global)
+	if err != nil {
+		return err
+	}
+	data, err := config.RemoveEntry(files.data[i], "users", name)
+	if err == nil {
+		data, err = config.DropEmpty(data, "users")
+	}
+	if err != nil {
+		return err
+	}
+	return files.with(i, data).save(files)
 }
 
 // addUUID generates the UUID of a user just added, unless it has one.
