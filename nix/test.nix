@@ -81,7 +81,6 @@ in
     machine.wait_for_open_port(8444)  # vless-reality behind it
     machine.wait_for_open_port(8445)  # naive behind it
     machine.succeed("ss -Hlun 'sport = :443' | grep -q .")  # hysteria2
-    # Room for more than a couple of users' connections, and dead ones dropped.
     conf = machine.succeed("systemctl cat nginx.service | grep -o '/nix/store/[^ ]*nginx.conf' | head -1").strip()
     machine.succeed(f"grep -q 'worker_connections 16384;' {conf}")
     machine.succeed(f"grep -q 'listen 443 so_keepalive=' {conf}")

@@ -405,9 +405,7 @@ in
 
         services.nginx = lib.mkIf needsNginx {
           enable = true;
-          # A REALITY client opens a connection per connection it carries, and
-          # each takes nginx two: the 512 nginx defaults to let a couple of
-          # users fill it and the node stop accepting anyone.
+          # Each REALITY connection takes two; the default 512 fit a couple of users.
           eventsConfig = lib.mkIf (mux != null) (lib.mkDefault "worker_connections 16384;");
           streamConfig = lib.mkIf (mux != null) ''
             map $ssl_preread_server_name $princo_backend {
@@ -415,8 +413,7 @@ in
               ${lib.optionalString (mux.default or "" != "") "default ${mux.default};"}
             }
             server {
-              # Keepalive closes the connections of clients gone without a
-              # word, which the timeout below would keep for an hour.
+              # Drops vanished clients, which proxy_timeout would keep for an hour.
               listen ${toString mux.port} so_keepalive=3m:30s:4;
               listen [::]:${toString mux.port} so_keepalive=3m:30s:4;
               ssl_preread on;
@@ -496,8 +493,7 @@ in
             wants = [ "princo-render.service" ];
             after = [ "princo-render.service" ];
           })
-          # A connection is a file, and the soft limit of 1024 would cap the
-          # above; high enough not to cap a host's own worker_connections either.
+          # The soft limit of 1024 files would cap worker_connections.
           (lib.mkIf (mux != null) {
             serviceConfig.LimitNOFILE = lib.mkDefault 1048576;
           })
