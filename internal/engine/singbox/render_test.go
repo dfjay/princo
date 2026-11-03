@@ -198,7 +198,9 @@ func TestClientOverride(t *testing.T) {
 	own.Final = "direct"
 	bob.Client = &own
 
-	final := func(user string) any { return renderJSON(t, client(e, engine.AnyPlatform), f, user)["route"].(map[string]any)["final"] }
+	final := func(user string) any {
+		return renderJSON(t, client(e, engine.AnyPlatform), f, user)["route"].(map[string]any)["final"]
+	}
 	require.Equal(t, "direct", final("bob"), "bob's own profile")
 	require.Equal(t, "select", final("alice"))
 }
