@@ -219,10 +219,15 @@ whole. For example, a router, with nobody to pick a node, uses whichever
 works:
 
 ```yaml
+client:
+  groups:
+    select: { nodes: all }
+  final: select
+
 users:
   router:
     nodes: [fr, us]
-    client:
+    client:            # select picks a working node; final stays select
       groups:
         select: { auto: true, default: auto }
 ```

@@ -190,6 +190,19 @@ func client(e *Engine, p engine.Platform) func(*fleet.Fleet, string) ([]byte, er
 	return func(f *fleet.Fleet, user string) ([]byte, error) { return e.RenderClient(f, user, p) }
 }
 
+func TestClientOverride(t *testing.T) {
+	e := New()
+	f := fleettest.Load(t, fixture)
+	bob, _ := f.User("bob")
+	own := *bob.Client
+	own.Final = "direct"
+	bob.Client = &own
+
+	final := func(user string) any { return renderJSON(t, client(e, engine.AnyPlatform), f, user)["route"].(map[string]any)["final"] }
+	require.Equal(t, "direct", final("bob"), "bob's own profile")
+	require.Equal(t, "select", final("alice"))
+}
+
 func TestClientPlatforms(t *testing.T) {
 	e := New()
 	f := fleettest.Load(t, fixture)
