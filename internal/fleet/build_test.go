@@ -526,6 +526,9 @@ func TestBuild_RealityTarget(t *testing.T) {
 		require.ErrorContains(t, err, `nodes.a.reality.target: want host:port, e.g. 127.0.0.1:8443, got "`+bad+`"`)
 	}
 	label := strings.Repeat("a", 63)
+	edge := strings.Join([]string{label, label, label, strings.Repeat("a", 61)}, ".") // 253 characters
+	_, err = build(t, node(", target: \""+edge+":443\"", ""), conventionalSecrets())
+	require.NoError(t, err, "DNS allows 253 characters")
 	long := strings.Join([]string{label, label, label, label}, ".") // 255 characters
 	_, err = build(t, node(", target: \""+long+":443\"", ""), conventionalSecrets())
 	require.ErrorContains(t, err, "nodes.a.reality.target: want host:port", "longer than DNS allows")

@@ -246,7 +246,8 @@ func hostPort(s string) (string, int, bool) {
 
 // loopsBack reports whether n's Reality target is where its own Reality
 // listens: 443 on the node, or behind the multiplexer, which sends
-// whatever it doesn't route to Reality.
+// whatever it doesn't route to Reality. Names are compared, not resolved:
+// another name of the node gets through, as docs/config.md warns.
 func loopsBack(n *Node) bool {
 	host, port := n.Reality.TargetHost, n.Reality.TargetPort
 	ip, err := netip.ParseAddr(host)
