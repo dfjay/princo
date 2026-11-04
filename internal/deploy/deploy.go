@@ -45,10 +45,16 @@ var templateFS embed.FS
 
 var templates = template.Must(template.New("").Funcs(template.FuncMap{"q": shellQuote}).ParseFS(templateFS, "templates/*"))
 
+// Earlier tells which of nginx's files an earlier deploy left on the host.
+// Build keeps them, emptied if need be, so nginx lets go of what they
+// served.
+type Earlier struct {
+	Stream, Site bool
+}
+
 // Build is the bundle of node p.Node from its rendered files (host.Files)
 // and rule sets. The host must have the plan's certificates (Bootstrap).
-// hostStream tells that the host has a StreamConf from an earlier deploy.
-func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*bundle.Bundle, error) {
+func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*bundle.Bundle, error) {
 	e, ok := engines[p.Engine]
 	if !ok {
 		return nil, fmt.Errorf("princo deploy can't run engine %s yet", p.Engine)
@@ -111,7 +117,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 	units := []bundle.Unit{{Name: "princo.service", Files: engineFiles, Check: e.check(bin, config)}}
 
 	nginxFiles := siteFiles
-	if p.Mux != nil || hostStream {
+	if p.Mux != nil || earlier.Stream {
 		conf, err := execute("stream.conf", p)
 		if err != nil {
 			return nil, err
@@ -119,7 +125,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		b.Files = append(b.Files, bundle.File{Path: StreamConf, Mode: 0o644, Data: conf})
 		nginxFiles = append(nginxFiles, StreamConf)
 	}
-	if needsSite(p) {
+	if needsSite(p) || earlier.Site {
 		if err := addSite(b, p, true); err != nil {
 			return nil, err
 		}
@@ -140,7 +146,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 	// Whichever leaves TCP 443 goes first. Losing the multiplexer, nginx
 	// restarts on the emptied StreamConf: reloaded, its old workers would
 	// hold the port a while.
-	if p.Mux == nil && hostStream {
+	if p.Mux == nil && earlier.Stream {
 		units[1].Reload = false
 		slices.Reverse(units)
 	}
@@ -233,6 +239,7 @@ func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engi
 // subscription site, which needs its certificate.
 func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 	data := map[string]any{
+		"Node":          p.Node,
 		"EngineDomains": engineDomains(p),
 		"Site":          p.Subscription,
 		"SiteTLS":       siteTLS,
