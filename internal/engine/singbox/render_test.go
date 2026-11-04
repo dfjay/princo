@@ -305,3 +305,13 @@ func emptyRuleSet(t *testing.T, bin, dir string) string {
 	require.NoError(t, err, string(msg))
 	return out
 }
+
+func TestRealityTarget(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	us, _ := f.Node("us")
+	us.Reality.TargetHost, us.Reality.TargetPort = "127.0.0.1", 8443
+	in := renderJSON(t, New().RenderServer, f, "us")["inbounds"].([]any)[0].(map[string]any)
+	tls := in["tls"].(map[string]any)
+	require.Equal(t, us.Reality.ServerName, tls["server_name"])
+	require.Equal(t, map[string]any{"server": "127.0.0.1", "server_port": 8443.0}, tls["reality"].(map[string]any)["handshake"])
+}

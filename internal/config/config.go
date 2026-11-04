@@ -92,6 +92,7 @@ type Node struct {
 
 type Reality struct {
 	ServerName string                 `yaml:"server_name"`
+	Target     string                 `yaml:"target"`
 	ShortID    string                 `yaml:"short_id"`
 	PublicKey  string                 `yaml:"public_key"`
 	PrivateKey *secrets.SecretOrPlain `yaml:"private_key"`

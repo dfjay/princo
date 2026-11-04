@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -504,4 +505,75 @@ client:
 	require.ErrorContains(t, err, `client.final: want direct or a group, got "nowhere"`)
 	require.ErrorContains(t, err, `users.u.client.log: want one of`, "the override's own error")
 	require.NotContains(t, err.Error(), "users.u.client.final", "not what it inherits")
+}
+
+func TestBuild_RealityTarget(t *testing.T) {
+	node := func(reality, extra string) string {
+		return "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p" + reality + " }\n" + extra
+	}
+	f, err := build(t, node("", ""), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, "s.example.com", f.Nodes[0].Reality.TargetHost, "the server name by default")
+	require.Equal(t, 443, f.Nodes[0].Reality.TargetPort)
+
+	f, err = build(t, "defaults: { reality: { target: 127.0.0.1:8443 } }\n"+node("", ""), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1", f.Nodes[0].Reality.TargetHost, "from defaults")
+	require.Equal(t, 8443, f.Nodes[0].Reality.TargetPort)
+
+	for _, bad := range []string{"127.0.0.1", "127.0.0.1:0", "127.0.0.1:99999", ":8443", "bad_host:443"} {
+		_, err = build(t, node(", target: \""+bad+"\"", ""), conventionalSecrets())
+		require.ErrorContains(t, err, `nodes.a.reality.target: want host:port, e.g. 127.0.0.1:8443, got "`+bad+`"`)
+	}
+	label := strings.Repeat("a", 63)
+	edge := strings.Join([]string{label, label, label, strings.Repeat("a", 61)}, ".") // 253 characters
+	_, err = build(t, node(", target: \""+edge+":443\"", ""), conventionalSecrets())
+	require.NoError(t, err, "DNS allows 253 characters")
+	long := strings.Join([]string{label, label, label, label}, ".") // 255 characters
+	_, err = build(t, node(", target: \""+long+":443\"", ""), conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.reality.target: want host:port", "longer than DNS allows")
+}
+
+func TestBuild_RealityTargetLoopsBack(t *testing.T) {
+	mux := "    naive: { domain: n.example.com }\n"
+	for target, extra := range map[string]string{
+		"127.0.0.1:443":     "",
+		"[::1]:443":         "",
+		"localhost:443":     "",
+		"0.0.0.0:443":       "",
+		"A.example.com:443": "",
+		"127.0.0.1:8444":    mux,
+		"a.example.com:443": mux,
+	} {
+		_, err := build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p, target: \""+target+"\" }\n"+extra, conventionalSecrets())
+		require.ErrorContains(t, err, "nodes.a.reality.target: "+target+" is the node's own Reality listener", target)
+	}
+	for target, extra := range map[string]string{
+		"127.0.0.1:8444":    "",
+		"127.0.0.1:8443":    mux,
+		"b.example.com:443": mux,
+	} {
+		_, err := build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p, target: \""+target+"\" }\n"+extra, conventionalSecrets())
+		require.NoError(t, err, target)
+	}
+}
+
+func TestBuild_RealityNameTakenByMux(t *testing.T) {
+	for taken, extra := range map[string]string{
+		"passthrough; drop that entry and set reality.target to 127.0.0.1:8443": "    passthrough: { S.Example.com: 127.0.0.1:8443 }\n",
+		"naive; give one of them another name":                                  "    naive: { domain: s.example.com }\n",
+		"the subscription site; give one of them another name":                  "subscription: { node: a, domain: s.example.com }\n",
+	} {
+		_, err := build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n"+extra, conventionalSecrets())
+		require.ErrorContains(t, err, "nodes.a.reality.server_name: the multiplexer sends s.example.com to "+taken, taken)
+	}
+
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: a.example.com, short_id: "1", public_key: p, target: 127.0.0.1:8443 }
+    passthrough: { site.example.com: 127.0.0.1:8443 }
+`, conventionalSecrets())
+	require.NoError(t, err, "self-steal: the node's own name, its site behind")
 }

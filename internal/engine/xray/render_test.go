@@ -181,3 +181,22 @@ func TestRenderLog(t *testing.T) {
 	require.Equal(t, map[string]any{"loglevel": "debug"}, renderLog("debug"))
 	require.Equal(t, map[string]any{"loglevel": "none", "access": "none"}, renderLog(fleet.LogNone))
 }
+
+func TestRealityTarget(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	fi, _ := f.Node("fi")
+	fi.Reality.TargetHost, fi.Reality.TargetPort = "127.0.0.1", 8443
+	data, err := New().RenderServer(f, "fi")
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	for _, in := range cfg["inbounds"].([]any) {
+		if in := in.(map[string]any); in["tag"] == "vless-reality-in" {
+			reality := in["streamSettings"].(map[string]any)["realitySettings"].(map[string]any)
+			require.Equal(t, "127.0.0.1:8443", reality["target"])
+			require.Equal(t, []any{fi.Reality.ServerName}, reality["serverNames"])
+			return
+		}
+	}
+	t.Fatal("no reality inbound")
+}

@@ -95,7 +95,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 			"network":  "raw",
 			"security": "reality",
 			"realitySettings": map[string]any{
-				"target":      r.ServerName + ":443",
+				"target":      net.JoinHostPort(r.TargetHost, strconv.Itoa(r.TargetPort)),
 				"serverNames": []any{r.ServerName},
 				"privateKey":  r.PrivateKey,
 				"shortIds":    []any{r.ShortID},
