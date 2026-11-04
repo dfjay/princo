@@ -47,8 +47,8 @@ type facts struct {
 	// missing are the ACME certificates to issue.
 	missing []string
 	// linked are certificates an older princo linked into certbot's directories.
-	linked []string
-	stream bool
+	linked  []string
+	earlier Earlier
 }
 
 // Deploy installs the node's packages and princo, issues the certificates
@@ -104,7 +104,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 			}
 		}
 	}
-	b, err := Build(p, files, ruleSets, f.stream)
+	b, err := Build(p, files, ruleSets, f.earlier)
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (d *Deployer) Check(ctx context.Context, p *host.Plan, files, ruleSets map[
 	if f.princo == "" {
 		return errors.New("the host has no princo yet; deploying without --dry-run installs it")
 	}
-	b, err := Build(p, files, ruleSets, f.stream)
+	b, err := Build(p, files, ruleSets, f.earlier)
 	if err != nil {
 		return err
 	}
@@ -164,6 +164,7 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 		"CertDir":      engine.CertDir,
 		"StateFile":    bundle.StateFile,
 		"StreamConf":   StreamConf,
+		"SiteConf":     SiteConf,
 	})
 	if err != nil {
 		return facts{}, err
@@ -198,7 +199,9 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 				f.missing = append(f.missing, name)
 			}
 		case "stream":
-			f.stream = true
+			f.earlier.Stream = true
+		case "site":
+			f.earlier.Site = true
 		}
 	}
 	if f.arch == "" {

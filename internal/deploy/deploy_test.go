@@ -51,7 +51,7 @@ func plan(t *testing.T, node string) (*host.Plan, map[string][]byte, map[string]
 func build(t *testing.T, node string) *bundle.Bundle {
 	t.Helper()
 	p, files, ruleSets := plan(t, node)
-	b, err := Build(p, files, ruleSets, false)
+	b, err := Build(p, files, ruleSets, Earlier{})
 	require.NoError(t, err)
 	return b
 }
@@ -147,28 +147,42 @@ func unitNames(b *bundle.Bundle) []string {
 
 func TestBuild_MuxRemoved(t *testing.T) {
 	p, files, ruleSets := plan(t, "us")
-	b, err := Build(p, files, ruleSets, true)
+	b, err := Build(p, files, ruleSets, Earlier{Stream: true})
 	require.NoError(t, err)
 	require.Equal(t, "# Written by princo deploy; changes here are overwritten.\n# Node us has no multiplexer.\n", string(file(t, b, StreamConf)))
 	require.Equal(t, []string{"nginx.service", "princo.service"}, unitNames(b), "nginx lets go of TCP 443 first")
 	require.False(t, b.Units[0].Reload, "and is gone from it after a restart")
 
 	p, files, ruleSets = plan(t, "de")
-	b, err = Build(p, files, ruleSets, true)
+	b, err = Build(p, files, ruleSets, Earlier{Stream: true})
 	require.NoError(t, err)
 	require.Contains(t, string(file(t, b, StreamConf)), "stream {")
 	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(b))
 }
 
+func TestBuild_SitesRemoved(t *testing.T) {
+	p, files, ruleSets := plan(t, "us")
+	b, err := Build(p, files, ruleSets, Earlier{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"princo.service"}, unitNames(b), "no nginx for a Reality-only node")
+
+	b, err = Build(p, files, ruleSets, Earlier{Site: true})
+	require.NoError(t, err)
+	require.Equal(t, "# Written by princo deploy; changes here are overwritten.\n# Node us serves no sites.\n", string(file(t, b, SiteConf)))
+	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(b))
+	require.True(t, b.Units[1].Reload, "nginx drops the sites it served")
+	require.Equal(t, []string{SiteConf}, b.Units[1].Files)
+}
+
 func TestBuild_MissingRuleSet(t *testing.T) {
 	p := &host.Plan{Node: "de", Engine: "sing-box", Config: "sing-box.json", RuleSets: []string{"geoip-ru.srs"}}
-	_, err := Build(p, map[string][]byte{"sing-box.json": nil}, nil, false)
+	_, err := Build(p, map[string][]byte{"sing-box.json": nil}, nil, Earlier{})
 	require.ErrorContains(t, err, "rule set geoip-ru.srs is missing")
 }
 
 func TestBuild_SiteRuleSets(t *testing.T) {
 	p := &host.Plan{Node: "fi", Engine: "xray", Config: "xray.json", RuleSets: []string{"geoip.dat"}, SiteRuleSets: []string{"geoip-ru.srs"}}
-	b, err := Build(p, map[string][]byte{"xray.json": nil}, map[string][]byte{"geoip.dat": nil, "geoip-ru.srs": nil}, false)
+	b, err := Build(p, map[string][]byte{"xray.json": nil}, map[string][]byte{"geoip.dat": nil, "geoip-ru.srs": nil}, Earlier{})
 	require.NoError(t, err)
 	file(t, b, engine.RuleSetDir+"/geoip-ru.srs")
 	require.Contains(t, b.Units[0].Files, engine.RuleSetDir+"/geoip.dat")
@@ -188,7 +202,7 @@ func TestRuleSets_HTTPSRedirects(t *testing.T) {
 }
 
 func TestBuild_UnknownEngine(t *testing.T) {
-	_, err := Build(&host.Plan{Node: "de", Engine: "v2ray"}, nil, nil, false)
+	_, err := Build(&host.Plan{Node: "de", Engine: "v2ray"}, nil, nil, Earlier{})
 	require.ErrorContains(t, err, "can't run engine v2ray yet")
 }
 

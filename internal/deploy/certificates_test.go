@@ -83,7 +83,7 @@ func bundleFile(t *testing.T, b *bundle.Bundle, p string) bundle.File {
 
 func TestBuild_Certificates(t *testing.T) {
 	p, files := certPlan(t)
-	b, err := Build(p, files, nil, false)
+	b, err := Build(p, files, nil, Earlier{})
 	require.NoError(t, err)
 
 	site := path.Join(engine.CertDir, "site")
@@ -181,7 +181,7 @@ certificates:
 	require.NoError(t, err)
 	p, err := host.NewPlan(f, "a", func(string) (string, int) { return "sops:s.yaml#x", 0 })
 	require.NoError(t, err)
-	b, err := Build(p, files, nil, false)
+	b, err := Build(p, files, nil, Earlier{})
 	require.NoError(t, err)
 	require.Contains(t, string(bundleFile(t, b, CertbotHook).Data), "'wild') unit=princo.service", "lego's deploy hook")
 	require.Equal(t, []string{"princo.service", "princo-lego.timer"}, unitNames(b), "no nginx")

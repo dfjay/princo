@@ -391,3 +391,11 @@ func (f remoteFunc) Run(_ context.Context, script string, _ io.Reader, _ io.Writ
 	f(script)
 	return nil
 }
+
+func TestDeploy_SitesRemoved(t *testing.T) {
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nsite\n"}
+	d, _ := newDeployer(r, "0.2.0")
+	p, files, ruleSets := plan(t, "us")
+	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
+	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(r.bundles[0]), "the probe told of an earlier site config")
+}

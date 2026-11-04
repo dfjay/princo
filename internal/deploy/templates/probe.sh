@@ -15,6 +15,9 @@ fi
 if [ -e {{.StreamConf}} ]; then
 	echo stream
 fi
+if [ -e {{.SiteConf}} ]; then
+	echo site
+fi
 [ -x {{q .Engine}} ] && echo engine
 [ -x {{q .Lego}} ] && echo lego
 command -v openssl >/dev/null && echo openssl
