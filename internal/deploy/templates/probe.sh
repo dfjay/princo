@@ -17,6 +17,7 @@ if [ -e {{.StreamConf}} ]; then
 fi
 [ -x {{q .Engine}} ] && echo engine
 [ -x {{q .Lego}} ] && echo lego
+command -v openssl >/dev/null && echo openssl
 if command -v princo >/dev/null; then
 	echo "princo $(princo version | cut -d' ' -f2)"
 fi

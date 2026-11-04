@@ -229,3 +229,16 @@ func TestLegoScript_RestoresMissingCopy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(hooked), string(again), "a copy in place stays")
 }
+
+func TestDeploy_ProbesAgainWithOpenSSL(t *testing.T) {
+	p, files := certPlan(t)
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nlego\nprinco 0.2.0\n"}
+	d, _ := newDeployer(r, "0.2.0")
+	require.NoError(t, d.Deploy(t.Context(), p, files, nil))
+	require.Equal(t, []string{"probe", "provision", "probe", "apply", "prune"}, r.steps, "provision brought openssl")
+
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nlego\nprinco 0.2.0\nopenssl\nsans wild DNS:example.com,DNS:*.example.com\n"}
+	d, _ = newDeployer(r, "0.2.0")
+	require.NoError(t, d.Deploy(t.Context(), p, files, nil))
+	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps)
+}

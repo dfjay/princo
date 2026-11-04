@@ -96,7 +96,7 @@ func newDeployer(r *fakeRemote, version string) (*Deployer, *bytes.Buffer) {
 }
 
 func TestDeploy_FreshHost(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch arm64\nengine\nmissing naive-de.example.com\nmissing subs.example.com\n"}
+	r := &fakeRemote{t: t, probe: "arch arm64\nengine\nopenssl\nmissing naive-de.example.com\nmissing subs.example.com\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "de")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
@@ -112,7 +112,7 @@ func TestDeploy_FreshHost(t *testing.T) {
 }
 
 func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nlinked de.example.com\nlinked subs.example.com\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nopenssl\nlinked de.example.com\nlinked subs.example.com\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "de")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))

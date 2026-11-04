@@ -42,6 +42,8 @@ type facts struct {
 	arch, princo, node string
 	// engine and lego tell that the host has their releases.
 	engine, lego bool
+	// openssl tells that it could read the certificates' domains.
+	openssl bool
 	// missing are the ACME certificates to issue.
 	missing []string
 	// linked are certificates an older princo linked into certbot's directories.
@@ -63,6 +65,15 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 	d.logf("installing packages")
 	if err := d.provision(ctx, p); err != nil {
 		return err
+	}
+	// With openssl installed, the probe reads the domains of the
+	// certificates the host has.
+	if !f.openssl && slices.ContainsFunc(certificates(p, fleet.CertHTTP, fleet.CertDNS), func(c host.Certificate) bool {
+		return !slices.Contains(f.missing, c.Name) && !slices.Contains(f.linked, c.Name)
+	}) {
+		if f, err = d.probe(ctx, p); err != nil {
+			return err
+		}
 	}
 	if err := d.installEngine(ctx, f, e); err != nil {
 		return err
@@ -173,6 +184,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.engine = true
 		case "lego":
 			f.lego = true
+		case "openssl":
+			f.openssl = true
 		case "node":
 			f.node = value
 		case "missing":
