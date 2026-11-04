@@ -1,0 +1,9 @@
+# Written by princo deploy; changes here are overwritten.
+[Unit]
+Description=Renew princo's DNS-01 certificates
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{.Script}}

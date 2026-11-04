@@ -40,17 +40,21 @@ func InstallReleases(ctx context.Context, client *http.Client, arch, dir string)
 	return nil
 }
 
-// ReleaseDigests downloads an engine's release at version for each
-// architecture princo deploy runs it on, and returns their SHA-256s to
-// pin.
+// ReleaseDigests downloads an engine's release, or lego's, at version for
+// each architecture princo deploy runs it on, and returns their SHA-256s
+// to pin.
 func ReleaseDigests(ctx context.Context, client *http.Client, name, version string) (map[string]string, error) {
-	e, ok := engines[name]
-	if !ok {
-		return nil, fmt.Errorf("princo deploy can't run engine %s", name)
+	r := lego.release
+	if name != "lego" {
+		e, ok := engines[name]
+		if !ok {
+			return nil, fmt.Errorf("princo deploy can't run engine %s", name)
+		}
+		r = e.release
 	}
 	out := map[string]string{}
-	for arch := range e.release.SHA256 {
-		data, err := Fetch(ctx, client, e.release.url(version, arch))
+	for arch := range r.SHA256 {
+		data, err := Fetch(ctx, client, r.url(version, arch))
 		if err != nil {
 			return nil, err
 		}

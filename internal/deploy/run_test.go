@@ -70,6 +70,8 @@ func (r *fakeRemote) Run(_ context.Context, script string, stdin io.Reader, stdo
 	case strings.HasPrefix(script, "RENEWED_LINEAGE="):
 		lineage, _, _ := strings.Cut(strings.TrimPrefix(script, "RENEWED_LINEAGE='/etc/letsencrypt/live/"), "'")
 		r.steps = append(r.steps, "copy "+lineage)
+	case strings.HasPrefix(script, "LEGO_NO_RANDOM_SLEEP=true "+LegoScript+" "):
+		r.steps = append(r.steps, "issue "+strings.Trim(strings.TrimPrefix(script, "LEGO_NO_RANDOM_SLEEP=true "+LegoScript+" "), "'"))
 	case strings.Contains(script, "certbot certonly"):
 		_, domain, _ := strings.Cut(script, "--domains '")
 		domain, _, _ = strings.Cut(domain, "'")
@@ -199,7 +201,9 @@ func TestProbe_Certificates(t *testing.T) {
 	p, _, _ := plan(t, "de")
 	_, err := d.probe(t.Context(), p)
 	require.ErrorContains(t, err, "didn't tell its architecture")
-	require.Contains(t, script, "if ! [ -s '/var/lib/princo/certs/subs.example.com/fullchain.pem' ] || ! [ -s '/var/lib/princo/certs/subs.example.com/key.pem' ]; then\n\techo missing 'subs.example.com'\nelif [ -L '/var/lib/princo/certs/subs.example.com/key.pem' ]; then\n\techo linked 'subs.example.com'\nfi")
+	require.Contains(t, script, "chain='/var/lib/princo/certs/subs.example.com/fullchain.pem' key='/var/lib/princo/certs/subs.example.com/key.pem'\n")
+	require.Contains(t, script, `if ! [ -s "$chain" ] || ! [ -s "$key" ] || grep -qsF "\"$key\"" /var/lib/princo/applied.json; then`+"\n\techo missing 'subs.example.com'\n")
+	require.Contains(t, script, "\techo sans 'subs.example.com' ")
 }
 
 func TestProvision(t *testing.T) {
@@ -209,7 +213,7 @@ func TestProvision(t *testing.T) {
 	d.Remote = remoteFunc(func(s string) { script = s })
 	p, _, _ := plan(t, "de")
 	require.NoError(t, d.provision(t.Context(), p))
-	require.Contains(t, script, "for p in 'nginx' 'libnginx-mod-stream' 'certbot'; do")
+	require.Contains(t, script, "for p in 'nginx' 'libnginx-mod-stream' 'certbot' 'openssl'; do")
 	require.Equal(t, []string{
 		"allow 443/tcp comment princo", "allow 80/tcp comment princo", "allow 443/udp comment princo",
 	}, runUFW(t, script, ""))
@@ -230,8 +234,14 @@ func TestCleanup(t *testing.T) {
 	for _, dir := range []string{"sing-box-1.0.0", "sing-box-1.1.0"} {
 		require.NoError(t, os.Mkdir(filepath.Join(root, dir), 0o755))
 	}
+	// The timer stays: its unit file is there.
+	require.NoError(t, os.WriteFile(filepath.Join(root, "princo-lego.timer"), nil, 0o644))
 	p, _, _ := plan(t, "us")
-	script, err := execute("cleanup.sh", map[string]any{"Root": root, "Keep": filepath.Join(root, "sing-box-1.1.0"), "Ports": ports(p)})
+	script, err := execute("cleanup.sh", map[string]any{
+		"Root": root, "Keep": filepath.Join(root, "sing-box-1.1.0"),
+		"LegoRoot": filepath.Join(root, "lego"), "KeepLego": "", "LegoTimer": filepath.Join(root, "princo-lego.timer"),
+		"Ports": ports(p),
+	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"--force delete 5", "--force delete 3", "--force delete 2"}, runUFW(t, string(script), `     To                         Action      From
      --                         ------      ----

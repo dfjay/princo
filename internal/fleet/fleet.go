@@ -11,6 +11,8 @@ type Fleet struct {
 	Users        []*User
 	Client       Client
 	Subscription *Subscription
+	// Certificates are princo.yaml's, in its order.
+	Certificates []*Certificate
 	RuleData     RuleData
 
 	nodes map[string]*Node

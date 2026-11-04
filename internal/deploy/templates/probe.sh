@@ -16,13 +16,18 @@ if [ -e {{.StreamConf}} ]; then
 	echo stream
 fi
 [ -x {{q .Engine}} ] && echo engine
+[ -x {{q .Lego}} ] && echo lego
 if command -v princo >/dev/null; then
 	echo "princo $(princo version | cut -d' ' -f2)"
 fi
 {{- range .Certificates}}
-if ! [ -s {{q (print $.CertDir "/" . "/fullchain.pem")}} ] || ! [ -s {{q (print $.CertDir "/" . "/key.pem")}} ]; then
-	echo missing {{q .}}
-elif [ -L {{q (print $.CertDir "/" . "/key.pem")}} ]; then
-	echo linked {{q .}}
+chain={{q (print $.CertDir "/" .Name "/fullchain.pem")}} key={{q (print $.CertDir "/" .Name "/key.pem")}}
+# One the last bundle brought goes with it.
+if ! [ -s "$chain" ] || ! [ -s "$key" ] || grep -qsF "\"$key\"" {{$.StateFile}}; then
+	echo missing {{q .Name}}
+elif [ -L "$key" ]; then
+	echo linked {{q .Name}}
+elif command -v openssl >/dev/null; then
+	echo sans {{q .Name}} "$(openssl x509 -noout -ext subjectAltName -in "$chain" 2>/dev/null | tail -n +2 | tr -d ' \n')"
 fi
 {{- end}}

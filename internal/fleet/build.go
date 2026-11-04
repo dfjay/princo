@@ -62,6 +62,7 @@ func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
 	b.egress()
 	b.users()
 	b.subscription()
+	b.certificates()
 	b.realityNames()
 	b.ruleData()
 	b.client()
