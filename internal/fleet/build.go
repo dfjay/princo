@@ -240,7 +240,19 @@ func hostPort(s string) (string, int, bool) {
 	host, port, err := net.SplitHostPort(s)
 	p, perr := strconv.ParseUint(port, 10, 16)
 	_, aerr := netip.ParseAddr(host)
-	return host, int(p), err == nil && perr == nil && p != 0 && (aerr == nil || hostnameRe.MatchString(host))
+	// 253 is the longest name DNS can carry.
+	return host, int(p), err == nil && perr == nil && p != 0 && (aerr == nil || len(host) <= 253 && hostnameRe.MatchString(host))
+}
+
+// loopsBack reports whether n's Reality target is where its own Reality
+// listens: 443 on the node, or behind the multiplexer, which sends
+// whatever it doesn't route to Reality.
+func loopsBack(n *Node) bool {
+	host, port := n.Reality.TargetHost, n.Reality.TargetPort
+	ip, err := netip.ParseAddr(host)
+	local := err == nil && (ip.IsLoopback() || ip.IsUnspecified()) || strings.EqualFold(host, "localhost")
+	own := local || strings.EqualFold(host, n.Address)
+	return own && (port == 443 || local && n.Mux() && port == MuxRealityPort)
 }
 
 // xrayLimits reports what an xray node can't do that sing-box can.
@@ -354,10 +366,17 @@ func (b *builder) subscription() {
 }
 
 // realityNames checks that the multiplexer leaves each node's Reality
-// server name to Reality: clients connect with it.
+// server name to Reality, since clients connect with it, and that the
+// target isn't Reality itself.
 func (b *builder) realityNames() {
 	for _, n := range b.f.Nodes {
-		if n.Reality == nil || !n.Mux() {
+		if n.Reality == nil {
+			continue
+		}
+		if loopsBack(n) {
+			b.errorf("nodes.%s.reality.target: %s is the node's own Reality listener, which would hand the handshake back to itself; point it at a site", n.Name, net.JoinHostPort(n.Reality.TargetHost, strconv.Itoa(n.Reality.TargetPort)))
+		}
+		if !n.Mux() {
 			continue
 		}
 		// Names match whatever their case, as in the multiplexer.

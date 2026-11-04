@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -523,6 +524,34 @@ func TestBuild_RealityTarget(t *testing.T) {
 	for _, bad := range []string{"127.0.0.1", "127.0.0.1:0", "127.0.0.1:99999", ":8443", "bad_host:443"} {
 		_, err = build(t, node(", target: \""+bad+"\"", ""), conventionalSecrets())
 		require.ErrorContains(t, err, `nodes.a.reality.target: want host:port, e.g. 127.0.0.1:8443, got "`+bad+`"`)
+	}
+	label := strings.Repeat("a", 63)
+	long := strings.Join([]string{label, label, label, label}, ".") // 255 characters
+	_, err = build(t, node(", target: \""+long+":443\"", ""), conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.reality.target: want host:port", "longer than DNS allows")
+}
+
+func TestBuild_RealityTargetLoopsBack(t *testing.T) {
+	mux := "    naive: { domain: n.example.com }\n"
+	for target, extra := range map[string]string{
+		"127.0.0.1:443":     "",
+		"[::1]:443":         "",
+		"localhost:443":     "",
+		"0.0.0.0:443":       "",
+		"A.example.com:443": "",
+		"127.0.0.1:8444":    mux,
+		"a.example.com:443": mux,
+	} {
+		_, err := build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p, target: \""+target+"\" }\n"+extra, conventionalSecrets())
+		require.ErrorContains(t, err, "nodes.a.reality.target: "+target+" is the node's own Reality listener", target)
+	}
+	for target, extra := range map[string]string{
+		"127.0.0.1:8444":    "",
+		"127.0.0.1:8443":    mux,
+		"b.example.com:443": mux,
+	} {
+		_, err := build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p, target: \""+target+"\" }\n"+extra, conventionalSecrets())
+		require.NoError(t, err, target)
 	}
 }
 

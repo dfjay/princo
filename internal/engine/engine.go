@@ -19,11 +19,9 @@ const (
 	// profiles' rule sets from RuleSetDir, so they match the nodes'.
 	RuleSetSitePath = "/rules/"
 	// CertDir holds one directory per domain with fullchain.pem and key.pem.
-	CertDir = "/var/lib/princo/certs"
-	// MuxRealityPort and MuxNaivePort are the loopback ports behind the
-	// SNI multiplexer on TCP 443.
-	MuxRealityPort = 8444
-	MuxNaivePort   = 8445
+	CertDir        = "/var/lib/princo/certs"
+	MuxRealityPort = fleet.MuxRealityPort
+	MuxNaivePort   = fleet.MuxNaivePort
 )
 
 // WarpPeerPublicKey is Cloudflare WARP's WireGuard peer key.

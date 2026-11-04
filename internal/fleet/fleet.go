@@ -104,6 +104,13 @@ func (n *Node) Protocols() []string {
 // HasTag reports whether the node carries tag.
 func (n *Node) HasTag(tag string) bool { return slices.Contains(n.Tags, tag) }
 
+// MuxRealityPort and MuxNaivePort are the loopback ports behind the SNI
+// multiplexer on TCP 443.
+const (
+	MuxRealityPort = 8444
+	MuxNaivePort   = 8445
+)
+
 // Mux reports whether TCP 443 is shared through the SNI multiplexer, which
 // is needed as soon as anything besides VLESS-Reality wants it.
 func (n *Node) Mux() bool {

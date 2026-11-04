@@ -144,6 +144,8 @@ with `curl -v --resolve <server_name>:<port>:<host> https://<server_name>:<port>
 Hysteria2's default masquerade, `https://<server_name>`, reaches it too.
 `server_name` can't be a name the multiplexer sends elsewhere: drop a
 `passthrough` entry for it and set `target` to that entry's address.
+Nor can `target` be Reality itself, on 443 of the node or `127.0.0.1:8444`
+behind the multiplexer: the handshake would come back around.
 
 ### `xhttp`
 
