@@ -95,12 +95,25 @@ let
     ${lib.getExe cfg.package} ${lib.escapeShellArgs configArgs} rule-sets --node ${lib.escapeShellArg cfg.node} \
       --from ${ruleData} --out $out
   '';
-  certUnits = map (d: "acme-${d}.service") plan.certificates;
-  # The certificates the engine reads, not nginx.
-  engineDomains = lib.filter (d: site == null || d != site.domain) plan.certificates;
+  # From ACME (http, dns) or, rendered from secrets, princo-render (file).
+  certs = plan.certificates;
+  bySource = source: lib.filter (c: c.source == source) certs;
+  acmeCerts = lib.filter (c: c.source != "file") certs;
+  certUnits = map (c: "acme-${c.name}.service") acmeCerts;
+  # The engine's HTTP-01 certificates, whose challenges nginx answers.
+  engineHTTPCerts = lib.filter (c: !(c.site or false)) (bySource "http");
+  siteCert = if site == null then null else lib.findFirst (c: c.name == site.certificate) null certs;
+  renderedCert = name: "${outDir}/certificates/${name}";
+  # engine.CertDir: a directory per certificate.
+  certLinks = pkgs.linkFarm "princo-certs-${cfg.node}" (
+    map (c: {
+      inherit (c) name;
+      path = if c.source == "file" then renderedCert c.name else "/var/lib/acme/${c.name}";
+    }) certs
+  );
   acmeWebroot = "/var/lib/acme/acme-challenge";
 
-  needsNginx = mux != null || plan.certificates != [ ];
+  needsNginx = mux != null || site != null || bySource "http" != [ ];
   http = [
     {
       addr = "0.0.0.0";
@@ -298,7 +311,7 @@ in
         users.groups.princo-engine = { };
 
         networking.firewall = {
-          allowedTCPPorts = plan.tcp_ports ++ lib.optional (plan.certificates != [ ]) 80;
+          allowedTCPPorts = plan.tcp_ports ++ lib.optional (bySource "http" != [ ]) 80;
           allowedUDPPorts = plan.udp_ports;
         };
 
@@ -306,7 +319,7 @@ in
         systemd.tmpfiles.rules = [
           "d /var/lib/princo 0755 root root -"
           "L+ /var/lib/princo/rules - - - - ${ruleSetDir}"
-          "L+ /var/lib/princo/certs - - - - /var/lib/acme"
+          "L+ /var/lib/princo/certs - - - - ${certLinks}"
         ];
 
         systemd.services.princo-render = {
@@ -331,15 +344,26 @@ in
                 outDir
               ]
             );
-            # The engine reads its config, nginx serves the subscription
-            # site; the rest stays root's.
+            # The engine reads its config and certificates, nginx the site
+            # and its; the rest stays root's.
             ExecStartPost = [
               "${pkgs.coreutils}/bin/chgrp princo-engine ${outDir} ${outDir}/${plan.config}"
             ]
             ++ lib.optionals (site != null) [
               "${pkgs.coreutils}/bin/chmod 0751 ${outDir}"
               "${pkgs.coreutils}/bin/chgrp -R ${config.services.nginx.group} ${siteRoot}"
-            ];
+            ]
+            ++ lib.optional (bySource "file" != [ ]) "${pkgs.coreutils}/bin/chmod 0751 ${outDir}/certificates"
+            ++ map (
+              c:
+              "${pkgs.coreutils}/bin/chgrp -R ${
+                if c.site or false then config.services.nginx.group else "princo-engine"
+              } ${renderedCert c.name}"
+            ) (bySource "file")
+            # The engine restarts with princo-render; nginx needs a reload.
+            ++ lib.optional (
+              siteCert != null && siteCert.source == "file"
+            ) "${config.systemd.package}/bin/systemctl --no-block try-reload-or-restart nginx.service";
           };
         };
 
@@ -402,13 +426,28 @@ in
             };
           };
 
-        security.acme = lib.mkIf (plan.certificates != [ ]) {
+        security.acme = lib.mkIf (acmeCerts != [ ]) {
           defaults.email = lib.mkIf (plan.acme_email or "" != "") (lib.mkDefault plan.acme_email);
-          certs = lib.genAttrs engineDomains (_: {
-            webroot = acmeWebroot;
-            group = "princo-engine";
-            reloadServices = [ "princo.service" ];
-          });
+          certs = lib.listToAttrs (
+            map (c: {
+              inherit (c) name;
+              value = {
+                domain = lib.head c.domains;
+                extraDomainNames = lib.tail c.domains;
+                group = if c.site or false then config.services.nginx.group else "princo-engine";
+                reloadServices = [ (if c.site or false then "nginx.service" else "princo.service") ];
+              }
+              // (
+                if c.source == "dns" then
+                  {
+                    dnsProvider = c.dns;
+                    environmentFile = "${renderedCert c.name}/dns.env";
+                  }
+                else
+                  { webroot = acmeWebroot; }
+              );
+            }) acmeCerts
+          );
         };
 
         services.nginx = lib.mkIf needsNginx {
@@ -433,7 +472,7 @@ in
 
           # The engine's domains: plain HTTP, only for ACME challenges.
           virtualHosts =
-            lib.genAttrs engineDomains (_: {
+            lib.genAttrs (lib.concatMap (c: c.domains) engineHTTPCerts) (_: {
               listen = lib.mkDefault http;
               locations."^~ /.well-known/acme-challenge/".root = acmeWebroot;
               locations."/".return = lib.mkDefault "404";
@@ -441,9 +480,19 @@ in
             // lib.optionalAttrs (site != null) {
               ${site.domain} = {
                 onlySSL = true;
-                enableACME = true;
                 listen = [ ((parseAddr site.listen) // { ssl = true; }) ];
                 root = siteRoot;
+              }
+              // (
+                if siteCert.source == "file" then
+                  {
+                    sslCertificate = "${renderedCert siteCert.name}/fullchain.pem";
+                    sslCertificateKey = "${renderedCert siteCert.name}/key.pem";
+                  }
+                else
+                  { useACMEHost = siteCert.name; }
+              )
+              // {
                 # Subscription URLs grant access: no log records their requests.
                 extraConfig = ''
                   access_log off;
@@ -497,7 +546,9 @@ in
               "${site.domain}-http" = {
                 serverName = site.domain;
                 listen = http;
-                locations."^~ /.well-known/acme-challenge/".root = acmeWebroot;
+                locations."^~ /.well-known/acme-challenge/" = lib.mkIf (siteCert.source == "http") {
+                  root = acmeWebroot;
+                };
                 locations."/".return = "301 https://$host$request_uri";
                 extraConfig = ''
                   access_log off;
@@ -520,11 +571,17 @@ in
       }
 
       {
-        # nginx serves the challenges of the engine's certificates.
-        systemd.services = lib.genAttrs (map (d: "acme-order-renew-${d}") engineDomains) (_: {
-          wants = [ "nginx.service" ];
-          after = [ "nginx.service" ];
-        });
+        systemd.services =
+          # nginx answers the challenges of the engine's HTTP-01 certificates.
+          lib.genAttrs (map (c: "acme-order-renew-${c.name}") engineHTTPCerts) (_: {
+            wants = [ "nginx.service" ];
+            after = [ "nginx.service" ];
+          })
+          # princo-render writes the DNS provider's credentials.
+          // lib.genAttrs (map (c: "acme-order-renew-${c.name}") (bySource "dns")) (_: {
+            wants = [ "princo-render.service" ];
+            after = [ "princo-render.service" ];
+          });
       }
 
       (lib.optionalAttrs (options ? sops) {

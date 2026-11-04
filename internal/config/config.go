@@ -15,14 +15,15 @@ import (
 
 // Config is the top level of princo.yaml.
 type Config struct {
-	Princo       string          `yaml:"princo"`
-	Defaults     Defaults        `yaml:"defaults"`
-	Nodes        Ordered[Node]   `yaml:"nodes"`
-	Users        Ordered[User]   `yaml:"users"`
-	Client       Client          `yaml:"client"`
-	Subscription *Subscription   `yaml:"subscription"`
-	RuleData     *RuleData       `yaml:"rule_data"`
-	Secrets      Ordered[string] `yaml:"secrets"`
+	Princo       string               `yaml:"princo"`
+	Defaults     Defaults             `yaml:"defaults"`
+	Nodes        Ordered[Node]        `yaml:"nodes"`
+	Users        Ordered[User]        `yaml:"users"`
+	Client       Client               `yaml:"client"`
+	Subscription *Subscription        `yaml:"subscription"`
+	Certificates Ordered[Certificate] `yaml:"certificates"`
+	RuleData     *RuleData            `yaml:"rule_data"`
+	Secrets      Ordered[string]      `yaml:"secrets"`
 
 	// The index of the file Merge took each secrets: pattern from.
 	secretFiles map[string]int
@@ -183,6 +184,27 @@ type Group struct {
 type Subscription struct {
 	Node   string `yaml:"node"`
 	Domain string `yaml:"domain"`
+}
+
+// Certificate covers Domains, wildcards among them, from ACME or File.
+// Domains no certificate covers get an ACME HTTP-01 one each.
+type Certificate struct {
+	Domains []string  `yaml:"domains"`
+	ACME    *CertACME `yaml:"acme"`
+	File    *CertFile `yaml:"file"`
+}
+
+// CertACME has each node issue the certificate: over DNS-01 with DNS, a
+// lego provider whose credentials are in Env, else over HTTP-01.
+type CertACME struct {
+	DNS string                         `yaml:"dns"`
+	Env Ordered[secrets.SecretOrPlain] `yaml:"env"`
+}
+
+// CertFile is a certificate issued elsewhere, in PEM.
+type CertFile struct {
+	Fullchain *secrets.SecretOrPlain `yaml:"fullchain"`
+	Key       *secrets.SecretOrPlain `yaml:"key"`
 }
 
 // RuleData is where the geoip and geosite data of every node and client

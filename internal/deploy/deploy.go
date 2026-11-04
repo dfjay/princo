@@ -14,6 +14,7 @@ import (
 
 	"github.com/dfjay/princo/internal/bundle"
 	"github.com/dfjay/princo/internal/engine"
+	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/host"
 )
 
@@ -63,8 +64,12 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		b.Dirs = append(b.Dirs, bundle.Dir{Path: path.Join(FilesDir, p.Subscription.Root), Mode: 0o750, Group: webGroup})
 	}
 	config := path.Join(FilesDir, p.Config)
-	engineFiles := []string{UnitFile}
+	engineFiles, siteFiles := addCertFiles(b, p, files)
+	engineFiles = append([]string{UnitFile}, engineFiles...)
 	for _, name := range slices.Sorted(maps.Keys(files)) {
+		if certFile(name) {
+			continue
+		}
 		f := bundle.File{Path: path.Join(FilesDir, name), Mode: 0o600, Data: files[name]}
 		if p.Subscription != nil && strings.HasPrefix(name, p.Subscription.Root+"/") {
 			f.Mode, f.Group = 0o640, webGroup
@@ -105,7 +110,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 	b.Files = append(b.Files, bundle.File{Path: UnitFile, Mode: 0o644, Data: unit})
 	units := []bundle.Unit{{Name: "princo.service", Files: engineFiles, Check: e.check(bin, config)}}
 
-	var nginxFiles []string
+	nginxFiles := siteFiles
 	if p.Mux != nil || hostStream {
 		conf, err := execute("stream.conf", p)
 		if err != nil {
@@ -114,14 +119,23 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 		b.Files = append(b.Files, bundle.File{Path: StreamConf, Mode: 0o644, Data: conf})
 		nginxFiles = append(nginxFiles, StreamConf)
 	}
-	if len(p.Certificates) > 0 {
+	if needsSite(p) {
 		if err := addSite(b, p, true); err != nil {
 			return nil, err
 		}
 		nginxFiles = append(nginxFiles, SiteConf)
 	}
+	if err := addHook(b, p); err != nil {
+		return nil, err
+	}
 	if len(nginxFiles) > 0 {
 		units = append(units, nginxUnit(nginxFiles))
+	}
+	if len(certificates(p, fleet.CertDNS)) > 0 {
+		if err := addLego(b, p); err != nil {
+			return nil, err
+		}
+		units = append(units, bundle.Unit{Name: "princo-lego.timer", Files: []string{LegoService, LegoTimer}})
 	}
 	// Whichever leaves TCP 443 goes first. Losing the multiplexer, nginx
 	// restarts on the emptied StreamConf: reloaded, its old workers would
@@ -134,25 +148,95 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, hostStream bool) (*b
 	return b, nil
 }
 
-// Bootstrap is the partial bundle that has nginx answer the ACME
-// challenges for the missing certificates, leaving the rest of the node.
-func Bootstrap(p *host.Plan, missing []string) (*bundle.Bundle, error) {
+// Bootstrap is the partial bundle that readies the host to issue the
+// missing certificates, leaving the rest of the node: nginx answers the
+// ACME challenges, lego has its script and credentials.
+func Bootstrap(p *host.Plan, files map[string][]byte, missing []string) (*bundle.Bundle, error) {
 	b := &bundle.Bundle{Format: bundle.Format, Node: p.Node, Partial: true, Dirs: []bundle.Dir{stateDir}}
-	siteTLS := p.Subscription != nil && !slices.Contains(missing, p.Subscription.Domain)
-	if err := addSite(b, p, siteTLS); err != nil {
+	_, siteFiles := addCertFiles(b, p, files)
+	for _, c := range certificates(p, fleet.CertDNS) {
+		f := dnsEnv(c.Name)
+		b.Files = append(b.Files, bundle.File{Path: path.Join(FilesDir, f), Mode: 0o600, Data: files[f]})
+	}
+	if needsSite(p) {
+		siteTLS := p.Subscription != nil && !slices.Contains(missing, p.Subscription.Certificate)
+		if err := addSite(b, p, siteTLS); err != nil {
+			return nil, err
+		}
+		b.Units = append(b.Units, nginxUnit(append(siteFiles, SiteConf)))
+	}
+	if err := addHook(b, p); err != nil {
 		return nil, err
 	}
-	b.Units = append(b.Units, nginxUnit([]string{SiteConf}))
+	if len(certificates(p, fleet.CertDNS)) > 0 {
+		if err := addLego(b, p); err != nil {
+			return nil, err
+		}
+	}
 	return b, nil
 }
 
-// addSite adds nginx's sites, the ACME webroot and the certbot hook;
-// siteTLS serves the subscription site, which needs its certificate.
+// needsSite tells whether nginx serves the subscription site or HTTP-01
+// challenges.
+func needsSite(p *host.Plan) bool {
+	return p.Subscription != nil || len(certificates(p, fleet.CertHTTP)) > 0
+}
+
+// certificates are the node's certificates from sources.
+func certificates(p *host.Plan, sources ...string) []host.Certificate {
+	return slices.DeleteFunc(slices.Clone(p.Certificates), func(c host.Certificate) bool { return !slices.Contains(sources, c.Source) })
+}
+
+// certificate is the node's certificate name.
+func certificate(p *host.Plan, name string) (host.Certificate, bool) {
+	i := slices.IndexFunc(p.Certificates, func(c host.Certificate) bool { return c.Name == name })
+	if i < 0 {
+		return host.Certificate{}, false
+	}
+	return p.Certificates[i], true
+}
+
+// certFile tells whether a rendered file is a certificate's PEM, which goes
+// to engine.CertDir.
+func certFile(name string) bool {
+	return strings.HasPrefix(name, host.CertsDir+"/") && strings.HasSuffix(name, ".pem")
+}
+
+// addCertFiles adds the certificates from secrets to b, and returns the
+// files the engine and nginx read.
+func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engineFiles, siteFiles []string) {
+	certs := certificates(p, fleet.CertFile)
+	if len(certs) > 0 {
+		b.Dirs = append(b.Dirs, bundle.Dir{Path: engine.CertDir, Mode: 0o750, Group: engineGroup})
+	}
+	for _, c := range certs {
+		group := engineGroup
+		if c.Site {
+			group = ""
+		}
+		dir := path.Join(engine.CertDir, c.Name)
+		b.Dirs = append(b.Dirs, bundle.Dir{Path: dir, Mode: 0o750, Group: group})
+		for _, name := range []string{"fullchain.pem", "key.pem"} {
+			f := path.Join(dir, name)
+			b.Files = append(b.Files, bundle.File{Path: f, Mode: 0o640, Group: group, Data: files[path.Join(host.CertsDir, c.Name, name)]})
+			if c.Site {
+				siteFiles = append(siteFiles, f)
+			} else {
+				engineFiles = append(engineFiles, f)
+			}
+		}
+	}
+	return engineFiles, siteFiles
+}
+
+// addSite adds nginx's sites and the ACME webroot; siteTLS serves the
+// subscription site, which needs its certificate.
 func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 	data := map[string]any{
 		"EngineDomains": engineDomains(p),
 		"Site":          p.Subscription,
 		"SiteTLS":       siteTLS,
+		"SiteACME":      slices.ContainsFunc(certificates(p, fleet.CertHTTP), func(c host.Certificate) bool { return c.Site }),
 		"ACMEDir":       ACMEDir,
 		"CertDir":       engine.CertDir,
 		"RuleSetDir":    engine.RuleSetDir,
@@ -165,32 +249,42 @@ func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
 	if err != nil {
 		return err
 	}
+	b.Dirs = append(b.Dirs, bundle.Dir{Path: ACMEDir, Mode: 0o755})
+	b.Files = append(b.Files, bundle.File{Path: SiteConf, Mode: 0o644, Data: conf})
+	return nil
+}
+
+// addHook adds the hook that copies ACME certificates, if there are any.
+func addHook(b *bundle.Bundle, p *host.Plan) error {
+	if len(certificates(p, fleet.CertHTTP, fleet.CertDNS)) == 0 {
+		return nil
+	}
 	hook, err := certbotHook(p)
 	if err != nil {
 		return err
 	}
-	b.Dirs = append(b.Dirs, bundle.Dir{Path: ACMEDir, Mode: 0o755})
-	b.Files = append(b.Files,
-		bundle.File{Path: SiteConf, Mode: 0o644, Data: conf},
-		bundle.File{Path: CertbotHook, Mode: 0o755, Data: hook},
-	)
+	b.Files = append(b.Files, bundle.File{Path: CertbotHook, Mode: 0o755, Data: hook})
 	return nil
 }
 
+// certbotHook copies the certificates certbot and lego issue.
 func certbotHook(p *host.Plan) ([]byte, error) {
 	return execute("certbot-hook", map[string]any{
-		"Site":          p.Subscription,
-		"EngineDomains": engineDomains(p),
-		"CertDir":       engine.CertDir,
-		"Group":         engineGroup,
+		"Certificates": certificates(p, fleet.CertHTTP, fleet.CertDNS),
+		"CertDir":      engine.CertDir,
+		"Group":        engineGroup,
 	})
 }
 
-// engineDomains are the certificates the engine reads, not nginx.
+// engineDomains are the domains of the engine's HTTP-01 certificates.
 func engineDomains(p *host.Plan) []string {
-	return slices.DeleteFunc(slices.Clone(p.Certificates), func(d string) bool {
-		return p.Subscription != nil && d == p.Subscription.Domain
-	})
+	var out []string
+	for _, c := range certificates(p, fleet.CertHTTP) {
+		if !c.Site {
+			out = append(out, c.Domains...)
+		}
+	}
+	return out
 }
 
 func nginxUnit(files []string) bundle.Unit {

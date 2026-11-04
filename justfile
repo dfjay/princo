@@ -23,7 +23,8 @@ e2e host:
 golden:
     go test ./internal/engine/singbox ./internal/engine/xray ./internal/deploy -update
 
-# SHA-256s to pin in internal/deploy/engines.go for a new engine release
+# SHA-256s to pin in internal/deploy/engines.go for a new engine release,
+# or in internal/deploy/lego.go for lego's
 engine-digests engine version:
     go run ./internal/tools/engines digests {{engine}} {{version}}
 

@@ -109,10 +109,10 @@ func golden(t *testing.T, node, name string, got []byte) {
 }
 
 func TestBootstrap(t *testing.T) {
-	p, _, _ := plan(t, "de")
+	p, files, _ := plan(t, "de")
 	site := func(b *bundle.Bundle) string { return string(file(t, b, SiteConf)) }
 
-	b, err := Bootstrap(p, []string{"subs.example.com"})
+	b, err := Bootstrap(p, files, []string{"subs.example.com"})
 	require.NoError(t, err)
 	require.True(t, b.Partial, "the rest of the node stays as it is")
 	require.NotContains(t, site(b), "ssl", "the site waits for its certificate")
@@ -121,7 +121,7 @@ func TestBootstrap(t *testing.T) {
 	require.Equal(t, []string{SiteConf}, b.Units[0].Files)
 	require.NotNil(t, file(t, b, CertbotHook))
 
-	b, err = Bootstrap(p, []string{"naive-de.example.com"})
+	b, err = Bootstrap(p, files, []string{"naive-de.example.com"})
 	require.NoError(t, err)
 	require.Contains(t, site(b), "listen 127.0.0.1:8443 ssl;", "the site has its certificate")
 }
@@ -221,10 +221,15 @@ func olderThan(a, b string) bool {
 
 func TestCertbotHook_SiteKeyStaysRoots(t *testing.T) {
 	hook, err := certbotHook(&host.Plan{
-		Certificates: []string{"de.example.com", "subs.example.com"},
-		Subscription: &host.Site{Domain: "subs.example.com"},
+		Certificates: []host.Certificate{
+			{Name: "de.example.com", Source: fleet.CertHTTP},
+			{Name: "subs.example.com", Source: fleet.CertHTTP, Site: true},
+			{Name: "own", Source: fleet.CertFile},
+		},
+		Subscription: &host.Site{Domain: "subs.example.com", Certificate: "subs.example.com"},
 	})
 	require.NoError(t, err)
 	require.Contains(t, string(hook), "'subs.example.com') unit=nginx.service group=root ;;")
 	require.Contains(t, string(hook), "'de.example.com') unit=princo.service group=princo-engine ;;")
+	require.NotContains(t, string(hook), "'own'", "its files come with the bundle")
 }

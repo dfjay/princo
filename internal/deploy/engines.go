@@ -75,9 +75,12 @@ func (r release) url(version, arch string) string {
 }
 
 // archive is the engine's release for a Debian architecture.
-func (e engineSpec) archive(arch string) (download, bool) {
-	sum, ok := e.release.SHA256[arch]
-	return download{URL: e.release.url(e.version, arch), SHA256: sum}, ok
+func (e engineSpec) archive(arch string) (download, bool) { return e.release.archive(e.version, arch) }
+
+// archive is the release at version for a Debian architecture.
+func (r release) archive(version, arch string) (download, bool) {
+	sum, ok := r.SHA256[arch]
+	return download{URL: r.url(version, arch), SHA256: sum}, ok
 }
 
 var engines = map[string]engineSpec{

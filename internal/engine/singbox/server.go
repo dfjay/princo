@@ -111,7 +111,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 			"listen":      "::",
 			"listen_port": 443,
 			"users":       accounts,
-			"tls":         serverTLS(n.Address),
+			"tls":         serverTLS(f, n.Address),
 		}
 		if h.Obfs != "" {
 			in["obfs"] = map[string]any{"type": h.Obfs, "password": h.ObfsPassword}
@@ -131,18 +131,19 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 			"listen":      "127.0.0.1",
 			"listen_port": engine.MuxNaivePort,
 			"users":       accounts,
-			"tls":         serverTLS(nv.Domain),
+			"tls":         serverTLS(f, nv.Domain),
 		})
 	}
 	return out
 }
 
-func serverTLS(domain string) map[string]any {
+func serverTLS(f *fleet.Fleet, domain string) map[string]any {
+	dir := path.Join(engine.CertDir, f.Certificate(domain).Name)
 	return map[string]any{
 		"enabled":          true,
 		"server_name":      domain,
-		"certificate_path": path.Join(engine.CertDir, domain, "fullchain.pem"),
-		"key_path":         path.Join(engine.CertDir, domain, "key.pem"),
+		"certificate_path": path.Join(dir, "fullchain.pem"),
+		"key_path":         path.Join(dir, "key.pem"),
 	}
 }
 

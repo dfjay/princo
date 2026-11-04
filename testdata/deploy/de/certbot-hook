@@ -1,19 +1,26 @@
 #!/bin/sh
 # Written by princo deploy; changes here are overwritten.
-# Copies a certificate certbot issued or renewed to where princo reads it.
+# Copies a certificate certbot or lego issued or renewed to where princo
+# reads it.
 set -eu
-d=$(basename "$RENEWED_LINEAGE")
+if [ -n "${RENEWED_LINEAGE:-}" ]; then
+	d=$(basename "$RENEWED_LINEAGE")
+	chain=$RENEWED_LINEAGE/fullchain.pem key=$RENEWED_LINEAGE/privkey.pem
+else
+	d=$LEGO_HOOK_CERT_NAME
+	chain=$LEGO_HOOK_CERT_PATH key=$LEGO_HOOK_CERT_KEY_PATH
+fi
 case "$d" in
-'subs.example.com') unit=nginx.service group=root ;;
 'de.example.com') unit=princo.service group=princo-engine ;;
 'naive-de.example.com') unit=princo.service group=princo-engine ;;
+'subs.example.com') unit=nginx.service group=root ;;
 *) exit 0 ;;
 esac
 dir=/var/lib/princo/certs/"$d"
 install -d -m 0750 -g princo-engine /var/lib/princo/certs
 install -d -m 0750 -g "$group" "$dir"
-install -m 0640 -g "$group" "$RENEWED_LINEAGE/fullchain.pem" "$dir/.fullchain.pem"
-install -m 0640 -g "$group" "$RENEWED_LINEAGE/privkey.pem" "$dir/.key.pem"
+install -m 0640 -g "$group" "$chain" "$dir/.fullchain.pem"
+install -m 0640 -g "$group" "$key" "$dir/.key.pem"
 mv -f "$dir/.fullchain.pem" "$dir/fullchain.pem"
 mv -f "$dir/.key.pem" "$dir/key.pem"
 # Not yet there on the first deploy.

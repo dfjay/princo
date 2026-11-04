@@ -31,6 +31,9 @@ const (
 	// TokensFile lists "<user> <token>" per line; it sits outside the site
 	// so the web server never serves it.
 	TokensFile = "tokens.txt"
+	// CertsDir holds the certificates' files from secrets: <name>/{fullchain,
+	// key}.pem, or <name>/dns.env with the DNS provider's credentials.
+	CertsDir = "certificates"
 )
 
 // ConfigFile is the server config's path for an engine, e.g. sing-box.json.
@@ -53,6 +56,13 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 		return nil, err
 	}
 	files := map[string][]byte{ConfigFile(n.Engine): append(cfg, '\n')}
+	engineCerts, siteCert := certificates(f, n, cfg)
+	if siteCert != "" {
+		engineCerts = append(engineCerts, siteCert)
+	}
+	for _, name := range engineCerts {
+		addCertFiles(files, f.CertificateNamed(name))
+	}
 	if !n.ServesSubscription {
 		return files, nil
 	}
@@ -89,10 +99,10 @@ type Plan struct {
 	UDPPorts []int  `json:"udp_ports"`
 	// Mux is the SNI multiplexer on TCP 443; nil when the engine has 443 alone.
 	Mux *Mux `json:"mux,omitzero"`
-	// Certificates are the domains whose certificates the node needs, in
-	// engine.CertDir/<domain>/{fullchain,key}.pem.
-	Certificates []string `json:"certificates"`
-	ACMEEmail    string   `json:"acme_email,omitempty"`
+	// Certificates are the ones the node needs, in
+	// engine.CertDir/<name>/{fullchain,key}.pem.
+	Certificates []Certificate `json:"certificates"`
+	ACMEEmail    string        `json:"acme_email,omitempty"`
 	// RuleSets are the files the server config loads from engine.RuleSetDir,
 	// in the engine's format (e.g. geoip-ru.srs for sing-box).
 	RuleSets []string `json:"rule_sets"`
@@ -120,8 +130,21 @@ type Route struct {
 	Target string `json:"target"`
 }
 
+// Certificate is one the node serves; see fleet.Certificate.
+type Certificate struct {
+	Name    string   `json:"name"`
+	Domains []string `json:"domains"`
+	Source  string   `json:"source"`
+	DNS     string   `json:"dns,omitempty"`
+	// Site tells that nginx serves it, for the subscription site, rather
+	// than the engine.
+	Site bool `json:"site,omitempty"`
+}
+
 type Site struct {
 	Domain string `json:"domain"`
+	// Certificate names the site's in Plan.Certificates.
+	Certificate string `json:"certificate"`
 	// Root is the site's directory among the rendered files.
 	Root string `json:"root"`
 	// Listen is where the web server serves it over HTTPS.
@@ -172,7 +195,7 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 		Config:           ConfigFile(n.Engine),
 		TCPPorts:         []int{},
 		UDPPorts:         []int{},
-		Certificates:     []string{},
+		Certificates:     []Certificate{},
 		ACMEEmail:        n.ACMEEmail,
 		RuleSets:         e.RuleSets(files[ConfigFile(n.Engine)]),
 		SiteRuleSets:     []string{},
@@ -188,22 +211,23 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 	if n.Mux() {
 		p.Mux = newMux(f, n)
 	}
-	if n.ServesSubscription {
-		p.Subscription = &Site{Domain: f.Subscription.Domain, Root: SiteDir, Listen: SiteAddr}
-		p.Certificates = append(p.Certificates, f.Subscription.Domain)
+	engineCerts, siteCert := certificates(f, n, files[ConfigFile(n.Engine)])
+	for _, name := range engineCerts {
+		if name == siteCert {
+			return nil, fmt.Errorf("subscription.domain: node %s's engine has certificate %s too, which it can't share with the web server; give the site a certificate of its own", node, name)
+		}
+		p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(name), false))
 	}
+	if n.ServesSubscription {
+		p.Subscription = &Site{Domain: f.Subscription.Domain, Certificate: siteCert, Root: SiteDir, Listen: SiteAddr}
+		p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(siteCert), true))
+	}
+	slices.SortFunc(p.Certificates, func(a, b Certificate) int { return strings.Compare(a.Name, b.Name) })
 
 	var secretPaths []string
 	for _, name := range slices.Sorted(maps.Keys(files)) {
 		data := files[name]
 		secretPaths = append(secretPaths, secrets.Placeholders(data)...)
-		for _, m := range certRe.FindAllSubmatch(data, -1) {
-			d := string(m[1])
-			if p.Subscription != nil && d == p.Subscription.Domain {
-				return nil, fmt.Errorf("subscription.domain: node %s's engine has a certificate for %s too, which it can't share with nginx; give the site a domain of its own", node, d)
-			}
-			p.Certificates = append(p.Certificates, d)
-		}
 		if strings.HasPrefix(name, SiteDir+"/") {
 			for _, m := range siteRuleSetRe.FindAllSubmatch(data, -1) {
 				if name := string(m[1]); !slices.Contains(p.RuleSets, name) {
@@ -214,7 +238,6 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 	}
 	p.RuleSets = sortedUnique(p.RuleSets)
 	p.SiteRuleSets = sortedUnique(p.SiteRuleSets)
-	p.Certificates = sortedUnique(p.Certificates)
 	for _, s := range sortedUnique(secretPaths) {
 		location, config := locate(s)
 		kind, file, key, err := secrets.ParseLocation(location)
@@ -224,6 +247,39 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 		p.Secrets = append(p.Secrets, Secret{Path: s, File: s, Source: Source{Type: kind, File: file, Key: key, Config: config}})
 	}
 	return p, nil
+}
+
+// certificates names the certificates n's engine config cfg reads, and
+// the subscription site's if n serves it.
+func certificates(f *fleet.Fleet, n *fleet.Node, cfg []byte) (engineCerts []string, site string) {
+	for _, m := range certRe.FindAllSubmatch(cfg, -1) {
+		engineCerts = append(engineCerts, string(m[1]))
+	}
+	if n.ServesSubscription {
+		site = f.Certificate(f.Subscription.Domain).Name
+	}
+	return sortedUnique(engineCerts), site
+}
+
+// addCertFiles adds what certificate c needs from secrets to files.
+func addCertFiles(files map[string][]byte, c *fleet.Certificate) {
+	dir := path.Join(CertsDir, c.Name)
+	switch c.Source {
+	case fleet.CertFile:
+		files[path.Join(dir, "fullchain.pem")] = []byte(c.Fullchain)
+		files[path.Join(dir, "key.pem")] = []byte(c.Key)
+	case fleet.CertDNS:
+		var env strings.Builder
+		for _, v := range c.Env {
+			// Single quotes keep it literal for systemd and lego alike.
+			fmt.Fprintf(&env, "%s='%s'\n", v.Name, v.Value)
+		}
+		files[path.Join(dir, "dns.env")] = []byte(env.String())
+	}
+}
+
+func planCertificate(c *fleet.Certificate, site bool) Certificate {
+	return Certificate{Name: c.Name, Domains: c.Domains, Source: c.Source, DNS: c.DNS, Site: site}
 }
 
 func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {

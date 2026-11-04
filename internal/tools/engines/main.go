@@ -1,7 +1,7 @@
 // Command engines handles the engine releases princo deploy pins:
 //
 //	engines install <arch> <dir>       put them in dir, to check configs on
-//	engines digests <engine> <version> print the SHA-256s to pin
+//	engines digests <engine> <version> print the SHA-256s to pin; lego's too
 package main
 
 import (

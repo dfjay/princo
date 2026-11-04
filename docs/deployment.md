@@ -11,7 +11,9 @@ or use the NixOS module with your existing NixOS deployment workflow.
   `address`, Naive's `domain` and the subscription domain, when configured.
   A Reality-only node can use an IP address.
 - Allow TCP 443 and, for Hysteria2, UDP 443 in any external firewall. Allow
-  TCP 80 for HTTP-01 certificate issuance and renewal when certificates are needed.
+  TCP 80 for HTTP-01 certificate issuance and renewal when the node has
+  such certificates; DNS-01 and [`file`](config.md#certificates) ones
+  don't need it.
 - Make port 443 available. Other HTTPS sites on the same host can use
   [`passthrough`](#sharing-port-443).
 - Check `princo plan --node <name>` for the node's ports, certificates, rule
@@ -50,9 +52,12 @@ princo deploy --node nl --host admin@nl.example.com
    `/usr/local/lib/princo/<engine>-<version>`.
 3. Installs the matching princo release after verifying its signature with
    cosign. Use `--princo-deb PATH` to supply a local `.deb` instead.
-4. Obtains missing TLS certificates with certbot using HTTP-01. The certbot
-   timer handles renewal; its hook copies each certificate to
-   `/var/lib/princo/certs` for the engine.
+4. Obtains missing TLS certificates: certbot over HTTP-01, and over DNS-01
+   the lego release pinned by this version of princo, verified by its
+   SHA-256 under `/usr/local/lib/princo-lego`. The certbot timer and
+   `princo-lego.timer` renew them; a hook copies each to
+   `/var/lib/princo/certs` for the engine and nginx. Certificates from
+   [`file`](config.md#certificates) come with the node's files.
 5. Applies the rendered files, rule sets, `princo.service` and nginx config,
    restarting or reloading services whose files changed.
 
@@ -165,7 +170,8 @@ Deploy through your usual tool: `nixos-rebuild --target-host`, colmena or
 deploy-rs. The module:
 
 - runs `princo plan` during evaluation to configure the firewall, nginx SNI
-  multiplexer, ACME certificates and subscription site;
+  multiplexer, ACME certificates through `security.acme` (with its
+  `dnsProvider` for DNS-01) and subscription site;
 - renders the node's files into `/run/princo/files` on the host through
   `princo-render.service`, keeping decrypted secrets out of the Nix store;
 - runs the engine through `princo.service` and checks its minimum required

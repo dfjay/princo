@@ -29,6 +29,7 @@ secrets: {}         # where secrets live
 # subscription:    # optional site users import profiles from
 #   node: nl
 #   domain: subs.example.com
+# certificates: {}  # wildcards and certificates issued elsewhere
 # rule_data: runetfreedom  # where geoip: and geosite: data comes from
 ```
 
@@ -177,14 +178,14 @@ an HTTP/3 server and has no site to show, so `masquerade` can't be set with it.
 A node takes the defaults that fit its mode: `masquerade` without `obfs`,
 `obfs_password` with it.
 
-Hysteria2 needs a certificate for `address`, so `address` must then be a
-domain pointing at the node.
+Hysteria2 needs a [certificate](#certificates) for `address`, so `address`
+must then be a domain pointing at the node.
 
 ### `naive`
 
 | Field | Description |
 | --- | --- |
-| `domain` | the domain Naive is served on; needs a certificate and a DNS record pointing at the node |
+| `domain` | the domain Naive is served on; needs a [certificate](#certificates) and a DNS record pointing at the node |
 
 ### `egress`
 
@@ -450,7 +451,7 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domain` | its domain; needs a DNS record pointing at that node, and can't be a domain the node's engine has a certificate for |
+| `domain` | its domain; needs a DNS record pointing at that node, and a [certificate](#certificates) of its own: not one the node's engine uses too |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
@@ -481,6 +482,51 @@ also uses what only that platform has; `princo render --user <name>
 | Platform | sing-box |
 | --- | --- |
 | `linux` | sing-box running as a service, on a router or a desktop: TCP is redirected in the kernel with nftables (`auto_redirect`), faster than the TUN stack, and on a router that takes in the LAN's traffic |
+
+## `certificates`
+
+Hysteria2's `address`, Naive's `domain` and the subscription domain need
+certificates. By default each node gets one per domain from Let's Encrypt
+over HTTP-01, which needs TCP 80 open. Every certificate is published in
+[Certificate Transparency](https://certificate.transparency.dev/) logs,
+such as crt.sh, so each such domain is public the day it is issued.
+`certificates` covers domains otherwise: a wildcard over DNS-01 keeps the
+names under it out of the logs, and a certificate issued elsewhere, such as
+a bought one or Cloudflare's Origin CA, comes from secrets.
+
+```yaml
+certificates:
+  wild:
+    domains: [example.com, "*.example.com"]
+    acme:
+      dns: cloudflare
+      env: { CLOUDFLARE_DNS_API_TOKEN: !secret certificates/cloudflare }
+  subs:
+    domains: [subs.example.com]
+    file: {}          # certificates/subs/fullchain and certificates/subs/key
+```
+
+| Field | Description |
+| --- | --- |
+| `domains` | the domains it covers; `*.example.com` covers one label under `example.com`, not `example.com` itself or `a.b.example.com` |
+| `acme` | each node that needs it issues it from Let's Encrypt and renews it: over HTTP-01, or with `dns` over DNS-01 |
+| `acme.dns` | a [lego DNS provider](https://go-acme.github.io/lego/dns/), such as `cloudflare` or `route53`; wildcards need one |
+| `acme.env` | the provider's credentials, as the environment variables lego's page for it lists; values may be `!secret`, each one line without `'` |
+| `file` | a certificate issued elsewhere |
+| `file.fullchain` | *secret*, `certificates/<name>/fullchain`: the certificate in PEM, followed by its chain |
+| `file.key` | *secret*, `certificates/<name>/key`: its private key in PEM |
+
+A domain takes the entry that lists it, else one whose wildcard covers it,
+else a certificate of its own over HTTP-01. One domain can be in one entry
+only. Names of entries are like node names; a node keeps a certificate in
+`/var/lib/princo/certs/<name>`.
+
+For Cloudflare, give lego an API token with Zone / DNS / Edit permission
+on the zone alone. princo checks a `file` certificate against its key and
+its domains when it renders, but not its expiry: renew it yourself before
+it lapses. Cloudflare's Origin CA certificates are trusted by Cloudflare
+alone, so they suit a proxied domain, such as the subscription site behind
+Cloudflare, and not the domains clients connect to directly.
 
 ## `secrets`
 

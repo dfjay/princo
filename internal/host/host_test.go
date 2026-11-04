@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/dfjay/princo/internal/certtest"
 	"github.com/dfjay/princo/internal/config"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/fleet/fleettest"
@@ -57,10 +58,14 @@ func TestPlan_Mux(t *testing.T) {
 		},
 		Default: "127.0.0.1:8444",
 	}, p.Mux)
-	require.Equal(t, []string{"de.example.com", "naive-de.example.com", "subs.example.com"}, p.Certificates)
+	require.Equal(t, []Certificate{
+		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP},
+		{Name: "naive-de.example.com", Domains: []string{"naive-de.example.com"}, Source: fleet.CertHTTP},
+		{Name: "subs.example.com", Domains: []string{"subs.example.com"}, Source: fleet.CertHTTP, Site: true},
+	}, p.Certificates)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
 	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
-	require.Equal(t, &Site{Domain: "subs.example.com", Root: "subscription", Listen: SiteAddr}, p.Subscription)
+	require.Equal(t, &Site{Domain: "subs.example.com", Certificate: "subs.example.com", Root: "subscription", Listen: SiteAddr}, p.Subscription)
 	// Its own keys, the chain hop exiting here, and every user for the site.
 	require.Equal(t, []string{
 		"nodes/de/reality", "nodes/de/warp/ipv4", "nodes/de/warp/ipv6", "nodes/de/warp/private_key",
@@ -73,7 +78,7 @@ func TestPlan_SiteSharesEngineCertificate(t *testing.T) {
 	f := placeholderFleet(t)
 	f.Subscription.Domain = "de.example.com"
 	_, err := NewPlan(f, "de", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
-	require.ErrorContains(t, err, "subscription.domain: node de's engine has a certificate for de.example.com too")
+	require.ErrorContains(t, err, "subscription.domain: node de's engine has certificate de.example.com too, which it can't share with the web server")
 }
 
 func TestPlan_RealityOnly(t *testing.T) {
@@ -143,4 +148,58 @@ func TestPlan_XraySubscription(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"geoip.dat", "geosite.dat"}, p.RuleSets)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.SiteRuleSets)
+}
+
+func TestCertificates(t *testing.T) {
+	chain, key := certtest.SelfSigned(t, "subs.example.com")
+	cfg, err := config.Parse([]byte(`princo: v1
+nodes:
+  a:
+    address: a.example.com
+    hysteria2: { masquerade: https://www.example.org }
+    naive: { domain: shop.example.com }
+users:
+  u: {}
+subscription: { node: a, domain: subs.example.com }
+certificates:
+  wild:
+    domains: ["*.example.com"]
+    acme: { dns: cloudflare, env: { CLOUDFLARE_DNS_API_TOKEN: !secret cf } }
+  site:
+    domains: [subs.example.com]
+    file: {}
+`))
+	require.NoError(t, err)
+	values := map[string]any{
+		"cf":           "token",
+		"users":        map[string]any{"u": "uuid"},
+		"shared":       map[string]any{"hysteria2_obfs": "obfs"},
+		"certificates": map[string]any{"site": map[string]any{"fullchain": chain, "key": key}},
+	}
+	f, err := fleet.Build(cfg, secrets.NewStore(values))
+	require.NoError(t, err)
+	files, err := Files(f, "a")
+	require.NoError(t, err)
+	require.Equal(t, "CLOUDFLARE_DNS_API_TOKEN='token'\n", string(files["certificates/wild/dns.env"]))
+	require.Equal(t, chain, string(files["certificates/site/fullchain.pem"]))
+	require.Equal(t, key, string(files["certificates/site/key.pem"]))
+	require.Contains(t, string(files["sing-box.json"]), `"/var/lib/princo/certs/wild/fullchain.pem"`, "one wildcard for hysteria2 and naive")
+	require.NotContains(t, string(files["sing-box.json"]), "/certs/a.example.com/")
+
+	placeholders, err := fleet.Build(cfg, secrets.AllPlaceholders{})
+	require.NoError(t, err)
+	p, err := NewPlan(placeholders, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
+	require.NoError(t, err)
+	require.Equal(t, []Certificate{
+		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Site: true},
+		{Name: "wild", Domains: []string{"*.example.com"}, Source: fleet.CertDNS, DNS: "cloudflare"},
+	}, p.Certificates)
+	require.Equal(t, "site", p.Subscription.Certificate)
+	require.Subset(t, secretPaths(p), []string{"cf", "certificates/site/fullchain", "certificates/site/key"})
+
+	cfg.Subscription.Domain = "subs2.example.com" // under the wildcard too
+	placeholders, err = fleet.Build(cfg, secrets.AllPlaceholders{})
+	require.NoError(t, err)
+	_, err = NewPlan(placeholders, "a", func(path string) (string, int) { return "", 0 })
+	require.ErrorContains(t, err, "subscription.domain: node a's engine has certificate wild too")
 }

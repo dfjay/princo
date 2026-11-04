@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/dfjay/princo/internal/bundle"
 	"github.com/dfjay/princo/internal/engine"
+	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/host"
 )
 
@@ -38,8 +40,11 @@ type Deployer struct {
 // has none.
 type facts struct {
 	arch, princo, node string
-	// engine tells that the host has the engine's release.
-	engine  bool
+	// engine and lego tell that the host has their releases.
+	engine, lego bool
+	// openssl tells that it could read the certificates' domains.
+	openssl bool
+	// missing are the ACME certificates to issue.
 	missing []string
 	// linked are certificates an older princo linked into certbot's directories.
 	linked []string
@@ -61,8 +66,22 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 	if err := d.provision(ctx, p); err != nil {
 		return err
 	}
+	// With openssl installed, the probe reads the domains of the
+	// certificates the host has.
+	if !f.openssl && slices.ContainsFunc(certificates(p, fleet.CertHTTP, fleet.CertDNS), func(c host.Certificate) bool {
+		return !slices.Contains(f.missing, c.Name) && !slices.Contains(f.linked, c.Name)
+	}) {
+		if f, err = d.probe(ctx, p); err != nil {
+			return err
+		}
+	}
 	if err := d.installEngine(ctx, f, e); err != nil {
 		return err
+	}
+	if len(certificates(p, fleet.CertDNS)) > 0 {
+		if err := d.installLego(ctx, f); err != nil {
+			return err
+		}
 	}
 	if err := d.installPrinco(ctx, f); err != nil {
 		return err
@@ -71,27 +90,17 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 		return err
 	}
 	if len(f.missing) > 0 {
-		b, err := Bootstrap(p, f.missing)
+		b, err := Bootstrap(p, files, f.missing)
 		if err != nil {
 			return err
 		}
-		d.logf("serving ACME challenges")
+		d.logf("readying the host to issue certificates")
 		if err := d.apply(ctx, b, false); err != nil {
 			return err
 		}
-		for _, domain := range f.missing {
-			d.logf("issuing a certificate for %s", domain)
-			script, err := execute("issue.sh", map[string]any{
-				"Domain":  domain,
-				"Email":   p.ACMEEmail,
-				"ACMEDir": ACMEDir,
-				"Hook":    CertbotHook,
-			})
-			if err != nil {
-				return err
-			}
-			if err := d.Remote.Run(ctx, string(script), nil, d.Log); err != nil {
-				return fmt.Errorf("certificate for %s: %w", domain, err)
+		for _, name := range f.missing {
+			if err := d.issue(ctx, p, name); err != nil {
+				return fmt.Errorf("certificate %s: %w", name, err)
 			}
 		}
 	}
@@ -104,6 +113,31 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 		return err
 	}
 	return d.cleanup(ctx, p, e)
+}
+
+// issue issues certificate name: with certbot over HTTP-01, else lego.
+func (d *Deployer) issue(ctx context.Context, p *host.Plan, name string) error {
+	c, ok := certificate(p, name)
+	if !ok {
+		return errors.New("the plan has no such certificate")
+	}
+	d.logf("issuing certificate %s for %s", c.Name, strings.Join(c.Domains, ", "))
+	// Unattended, lego waits a random while before renewing.
+	script := "LEGO_NO_RANDOM_SLEEP=true " + LegoScript + " " + shellQuote(c.Name)
+	if c.Source == fleet.CertHTTP {
+		data, err := execute("issue.sh", map[string]any{
+			"Name":    c.Name,
+			"Domains": strings.Join(c.Domains, ","),
+			"Email":   p.ACMEEmail,
+			"ACMEDir": ACMEDir,
+			"Hook":    CertbotHook,
+		})
+		if err != nil {
+			return err
+		}
+		script = string(data)
+	}
+	return d.Remote.Run(ctx, script, nil, d.Log)
 }
 
 // Check prints what Deploy would change in the host's files.
@@ -125,7 +159,8 @@ func (d *Deployer) Check(ctx context.Context, p *host.Plan, files, ruleSets map[
 func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 	script, err := execute("probe.sh", map[string]any{
 		"Engine":       engines[p.Engine].bin(),
-		"Certificates": p.Certificates,
+		"Certificates": certificates(p, fleet.CertHTTP, fleet.CertDNS),
+		"Lego":         legoBin(),
 		"CertDir":      engine.CertDir,
 		"StateFile":    bundle.StateFile,
 		"StreamConf":   StreamConf,
@@ -147,12 +182,21 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.princo = value
 		case "engine":
 			f.engine = true
+		case "lego":
+			f.lego = true
+		case "openssl":
+			f.openssl = true
 		case "node":
 			f.node = value
 		case "missing":
 			f.missing = append(f.missing, value)
 		case "linked":
 			f.linked = append(f.linked, value)
+		case "sans":
+			name, sans, _ := strings.Cut(value, " ")
+			if !sameDomains(p, name, sans) {
+				f.missing = append(f.missing, name)
+			}
 		case "stream":
 			f.stream = true
 		}
@@ -164,6 +208,31 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 		return f, bundle.OtherNodeError(f.node, p.Node)
 	}
 	return f, nil
+}
+
+// sameDomains tells whether certificate name, whose subjectAltName openssl
+// prints as sans (DNS:a,DNS:b), has the plan's domains.
+func sameDomains(p *host.Plan, name, sans string) bool {
+	c, ok := certificate(p, name)
+	if !ok {
+		return true
+	}
+	var have []string
+	for san := range strings.SplitSeq(sans, ",") {
+		if d, ok := strings.CutPrefix(san, "DNS:"); ok {
+			have = append(have, d)
+		}
+	}
+	return slices.Equal(domainSet(have), domainSet(c.Domains))
+}
+
+func domainSet(domains []string) []string {
+	out := make([]string, len(domains))
+	for i, d := range domains {
+		out[i] = strings.ToLower(d)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // copyLinked replaces linked certificates with copies, which the engine
@@ -188,14 +257,18 @@ func (d *Deployer) copyLinked(ctx context.Context, p *host.Plan, domains []strin
 
 func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 	var pkgs []string
-	if p.Mux != nil || len(p.Certificates) > 0 {
+	if p.Mux != nil || needsSite(p) {
 		pkgs = append(pkgs, "nginx")
 	}
 	if p.Mux != nil {
 		pkgs = append(pkgs, "libnginx-mod-stream")
 	}
-	if len(p.Certificates) > 0 {
+	if len(certificates(p, fleet.CertHTTP)) > 0 {
 		pkgs = append(pkgs, "certbot")
+	}
+	if len(certificates(p, fleet.CertHTTP, fleet.CertDNS)) > 0 {
+		// For probe.sh to read the certificates' domains.
+		pkgs = append(pkgs, "openssl")
 	}
 	script, err := execute("provision.sh", map[string]any{
 		"Packages": pkgs,
@@ -212,10 +285,17 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 // releases, kept for a rollback until now, and the ufw rules princo opened
 // for ports it stopped using.
 func (d *Deployer) cleanup(ctx context.Context, p *host.Plan, e engineSpec) error {
+	keepLego := ""
+	if len(certificates(p, fleet.CertDNS)) > 0 {
+		keepLego = legoDir()
+	}
 	script, err := execute("cleanup.sh", map[string]any{
-		"Root":  engineRoot,
-		"Keep":  e.dir(),
-		"Ports": ports(p),
+		"Root":      engineRoot,
+		"Keep":      e.dir(),
+		"LegoRoot":  legoRoot,
+		"KeepLego":  keepLego,
+		"LegoTimer": LegoTimer,
+		"Ports":     ports(p),
 	})
 	if err != nil {
 		return err
@@ -229,7 +309,7 @@ func ports(p *host.Plan) []string {
 	for _, port := range p.TCPPorts {
 		out = append(out, fmt.Sprintf("%d/tcp", port))
 	}
-	if len(p.Certificates) > 0 {
+	if len(certificates(p, fleet.CertHTTP)) > 0 {
 		out = append(out, "80/tcp")
 	}
 	for _, port := range p.UDPPorts {

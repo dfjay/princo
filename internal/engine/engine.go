@@ -18,7 +18,7 @@ const (
 	// RuleSetSitePath is where the subscription site serves the client
 	// profiles' rule sets from RuleSetDir, so they match the nodes'.
 	RuleSetSitePath = "/rules/"
-	// CertDir holds one directory per domain with fullchain.pem and key.pem.
+	// CertDir holds <certificate name>/{fullchain,key}.pem.
 	CertDir        = "/var/lib/princo/certs"
 	MuxRealityPort = fleet.MuxRealityPort
 	MuxNaivePort   = fleet.MuxNaivePort
