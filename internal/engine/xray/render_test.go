@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -199,4 +200,32 @@ func TestRealityTarget(t *testing.T) {
 		}
 	}
 	t.Fatal("no reality inbound")
+}
+
+// Behind the multiplexer, Reality listens on loopback alone, for both
+// families: the multiplexer connects as the client's.
+func TestRenderServer_BehindMux(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	fi, _ := f.Node("fi")
+	fi.Passthrough = []fleet.Passthrough{{Host: "example.com", Target: "127.0.0.1:8443"}}
+	data, err := New().RenderServer(f, "fi")
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	in := cfg["inbounds"].([]any)[0].(map[string]any)
+	require.Equal(t, "vless-reality-in", in["tag"])
+	require.Equal(t, "::", in["listen"])
+	require.EqualValues(t, fleet.MuxRealityPort, in["port"])
+	require.Equal(t, map[string]any{"customSockopt": []any{map[string]any{
+		"system": "linux", "network": "tcp", "level": "1", "opt": "25", "type": "str", "value": "lo",
+	}}}, in["streamSettings"].(map[string]any)["sockopt"])
+
+	if bin, err := exec.LookPath("xray"); err == nil && runtime.GOOS == "linux" {
+		path := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(path, data, 0o600))
+		cmd := exec.CommandContext(t.Context(), bin, "run", "-test", "-c", path)
+		cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+filepath.Join("..", "..", "..", "testdata", "ruledata"))
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
 }

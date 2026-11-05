@@ -168,6 +168,7 @@ updated server configs and subscriptions.
 | Print subscription and QR links | `princo render --user alice --links` |
 | Deploy using the node's `ssh:` setting | `princo deploy --node nl` |
 | Preview file changes on a host with princo installed | `princo deploy --node nl --dry-run` |
+| Show each user's connections, addresses and traffic on a node with `stats: true` | `princo stats --node nl` |
 | Add a user on some nodes and generate their UUID | `princo user add carol --nodes nl` |
 | Replace a user's UUID, revoking their old links | `princo user rotate carol` |
 | Remove a user and their UUID | `princo user remove carol` |

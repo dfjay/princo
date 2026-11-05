@@ -9,7 +9,6 @@ import (
 	"path"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/dfjay/princo/internal/engine"
@@ -121,14 +120,35 @@ type Plan struct {
 type Mux struct {
 	Port   int     `json:"port"`
 	Routes []Route `json:"routes"`
-	// Default takes connections no route matches; empty when nothing does.
-	Default string `json:"default,omitempty"`
+	// Default takes connections no route matches; nil when nothing does.
+	Default *Route `json:"default,omitzero"`
+	// Loopback is nil when no route goes to the engine.
+	Loopback *Loopback `json:"loopback,omitzero"`
 }
 
+// Route sends a connection to Target or to the engine at EnginePort.
 type Route struct {
-	SNI    string `json:"sni"`
-	Target string `json:"target"`
+	// SNI is empty on the default route.
+	SNI    string `json:"sni,omitempty"`
+	Target string `json:"target,omitempty"`
+	// EnginePort is listened on at 127.0.0.1 and ::1. The multiplexer
+	// connects to the client's family from the client's address, so the
+	// engine sees who connects.
+	EnginePort int `json:"engine_port,omitempty"`
 }
+
+// Loopback keeps the engine's replies to the clients' addresses local: a
+// rule per port sends them to Table, which delivers everything locally,
+// back to the multiplexer.
+type Loopback struct {
+	// Table is the routing table and the rules' preference.
+	Table int   `json:"table"`
+	Ports []int `json:"ports"`
+}
+
+// LoopbackTable precedes the rules of Tailscale (5210 and up) and of the
+// main table (32766).
+const LoopbackTable = 4430
 
 // Certificate is one the node serves; see fleet.Certificate.
 type Certificate struct {
@@ -283,8 +303,8 @@ func planCertificate(c *fleet.Certificate, site bool) Certificate {
 }
 
 func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {
-	local := func(port int) string { return "127.0.0.1:" + strconv.Itoa(port) }
 	m := &Mux{Port: 443, Routes: []Route{}}
+	var enginePorts []int
 	for _, pt := range n.Passthrough {
 		m.Routes = append(m.Routes, Route{SNI: pt.Host, Target: pt.Target})
 	}
@@ -292,10 +312,16 @@ func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {
 		m.Routes = append(m.Routes, Route{SNI: f.Subscription.Domain, Target: SiteAddr})
 	}
 	if n.Naive != nil {
-		m.Routes = append(m.Routes, Route{SNI: n.Naive.Domain, Target: local(engine.MuxNaivePort)})
+		m.Routes = append(m.Routes, Route{SNI: n.Naive.Domain, EnginePort: engine.MuxNaivePort})
+		enginePorts = append(enginePorts, engine.MuxNaivePort)
 	}
 	if n.Reality != nil {
-		m.Default = local(engine.MuxRealityPort)
+		m.Default = &Route{EnginePort: engine.MuxRealityPort}
+		enginePorts = append(enginePorts, engine.MuxRealityPort)
+	}
+	if len(enginePorts) > 0 {
+		slices.Sort(enginePorts)
+		m.Loopback = &Loopback{Table: LoopbackTable, Ports: enginePorts}
 	}
 	return m
 }

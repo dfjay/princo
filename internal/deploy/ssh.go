@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 )
 
 // SSH runs scripts on a host over one connection of the system ssh, so
@@ -62,6 +65,54 @@ func (s *SSH) Run(ctx context.Context, script string, stdin io.Reader, stdout io
 	}
 	return nil
 }
+
+// Dial connects to addr, host:port as the host sees it, through ssh -W:
+// 127.0.0.1:<port> reaches what listens on the host's loopback.
+func (s *SSH) Dial(ctx context.Context, addr string) (net.Conn, error) {
+	cmd := exec.CommandContext(ctx, "ssh", s.args("-W", addr, s.Target)...)
+	cmd.Stderr = s.Stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("ssh %s: %w", s.Target, err)
+	}
+	return &cmdConn{Reader: stdout, WriteCloser: stdin, cmd: cmd, addr: addr}, nil
+}
+
+// cmdConn is a connection over a command's stdin and stdout.
+type cmdConn struct {
+	io.Reader
+	io.WriteCloser
+	cmd  *exec.Cmd
+	addr string
+	once sync.Once
+}
+
+func (c *cmdConn) Close() error {
+	c.once.Do(func() {
+		_ = c.WriteCloser.Close()
+		_ = c.cmd.Process.Kill()
+		_ = c.cmd.Wait()
+	})
+	return nil
+}
+
+func (c *cmdConn) LocalAddr() net.Addr                { return pipeAddr("ssh") }
+func (c *cmdConn) RemoteAddr() net.Addr               { return pipeAddr(c.addr) }
+func (c *cmdConn) SetDeadline(t time.Time) error      { return nil }
+func (c *cmdConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *cmdConn) SetWriteDeadline(t time.Time) error { return nil }
+
+type pipeAddr string
+
+func (a pipeAddr) Network() string { return "ssh" }
+func (a pipeAddr) String() string  { return string(a) }
 
 func (s *SSH) args(args ...string) []string {
 	return append([]string{"-o", "ControlPath=" + s.controlDir + "/%C"}, args...)

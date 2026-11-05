@@ -165,6 +165,7 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 		"StateFile":    bundle.StateFile,
 		"StreamConf":   StreamConf,
 		"SiteConf":     SiteConf,
+		"LoopbackUnit": LoopbackUnitFile,
 	})
 	if err != nil {
 		return facts{}, err
@@ -202,6 +203,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.earlier.Stream = true
 		case "site":
 			f.earlier.Site = true
+		case "loopback":
+			f.earlier.Loopback = true
 		}
 	}
 	if f.arch == "" {
@@ -265,6 +268,9 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 	}
 	if p.Mux != nil {
 		pkgs = append(pkgs, "libnginx-mod-stream")
+	}
+	if p.Mux != nil && p.Mux.Loopback != nil {
+		pkgs = append(pkgs, "iproute2")
 	}
 	if len(certificates(p, fleet.CertHTTP)) > 0 {
 		pkgs = append(pkgs, "certbot")

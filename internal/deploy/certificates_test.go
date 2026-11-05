@@ -100,8 +100,8 @@ func TestBuild_Certificates(t *testing.T) {
 	require.Equal(t, "CLOUDFLARE_DNS_API_TOKEN='token'\n", string(env.Data))
 	require.EqualValues(t, 0o600, env.Mode)
 
-	require.Equal(t, []string{"princo.service", "nginx.service", "princo-lego.timer"}, unitNames(b))
-	require.Contains(t, b.Units[1].Files, site+"/fullchain.pem", "nginx reloads on a new certificate")
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service", "princo-lego.timer"}, unitNames(b))
+	require.Contains(t, b.Units[2].Files, site+"/fullchain.pem", "nginx reloads on a new certificate")
 	require.NotContains(t, string(bundleFile(t, b, SiteConf).Data), "acme-challenge", "nothing over HTTP-01 but the site's redirect")
 	require.Contains(t, string(bundleFile(t, b, SiteConf).Data), "ssl_certificate /var/lib/princo/certs/site/fullchain.pem;")
 
@@ -138,7 +138,7 @@ func TestDeploy_DNSCertificate(t *testing.T) {
 	var script string
 	d.Remote = remoteFunc(func(s string) { script = s })
 	require.NoError(t, d.provision(t.Context(), p))
-	require.Contains(t, script, "for p in 'nginx' 'libnginx-mod-stream' 'openssl'; do", "no certbot")
+	require.Contains(t, script, "for p in 'nginx' 'libnginx-mod-stream' 'iproute2' 'openssl'; do", "no certbot")
 	require.Equal(t, []string{"allow 443/tcp comment princo", "allow 443/udp comment princo"}, runUFW(t, script, ""), "nor port 80")
 
 	_, _ = d.probe(t.Context(), p)

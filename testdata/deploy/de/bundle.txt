@@ -19,6 +19,7 @@ file 0600 root     /var/lib/princo/files/tokens.txt
 file 0644 root     /var/lib/princo/rules/geoip-ru.srs
 file 0644 root     /var/lib/princo/rules/geosite-category-ru.srs
 file 0644 root     /etc/systemd/system/princo.service
+file 0644 root     /etc/systemd/system/princo-loopback.service
 file 0644 root     /etc/nginx/modules-enabled/99-princo-stream.conf
 file 0644 root     /etc/nginx/sites-enabled/princo.conf
 file 0755 root     /etc/letsencrypt/renewal-hooks/deploy/princo
@@ -27,6 +28,8 @@ unit princo.service reload=false check=["/usr/local/lib/princo/sing-box-1.14.3/s
   /var/lib/princo/files/sing-box.json
   /var/lib/princo/rules/geoip-ru.srs
   /var/lib/princo/rules/geosite-category-ru.srs
+unit princo-loopback.service reload=false check=[]
+  /etc/systemd/system/princo-loopback.service
 unit nginx.service reload=true check=["nginx" "-t" "-q"]
   /etc/nginx/modules-enabled/99-princo-stream.conf
   /etc/nginx/sites-enabled/princo.conf

@@ -63,7 +63,10 @@ in
         inherit ruleData;
       };
       security.acme.acceptTerms = true;
-      environment.systemPackages = [ pkgs.xray ];
+      environment.systemPackages = [
+        pkgs.xray
+        pkgs.openssl
+      ];
     };
 
   testScript = ''
@@ -115,6 +118,19 @@ in
     machine.fail(curl + "/missing.svg")
     # Subscription URLs grant access.
     assert token not in machine.succeed("cat /var/log/nginx/*.log && journalctl -u nginx --no-pager")
+
+    # Behind the multiplexer, the engine sees who connects, over either family.
+    machine.wait_for_unit("princo-loopback.service")
+    machine.fail("ss -Hltn 'sport = :8445' | grep -v '%lo:'")  # only on loopback
+    machine.succeed("ss -Hltn 'sport = :8446' | grep -qF '127.0.0.1:8446'")  # the stats API, on loopback
+    for family in ["4", "6"]:
+        addr = machine.succeed(f"ip -{family} -o addr show dev eth1 scope global | awk '{{print $4}}' | cut -d/ -f1").strip()
+        peer = fi.succeed(f"ip -{family} -o addr show dev eth1 scope global | awk '{{print $4}}' | cut -d/ -f1").strip()
+        host = f"[{addr}]" if family == "6" else addr
+        fi.succeed(f"(sleep 60 | openssl s_client -connect {host}:443 -servername naive-de.example.com -quiet >/dev/null 2>&1 &)")
+        machine.wait_until_succeeds(f"ss -Htn state established 'sport = :8445' | grep -qF '{peer}'", timeout=30)
+    # The site, which isn't the engine, still sees nginx.
+    machine.succeed(curl + "/ -o /dev/null")
 
     # The engine reads its files through its group, not by bypassing permissions.
     caps = machine.succeed("grep CapEff /proc/$(systemctl show -P MainPID princo.service)/status")

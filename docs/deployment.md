@@ -224,6 +224,59 @@ Configure that site's HTTPS listener on `127.0.0.1:8443`; the multiplexer
 forwards TLS unchanged, so the site still handles its own certificate.
 The NixOS module rejects nginx virtual hosts that also try to listen on 443.
 
-Reality and Naive behind the multiplexer see the client address as
-`127.0.0.1`; the sing-box path does not forward the original address through
-the PROXY protocol.
+Reality and Naive behind the multiplexer still see each client's own address,
+in their logs and in [`princo stats`](#watching-who-connects). sing-box no
+longer reads the PROXY protocol, so nginx connects to them transparently: from
+the client's address, to `127.0.0.1` or `::1` as the client's family. The
+engine listens on both, bound to the loopback interface so nothing outside
+reaches it. Replies to those addresses would leave through the network, so
+`princo-loopback.service` adds policy routing that keeps them on loopback,
+for Reality and likewise for Naive and IPv6:
+
+```bash
+ip route replace local 0.0.0.0/0 dev lo table 4430
+ip rule add pref 4430 from 127.0.0.0/8 iif lo ipproto 6 sport 8444 lookup 4430
+```
+
+Table 4430 delivers everything locally. Only the engine's ports behind the
+multiplexer, 8444 for Reality and 8445 for Naive, are affected; passthrough
+sites and the subscription site still see `127.0.0.1`. nginx needs
+`CAP_NET_RAW` to bind to the clients' addresses. Debian's nginx keeps it for
+its workers, and the NixOS module grants it.
+
+## Watching who connects
+
+To see who uses a node, enable `stats` on it, generate its secret and deploy:
+
+```yaml
+nodes:
+  nl:
+    stats: true
+```
+
+```bash
+princo secret gen
+princo deploy --node nl
+princo stats --node nl
+```
+
+```text
+node nl: 12 connections open, and the last 1000 closed, the oldest from 2026-11-05 09:14:03
+USER   OPEN  CONNECTIONS  ADDRESSES  UPLOAD   DOWNLOAD
+alice  9     812          3          41.2 MiB  1.9 GiB
+bob    3     200          1          2.1 MiB   88.4 MiB
+```
+
+By default, princo counts what sing-box remembers: the connections open now
+and the last 1000 it closed. `--for 1h` watches the node that long and counts
+only what happens meanwhile, traffic included. `--ips` lists each user's
+addresses, and `--user` shows one user. Many addresses from different
+networks at once suggest a shared subscription; rotate that user's UUID with
+`princo user rotate`.
+
+sing-box's API reports the connections on `127.0.0.1:8446`, behind a secret
+at `nodes/<node>/stats`. `princo stats` reaches it over the node's `ssh:` with
+`ssh -W`, so the SSH user needs port forwarding, not root. sing-box sends
+each connection's destination along, over that SSH connection; princo skips
+it, so the report says who connected and how much, never where users went.
+Only sing-box nodes report connections.
