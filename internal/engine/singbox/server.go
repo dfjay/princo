@@ -33,6 +33,16 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	if n.Egress.Kind == fleet.EgressWarp {
 		cfg["endpoints"] = []any{warpEndpoint(n.Warp)}
 	}
+	if n.Stats != nil {
+		// Without a dashboard, which it would download.
+		cfg["services"] = []any{map[string]any{
+			"type":        "api",
+			"tag":         "stats",
+			"listen":      "127.0.0.1",
+			"listen_port": engine.StatsPort,
+			"secret":      n.Stats.Secret,
+		}}
+	}
 
 	route := map[string]any{"final": egressTag(n)}
 	// Users mustn't reach the node's own network. Domains the node resolves
@@ -78,15 +88,11 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 		for _, m := range f.ChainsInto(n) {
 			accounts = append(accounts, map[string]any{"name": "chain:" + m.Name, "uuid": m.ChainUUID, "flow": "xtls-rprx-vision"})
 		}
-		listen, port := "::", 443
-		if n.Mux() {
-			listen, port = "127.0.0.1", engine.MuxRealityPort
-		}
-		out = append(out, map[string]any{
+		in := map[string]any{
 			"type":        "vless",
 			"tag":         "vless-reality-in",
-			"listen":      listen,
-			"listen_port": port,
+			"listen":      "::",
+			"listen_port": 443,
 			"users":       accounts,
 			"tls": map[string]any{
 				"enabled":     true,
@@ -98,7 +104,11 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 					"short_id":    []any{r.ShortID},
 				},
 			},
-		})
+		}
+		if n.Mux() {
+			behindMux(in, engine.MuxRealityPort)
+		}
+		out = append(out, in)
 	}
 	if h := n.Hysteria2; h != nil {
 		accounts := make([]any, 0, len(users))
@@ -125,16 +135,23 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 		for _, u := range users {
 			accounts = append(accounts, map[string]any{"username": u.Name, "password": u.UUID})
 		}
-		out = append(out, map[string]any{
-			"type":        "naive",
-			"tag":         "naive-in",
-			"listen":      "127.0.0.1",
-			"listen_port": engine.MuxNaivePort,
-			"users":       accounts,
-			"tls":         serverTLS(f, nv.Domain),
-		})
+		in := map[string]any{
+			"type":  "naive",
+			"tag":   "naive-in",
+			"users": accounts,
+			"tls":   serverTLS(f, nv.Domain),
+		}
+		behindMux(in, engine.MuxNaivePort)
+		out = append(out, in)
 	}
 	return out
+}
+
+// behindMux has inbound in listen on port at 127.0.0.1 and ::1 only.
+func behindMux(in map[string]any, port int) {
+	in["listen"] = "::"
+	in["listen_port"] = port
+	in["bind_interface"] = engine.LoopbackInterface
 }
 
 func serverTLS(f *fleet.Fleet, domain string) map[string]any {

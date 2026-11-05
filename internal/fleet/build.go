@@ -26,6 +26,7 @@ func secretUserUUID(user string) string    { return "users/" + user }
 func secretReality(node string) string     { return "nodes/" + node + "/reality" }
 func secretWarp(node, field string) string { return "nodes/" + node + "/warp/" + field }
 func secretChainUUID(node string) string   { return "nodes/" + node + "/chain" }
+func secretStats(node string) string       { return "nodes/" + node + "/stats" }
 
 // engineProtocols are the protocols each engine serves.
 var engineProtocols = map[string][]string{
@@ -229,6 +230,16 @@ func (b *builder) nodes() {
 		}
 		for host, target := range c.Passthrough.All() {
 			n.Passthrough = append(n.Passthrough, Passthrough{Host: host, Target: target})
+		}
+		if on := cmp.Or(c.Stats, d.Stats); on != nil && *on {
+			if n.Engine != "sing-box" {
+				b.errorf("%s.stats: engine %s doesn't report connections; only sing-box does", where, n.Engine)
+			}
+			n.Stats = &Stats{Secret: b.secret(where+".stats", nil, secretStats(name), SecretPassword)}
+			if n.Stats.Secret == "" {
+				// sing-box would leave its API open to the host's every user.
+				b.errorf("%s.stats: the secret %s is empty", where, secretStats(name))
+			}
 		}
 
 		b.f.Nodes = append(b.f.Nodes, n)

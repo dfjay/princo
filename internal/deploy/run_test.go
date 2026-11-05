@@ -108,7 +108,7 @@ func TestDeploy_FreshHost(t *testing.T) {
 	}, r.steps)
 	require.Equal(t, "deb 0.2.0 arm64", string(r.deb))
 	require.True(t, r.bundles[0].Partial, "the engine waits for the certificates")
-	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(r.bundles[1]))
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(r.bundles[1]))
 }
 
 func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
@@ -187,7 +187,7 @@ func TestCheck(t *testing.T) {
 	d, _ := newDeployer(r, "0.2.0")
 	require.NoError(t, d.Check(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "check"}, r.steps)
-	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(r.bundles[0]), "the node as it will be")
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(r.bundles[0]), "the node as it will be")
 
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\n"}
 	d, _ = newDeployer(r, "0.2.0")
@@ -213,7 +213,7 @@ func TestProvision(t *testing.T) {
 	d.Remote = remoteFunc(func(s string) { script = s })
 	p, _, _ := plan(t, "de")
 	require.NoError(t, d.provision(t.Context(), p))
-	require.Contains(t, script, "for p in 'nginx' 'libnginx-mod-stream' 'certbot' 'openssl'; do")
+	require.Contains(t, script, "for p in 'nginx' 'libnginx-mod-stream' 'iproute2' 'certbot' 'openssl'; do")
 	require.Equal(t, []string{
 		"allow 443/tcp comment princo", "allow 80/tcp comment princo", "allow 443/udp comment princo",
 	}, runUFW(t, script, ""))

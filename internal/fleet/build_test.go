@@ -577,3 +577,43 @@ nodes:
 `, conventionalSecrets())
 	require.NoError(t, err, "self-steal: the node's own name, its site behind")
 }
+
+func TestBuild_Stats(t *testing.T) {
+	values := conventionalSecrets()
+	values["nodes"].(map[string]any)["a"].(map[string]any)["stats"] = "stats-a"
+	f, err := build(t, `
+defaults: { stats: true }
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s.example.com, short_id: "1", public_key: p }
+  b:
+    address: b.example.com
+    reality: { server_name: s.example.com, short_id: "1", public_key: p }
+    stats: false
+`, values)
+	require.NoError(t, err)
+	a, _ := f.Node("a")
+	require.Equal(t, &Stats{Secret: "stats-a"}, a.Stats)
+	b, _ := f.Node("b")
+	require.Nil(t, b.Stats, "a node's own stats: false wins")
+
+	cfg, err := config.Parse([]byte("princo: v1\nnodes:\n  a:\n    address: a.example.com\n    reality: {}\n    stats: true\n"))
+	require.NoError(t, err)
+	require.Contains(t, Secrets(cfg), SecretUse{Path: "nodes/a/stats", Field: "nodes.a.stats", Kind: SecretPassword},
+		"princo secret gen makes it")
+
+	_, err = build(t, `
+nodes:
+  a:
+    engine: xray
+    address: a.example.com
+    reality: { server_name: s.example.com, short_id: "1", public_key: p }
+    stats: true
+`, values)
+	require.ErrorContains(t, err, "nodes.a.stats: engine xray doesn't report connections; only sing-box does")
+
+	values["nodes"].(map[string]any)["a"].(map[string]any)["stats"] = ""
+	_, err = build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n    stats: true\n", values)
+	require.ErrorContains(t, err, "nodes.a.stats: the secret nodes/a/stats is empty")
+}

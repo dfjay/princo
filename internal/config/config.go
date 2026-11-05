@@ -68,6 +68,7 @@ type Defaults struct {
 	DNS       *DNS       `yaml:"dns"`
 	Rules     []Rule     `yaml:"rules"`
 	Log       string     `yaml:"log"`
+	Stats     *bool      `yaml:"stats"`
 }
 
 // Node is one server. Unset fields inherit from Defaults; Rules, when
@@ -89,6 +90,7 @@ type Node struct {
 	Rules       []Rule          `yaml:"rules"`
 	Passthrough Ordered[string] `yaml:"passthrough"`
 	Log         string          `yaml:"log"`
+	Stats       *bool           `yaml:"stats"`
 }
 
 type Reality struct {

@@ -24,6 +24,8 @@ const (
 	// ACMEDir is certbot's webroot for HTTP-01 challenges.
 	ACMEDir  = "/var/lib/princo/acme"
 	UnitFile = "/etc/systemd/system/princo.service"
+	// LoopbackUnitFile routes the engine's replies back to nginx.
+	LoopbackUnitFile = "/etc/systemd/system/princo-loopback.service"
 	// Debian's nginx.conf includes modules-enabled at the top level, where
 	// a stream block must be.
 	StreamConf  = "/etc/nginx/modules-enabled/99-princo-stream.conf"
@@ -45,11 +47,11 @@ var templateFS embed.FS
 
 var templates = template.Must(template.New("").Funcs(template.FuncMap{"q": shellQuote}).ParseFS(templateFS, "templates/*"))
 
-// Earlier tells which of nginx's files an earlier deploy left on the host.
-// Build keeps them, emptied if need be, so nginx lets go of what they
-// served.
+// Earlier tells which of nginx's files, and whether the routing of
+// LoopbackUnitFile, an earlier deploy left on the host. Build keeps them,
+// emptied if need be, so the host lets go of what they set up.
 type Earlier struct {
-	Stream, Site bool
+	Stream, Site, Loopback bool
 }
 
 // Build is the bundle of node p.Node from its rendered files (host.Files)
@@ -116,6 +118,28 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 	b.Files = append(b.Files, bundle.File{Path: UnitFile, Mode: 0o644, Data: unit})
 	units := []bundle.Unit{{Name: "princo.service", Files: engineFiles, Check: e.check(bin, config)}}
 
+	// It runs before nginx; once nginx no longer connects to the engine,
+	// after it, to remove the earlier rules.
+	loopback := p.Mux != nil && p.Mux.Loopback != nil
+	var retired []bundle.Unit
+	if loopback || earlier.Loopback {
+		data := map[string]any{"Node": p.Node, "Table": host.LoopbackTable}
+		if loopback {
+			data["Ports"] = p.Mux.Loopback.Ports
+		}
+		unit, err := execute("princo-loopback.service", data)
+		if err != nil {
+			return nil, err
+		}
+		b.Files = append(b.Files, bundle.File{Path: LoopbackUnitFile, Mode: 0o644, Data: unit})
+		u := bundle.Unit{Name: path.Base(LoopbackUnitFile), Files: []string{LoopbackUnitFile}}
+		if loopback {
+			units = append(units, u)
+		} else {
+			retired = append(retired, u)
+		}
+	}
+
 	nginxFiles := siteFiles
 	if p.Mux != nil || earlier.Stream {
 		conf, err := execute("stream.conf", p)
@@ -150,7 +174,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 		units[1].Reload = false
 		slices.Reverse(units)
 	}
-	b.Units = units
+	b.Units = append(units, retired...)
 	return b, nil
 }
 

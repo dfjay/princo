@@ -59,6 +59,7 @@ can be shared without exposing them.
 | `shared/hysteria2_obfs` | the Hysteria2 obfuscation password, shared by nodes with `obfs` |
 | `nodes/<node>/warp/{private_key,ipv4,ipv6}` | the node's WARP account |
 | `nodes/<node>/chain` | the UUID a chained node uses on its upstream |
+| `nodes/<node>/stats` | the secret of the engine's API for `princo stats`, with `stats: true` |
 
 `princo secret gen` generates every missing one it can: UUIDs, Reality key
 pairs (writing the public half to the node's `reality.public_key`) and the
@@ -90,6 +91,7 @@ Every node inherits these; a node's own value wins.
 | `dns` | — | see [DNS](#dns); a node's block replaces the default block |
 | `rules` | — | see [Rules](#rules); a node's `rules`, even empty, replace them |
 | `log` | `warn` | the engine's log level: `debug`, `info`, `warn`, `error` or `none` |
+| `stats` | `false` | report connections to [`princo stats`](deployment.md#watching-who-connects) (sing-box only); its API's secret is at `nodes/<node>/stats` |
 
 A protocol block in `defaults` only supplies values: a node serves a
 protocol when it has its own block, even an empty one (`hysteria2: {}`).
@@ -108,7 +110,7 @@ protocol when it has its own block, even an empty one (`hysteria2: {}`).
 | `tags` | labels client groups select nodes by |
 | `ipv6` | defaults to `true`; set `false` when the node has no IPv6, so the client refuses IPv6 destinations and AAAA answers for traffic routed through it |
 | `passthrough` | other TLS sites on 443: `host: target` (see below) |
-| `dns`, `rules`, `engine`, `acme_email`, `log` | override `defaults` |
+| `dns`, `rules`, `engine`, `acme_email`, `log`, `stats` | override `defaults` |
 | `ssh` | `user@host` or a `~/.ssh/config` Host that `princo deploy` connects to |
 
 A node needs at least one protocol. All of them share port 443: Reality,
@@ -229,9 +231,9 @@ passthrough:
   example.com: 127.0.0.1:8443   # the site listens there, not on 443
 ```
 
-The multiplexer passes connections on as they are, so Reality and Naive
-see every client as `127.0.0.1`; sing-box no longer accepts the PROXY
-protocol that would carry the address. Hysteria2 is UDP and bypasses it.
+The multiplexer passes connections on as they are, and Reality and Naive
+still see each client's address: nginx connects to them from it. Hysteria2
+is UDP and bypasses it.
 See [Sharing port 443](deployment.md#sharing-port-443) for host setup.
 
 ## `users.<name>`

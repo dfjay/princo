@@ -39,6 +39,7 @@ func NewRootCommand() *cobra.Command {
 	root.AddCommand(newSecretCommand(flags))
 	root.AddCommand(newUserCommand(flags))
 	root.AddCommand(newDeployCommand(flags))
+	root.AddCommand(newStatsCommand(flags))
 	root.AddCommand(newRuleSetsCommand(flags))
 	root.AddCommand(newHostCommand())
 	return root

@@ -48,7 +48,8 @@
   },
   "inbounds": [
     {
-      "listen": "127.0.0.1",
+      "bind_interface": "lo",
+      "listen": "::",
       "listen_port": 8444,
       "tag": "vless-reality-in",
       "tls": {
@@ -104,7 +105,8 @@
       ]
     },
     {
-      "listen": "127.0.0.1",
+      "bind_interface": "lo",
+      "listen": "::",
       "listen_port": 8445,
       "tag": "naive-in",
       "tls": {
@@ -183,5 +185,14 @@
         ]
       }
     ]
-  }
+  },
+  "services": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 8446,
+      "secret": "5747a75e5747a75e5747a75e5747a75e",
+      "tag": "stats",
+      "type": "api"
+    }
+  ]
 }

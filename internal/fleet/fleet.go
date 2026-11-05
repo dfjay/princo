@@ -80,6 +80,8 @@ type Node struct {
 	Passthrough []Passthrough
 	// Log is the engine's log level, one of LogLevels.
 	Log string
+	// Stats, when set, has the engine report its connections.
+	Stats *Stats
 
 	// ServesSubscription is set on the node hosting the subscription site.
 	ServesSubscription bool
@@ -112,6 +114,14 @@ const (
 	MuxRealityPort = 8444
 	MuxNaivePort   = 8445
 )
+
+// StatsPort is the engine's API for princo stats, on 127.0.0.1.
+const StatsPort = 8446
+
+type Stats struct {
+	// Secret keeps the host's other users from reading the connections.
+	Secret string
+}
 
 // Mux reports whether TCP 443 is shared through the SNI multiplexer, which
 // is needed as soon as anything besides VLESS-Reality wants it.

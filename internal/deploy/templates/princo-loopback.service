@@ -1,0 +1,33 @@
+# Written by princo deploy; changes here are overwritten.
+{{- if .Ports}}
+# nginx connects to the engine from the clients' addresses; these rules
+# keep the engine's replies on loopback. TCP is ipproto 6: a name would
+# need /etc/protocols.
+{{- else}}
+# The engine is no longer behind nginx: this removes the earlier rules.
+{{- end}}
+[Unit]
+Description=princo node {{.Node}}: the engine's replies back to nginx
+Before=nginx.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '{{template "loopback-clear" .}}'
+{{- if .Ports}}
+ExecStart=/usr/sbin/ip route replace local 0.0.0.0/0 dev lo table {{.Table}}
+ExecStart=/usr/sbin/ip -6 route replace local ::/0 dev lo table {{.Table}}
+{{- range .Ports}}
+ExecStart=/usr/sbin/ip rule add pref {{$.Table}} from 127.0.0.0/8 iif lo ipproto 6 sport {{.}} lookup {{$.Table}}
+ExecStart=/usr/sbin/ip -6 rule add pref {{$.Table}} from ::1 iif lo ipproto 6 sport {{.}} lookup {{$.Table}}
+{{- end}}
+{{- end}}
+ExecStop=/bin/sh -c '{{template "loopback-clear" .}}'
+
+[Install]
+# nginx, started or restarted, starts it again if it failed.
+WantedBy=multi-user.target nginx.service
+{{- define "loopback-clear"}}
+{{- /* Only princo's rules and routes, whatever else uses the number. */ -}}
+while /usr/sbin/ip rule del pref {{.Table}} iif lo ipproto 6 lookup {{.Table}} 2>/dev/null; do :; done; while /usr/sbin/ip -6 rule del pref {{.Table}} iif lo ipproto 6 lookup {{.Table}} 2>/dev/null; do :; done; /usr/sbin/ip route del local 0.0.0.0/0 dev lo table {{.Table}} 2>/dev/null; /usr/sbin/ip -6 route del local ::/0 dev lo table {{.Table}} 2>/dev/null; true
+{{- end}}

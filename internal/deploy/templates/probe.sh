@@ -18,6 +18,9 @@ fi
 if [ -e {{.SiteConf}} ]; then
 	echo site
 fi
+if [ -e {{.LoopbackUnit}} ]; then
+	echo loopback
+fi
 [ -x {{q .Engine}} ] && echo engine
 [ -x {{q .Lego}} ] && echo lego
 command -v openssl >/dev/null && echo openssl

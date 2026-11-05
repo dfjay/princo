@@ -54,9 +54,10 @@ func TestPlan_Mux(t *testing.T) {
 		Routes: []Route{
 			{SNI: "example.com", Target: "127.0.0.1:8443"},
 			{SNI: "subs.example.com", Target: SiteAddr},
-			{SNI: "naive-de.example.com", Target: "127.0.0.1:8445"},
+			{SNI: "naive-de.example.com", EnginePort: 8445},
 		},
-		Default: "127.0.0.1:8444",
+		Default:  &Route{EnginePort: 8444},
+		Loopback: &Loopback{Table: LoopbackTable, Ports: []int{8444, 8445}},
 	}, p.Mux)
 	require.Equal(t, []Certificate{
 		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP},
@@ -68,10 +69,26 @@ func TestPlan_Mux(t *testing.T) {
 	require.Equal(t, &Site{Domain: "subs.example.com", Certificate: "subs.example.com", Root: "subscription", Listen: SiteAddr}, p.Subscription)
 	// Its own keys, the chain hop exiting here, and every user for the site.
 	require.Equal(t, []string{
-		"nodes/de/reality", "nodes/de/warp/ipv4", "nodes/de/warp/ipv6", "nodes/de/warp/private_key",
+		"nodes/de/reality", "nodes/de/stats", "nodes/de/warp/ipv4", "nodes/de/warp/ipv6", "nodes/de/warp/private_key",
 		"nodes/relay/chain", "users/alice", "users/bob",
 	}, secretPaths(p))
-	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[5].Source)
+	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[6].Source)
+}
+
+// Without the engine behind it, the multiplexer needs no routing back.
+func TestPlan_MuxWithoutEngine(t *testing.T) {
+	f := placeholderFleet(t)
+	de, _ := f.Node("de")
+	de.Reality, de.Naive = nil, nil
+	p, err := NewPlan(f, "de", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
+	require.NoError(t, err)
+	require.Equal(t, &Mux{
+		Port: 443,
+		Routes: []Route{
+			{SNI: "example.com", Target: "127.0.0.1:8443"},
+			{SNI: "subs.example.com", Target: SiteAddr},
+		},
+	}, p.Mux)
 }
 
 func TestPlan_SiteSharesEngineCertificate(t *testing.T) {

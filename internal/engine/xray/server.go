@@ -81,26 +81,38 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	if n.XHTTP != nil {
 		settings["fallbacks"] = []any{map[string]any{"dest": xhttpSocket}}
 	}
-	listen, port := "::", 443
+	port := 443
+	stream := map[string]any{
+		"network":  "raw",
+		"security": "reality",
+		"realitySettings": map[string]any{
+			"target":      net.JoinHostPort(r.TargetHost, strconv.Itoa(r.TargetPort)),
+			"serverNames": []any{r.ServerName},
+			"privateKey":  r.PrivateKey,
+			"shortIds":    []any{r.ShortID},
+		},
+	}
 	if n.Mux() {
-		listen, port = "127.0.0.1", engine.MuxRealityPort
+		// At 127.0.0.1 and ::1 only: xray binds an inbound to an
+		// interface only through a raw SO_BINDTODEVICE.
+		port = engine.MuxRealityPort
+		stream["sockopt"] = map[string]any{"customSockopt": []any{map[string]any{
+			"system":  "linux",
+			"network": "tcp",
+			// Linux's SOL_SOCKET and SO_BINDTODEVICE, wherever it renders.
+			"level": "1",
+			"opt":   "25",
+			"type":  "str",
+			"value": engine.LoopbackInterface,
+		}}}
 	}
 	reality := map[string]any{
-		"tag":      "vless-reality-in",
-		"listen":   listen,
-		"port":     port,
-		"protocol": "vless",
-		"settings": settings,
-		"streamSettings": map[string]any{
-			"network":  "raw",
-			"security": "reality",
-			"realitySettings": map[string]any{
-				"target":      net.JoinHostPort(r.TargetHost, strconv.Itoa(r.TargetPort)),
-				"serverNames": []any{r.ServerName},
-				"privateKey":  r.PrivateKey,
-				"shortIds":    []any{r.ShortID},
-			},
-		},
+		"tag":            "vless-reality-in",
+		"listen":         "::",
+		"port":           port,
+		"protocol":       "vless",
+		"settings":       settings,
+		"streamSettings": stream,
 	}
 	if sniffing != nil {
 		reality["sniffing"] = sniffing

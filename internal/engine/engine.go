@@ -22,6 +22,10 @@ const (
 	CertDir        = "/var/lib/princo/certs"
 	MuxRealityPort = fleet.MuxRealityPort
 	MuxNaivePort   = fleet.MuxNaivePort
+	// LoopbackInterface binds the engine's listeners behind the
+	// multiplexer, on :: for both 127.0.0.1 and ::1.
+	LoopbackInterface = "lo"
+	StatsPort         = fleet.StatsPort
 )
 
 // WarpPeerPublicKey is Cloudflare WARP's WireGuard peer key.

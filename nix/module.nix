@@ -148,6 +148,32 @@ let
       lib.concatMap defaultPorts (
         if nginx.defaultListen != [ ] then tcp nginx.defaultListen else [ { } ]
       );
+  # The multiplexer connects to the engine from the clients' addresses, at
+  # 127.0.0.1 or ::1 as the client's family; elsewhere, as nginx.
+  loopback = if mux == null then null else mux.loopback or null;
+  muxRoutes =
+    mux.routes ++ lib.optional (mux.default or null != null) (mux.default // { sni = "default"; });
+  muxTarget =
+    r: if r.engine_port or 0 != 0 then "$princo_loopback:${toString r.engine_port}" else r.target;
+  muxBind = r: if r.engine_port or 0 != 0 then "$remote_addr" else ''""'';
+  # Its policy routing: the engine's replies to those addresses go back to
+  # nginx over loopback, not out to the network.
+  ip = "${pkgs.iproute2}/bin/ip";
+  table = toString loopback.table;
+  # TCP is ipproto 6: a name would need /etc/protocols.
+  loopbackRules = lib.concatMap (port: [
+    "${ip} rule add pref ${table} from 127.0.0.0/8 iif lo ipproto 6 sport ${toString port} lookup ${table}"
+    "${ip} -6 rule add pref ${table} from ::1 iif lo ipproto 6 sport ${toString port} lookup ${table}"
+  ]) loopback.ports;
+  # Only princo's rules and routes, whatever else uses the number.
+  clearLoopback = pkgs.writeShellScript "princo-loopback-clear" ''
+    while ${ip} rule del pref ${table} iif lo ipproto 6 lookup ${table} 2>/dev/null; do :; done
+    while ${ip} -6 rule del pref ${table} iif lo ipproto 6 lookup ${table} 2>/dev/null; do :; done
+    ${ip} route del local 0.0.0.0/0 dev lo table ${table} 2>/dev/null
+    ${ip} -6 route del local ::/0 dev lo table ${table} 2>/dev/null
+    true
+  '';
+
   # Other virtual hosts on the multiplexer's port would take it from it.
   muxConflicts = lib.optionals (mux != null) (
     lib.attrNames (
@@ -455,15 +481,28 @@ in
           # Each REALITY connection takes two; the default 512 fit a couple of users.
           eventsConfig = lib.mkIf (mux != null) (lib.mkDefault "worker_connections 16384;");
           streamConfig = lib.mkIf (mux != null) ''
+            ${lib.optionalString (loopback != null) ''
+              # The engine listens at both, and is reached as the client's family.
+              map $remote_addr $princo_loopback {
+                ~:      [::1];
+                default 127.0.0.1;
+              }
+            ''}
             map $ssl_preread_server_name $princo_backend {
-              ${lib.concatMapStringsSep "\n  " (r: "${r.sni} ${r.target};") mux.routes}
-              ${lib.optionalString (mux.default or "" != "") "default ${mux.default};"}
+              ${lib.concatMapStringsSep "\n  " (r: "${r.sni} ${muxTarget r};") muxRoutes}
             }
+            ${lib.optionalString (loopback != null) ''
+              # The engine sees the client's address: nginx connects from it.
+              map $ssl_preread_server_name $princo_bind {
+                ${lib.concatMapStringsSep "\n  " (r: "${r.sni} ${muxBind r};") muxRoutes}
+              }
+            ''}
             server {
               # Drops vanished clients, which proxy_timeout would keep for an hour.
               listen ${toString mux.port} so_keepalive=3m:30s:4;
               listen [::]:${toString mux.port} so_keepalive=3m:30s:4;
               ssl_preread on;
+              ${lib.optionalString (loopback != null) "proxy_bind $princo_bind transparent;"}
               proxy_pass $princo_backend;
               # Tunnels idle longer than nginx's 10 minutes.
               proxy_timeout 1h;
@@ -567,7 +606,34 @@ in
           (lib.mkIf (mux != null) {
             serviceConfig.LimitNOFILE = lib.mkDefault 1048576;
           })
+          # proxy_bind transparent binds to the clients' addresses.
+          (lib.mkIf (loopback != null) {
+            wants = [ "princo-loopback.service" ];
+            after = [ "princo-loopback.service" ];
+            serviceConfig = {
+              AmbientCapabilities = [ "CAP_NET_RAW" ];
+              CapabilityBoundingSet = [ "CAP_NET_RAW" ];
+            };
+          })
         ];
+        systemd.services.princo-loopback = lib.mkIf (loopback != null) {
+          description = "princo node ${cfg.node}: the engine's replies back to nginx";
+          wantedBy = [ "multi-user.target" ];
+          before = [ "nginx.service" ];
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStart = [
+              clearLoopback
+              "${ip} route replace local 0.0.0.0/0 dev lo table ${table}"
+              "${ip} -6 route replace local ::/0 dev lo table ${table}"
+            ]
+            ++ loopbackRules;
+            ExecStop = [
+              clearLoopback
+            ];
+          };
+        };
       }
 
       {

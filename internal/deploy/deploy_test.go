@@ -70,7 +70,7 @@ func TestGolden(t *testing.T) {
 			for _, f := range b.Files {
 				fmt.Fprintf(&listing, "file %04o %-8s %s\n", f.Mode, group(f.Group), f.Path)
 				switch f.Path {
-				case UnitFile, StreamConf, SiteConf:
+				case UnitFile, LoopbackUnitFile, StreamConf, SiteConf:
 					golden(t, node, filepath.Base(f.Path), f.Data)
 				case CertbotHook:
 					golden(t, node, "certbot-hook", f.Data)
@@ -157,7 +157,8 @@ func TestBuild_MuxRemoved(t *testing.T) {
 	b, err = Build(p, files, ruleSets, Earlier{Stream: true})
 	require.NoError(t, err)
 	require.Contains(t, string(file(t, b, StreamConf)), "stream {")
-	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(b))
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(b),
+		"the engine's replies route back before nginx connects from the clients' addresses")
 }
 
 func TestBuild_SitesRemoved(t *testing.T) {
@@ -246,4 +247,21 @@ func TestCertbotHook_SiteKeyStaysRoots(t *testing.T) {
 	require.Contains(t, string(hook), "'subs.example.com') unit=nginx.service group=root ;;")
 	require.Contains(t, string(hook), "'de.example.com') unit=princo.service group=princo-engine ;;")
 	require.NotContains(t, string(hook), "'own'", "its files come with the bundle")
+}
+
+// Once the engine leaves nginx, the earlier routing unit stays to remove
+// its rules, after nginx stops connecting from the clients' addresses.
+func TestBuild_LoopbackRetired(t *testing.T) {
+	p, files, ruleSets := plan(t, "us")
+	b, err := Build(p, files, ruleSets, Earlier{Stream: true, Loopback: true})
+	require.NoError(t, err)
+	unit := string(file(t, b, LoopbackUnitFile))
+	require.Contains(t, unit, "ExecStart=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 iif lo ipproto 6 lookup 4430 2>/dev/null; do :; done;")
+	require.NotContains(t, unit, "rule add")
+	require.NotContains(t, unit, "route replace")
+	require.Equal(t, []string{"nginx.service", "princo.service", "princo-loopback.service"}, unitNames(b))
+
+	b, err = Build(p, files, ruleSets, Earlier{})
+	require.NoError(t, err)
+	require.NotContains(t, unitNames(b), "princo-loopback.service", "a host that never had it gets none")
 }
