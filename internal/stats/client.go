@@ -113,6 +113,9 @@ func (c *Client) Subscribe(ctx context.Context, interval time.Duration, fn func(
 					message = strings.TrimSpace(v)
 				}
 			}
+			if code == "" {
+				return errors.New("the engine's stats ended without a status")
+			}
 			return grpcStatus(code, message)
 		}
 		events, err := decodeEvents(payload)

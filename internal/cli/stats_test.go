@@ -44,8 +44,9 @@ alice           2     30           2          1.5 KiB  3.0 GiB
 `, out.String())
 
 	out.Reset()
-	require.NoError(t, printStats(&out, "de", r, 10*time.Minute, "bob", false))
-	require.Equal(t, "node de, 10m0s from 2026-11-05 14:02:00: 43 connections open or opened\nUSER  OPEN  CONNECTIONS  ADDRESSES  UPLOAD  DOWNLOAD\nno connections of bob\n", out.String())
+	empty := stats.Report{Since: r.Since}
+	require.NoError(t, printStats(&out, "de", empty, 10*time.Minute, "bob", false))
+	require.Equal(t, "node de, 10m0s from 2026-11-05 14:02:00: 0 connections open or opened\nUSER  OPEN  CONNECTIONS  ADDRESSES  UPLOAD  DOWNLOAD\nno connections of bob\n", out.String())
 }
 
 func TestByteSize(t *testing.T) {

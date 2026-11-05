@@ -256,7 +256,7 @@ func TestBuild_LoopbackRetired(t *testing.T) {
 	b, err := Build(p, files, ruleSets, Earlier{Stream: true, Loopback: true})
 	require.NoError(t, err)
 	unit := string(file(t, b, LoopbackUnitFile))
-	require.Contains(t, unit, "ExecStart=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 2>/dev/null; do :; done;")
+	require.Contains(t, unit, "ExecStart=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 iif lo ipproto 6 lookup 4430 2>/dev/null; do :; done;")
 	require.NotContains(t, unit, "rule add")
 	require.NotContains(t, unit, "route replace")
 	require.Equal(t, []string{"nginx.service", "princo.service", "princo-loopback.service"}, unitNames(b))

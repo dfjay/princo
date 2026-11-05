@@ -165,9 +165,13 @@ let
     "${ip} rule add pref ${table} from 127.0.0.0/8 iif lo ipproto 6 sport ${toString port} lookup ${table}"
     "${ip} -6 rule add pref ${table} from ::1 iif lo ipproto 6 sport ${toString port} lookup ${table}"
   ]) loopback.ports;
+  # Only princo's rules and routes, whatever else uses the number.
   clearLoopback = pkgs.writeShellScript "princo-loopback-clear" ''
-    while ${ip} rule del pref ${table} 2>/dev/null; do :; done
-    while ${ip} -6 rule del pref ${table} 2>/dev/null; do :; done
+    while ${ip} rule del pref ${table} iif lo ipproto 6 lookup ${table} 2>/dev/null; do :; done
+    while ${ip} -6 rule del pref ${table} iif lo ipproto 6 lookup ${table} 2>/dev/null; do :; done
+    ${ip} route del local 0.0.0.0/0 dev lo table ${table} 2>/dev/null
+    ${ip} -6 route del local ::/0 dev lo table ${table} 2>/dev/null
+    true
   '';
 
   # Other virtual hosts on the multiplexer's port would take it from it.
@@ -627,8 +631,6 @@ in
             ++ loopbackRules;
             ExecStop = [
               clearLoopback
-              "-${ip} route flush table ${table}"
-              "-${ip} -6 route flush table ${table}"
             ];
           };
         };

@@ -13,6 +13,8 @@ import (
 // start: connections open then or opened since, and their traffic since.
 type Tally struct {
 	Window bool
+	// User, when set, is the only user it counts.
+	User string
 
 	start time.Time
 	conns map[string]*tracked
@@ -51,6 +53,9 @@ func (t *Tally) Add(e Events, now time.Time) {
 			}
 			if t.Window && first && !ev.Conn.Closed.IsZero() {
 				continue // closed before the window
+			}
+			if t.User != "" && ev.Conn.User != t.User {
+				continue
 			}
 			c = &tracked{Conn: *ev.Conn}
 			if t.Window && first {
@@ -96,11 +101,18 @@ func (t *Tally) fold(c *tracked) {
 }
 
 // Settle takes the totals of the connections still open from e, a later
-// first message, for their traffic since the last update.
+// first message, for their traffic since the last update, and folds
+// those it shows closed.
 func (t *Tally) Settle(e Events) {
 	for _, ev := range e.Events {
-		if c := t.conns[ev.ID]; c != nil && ev.Conn != nil {
-			c.Upload, c.Download = ev.Conn.Upload, ev.Conn.Download
+		c := t.conns[ev.ID]
+		if c == nil || ev.Conn == nil || !c.Closed.IsZero() {
+			continue
+		}
+		c.Upload, c.Download = ev.Conn.Upload, ev.Conn.Download
+		if c.Closed = ev.Conn.Closed; !c.Closed.IsZero() && t.Window {
+			t.fold(c)
+			delete(t.conns, ev.ID)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -66,4 +67,24 @@ func TestSSH_Dial(t *testing.T) {
 		require.Equal(t, "hello "+p, string(body))
 	}
 	client.CloseIdleConnections()
+}
+
+func TestSSH_DialDeadline(t *testing.T) {
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	bin := t.TempDir()
+	require.NoError(t, os.Symlink(exe, filepath.Join(bin, "ssh")))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PRINCO_FAKE_SSH", "1")
+	silent, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = silent.Close() }()
+
+	s := &SSH{Target: "node.example.com", Stderr: io.Discard}
+	c, err := s.Dial(t.Context(), silent.Addr().String())
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+	require.NoError(t, c.SetReadDeadline(time.Now().Add(100*time.Millisecond)))
+	_, err = c.Read(make([]byte, 1))
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded)
 }

@@ -59,7 +59,7 @@ With --for it watches the node that long and counts only what happens then.`,
 						return err
 					}
 				}
-				r, err := nodeStats(ctx, cmd.ErrOrStderr(), n, target, window)
+				r, err := nodeStats(ctx, cmd.ErrOrStderr(), n, target, window, user)
 				if err != nil {
 					return fmt.Errorf("node %s: %w", n.Name, err)
 				}
@@ -102,8 +102,9 @@ func statsNodes(f *fleet.Fleet, name string) ([]*fleet.Node, error) {
 	return out, nil
 }
 
-// nodeStats asks n's engine over SSH, at once or for window.
-func nodeStats(ctx context.Context, log io.Writer, n *fleet.Node, target string, window time.Duration) (stats.Report, error) {
+// nodeStats asks n's engine over SSH, at once or for window, about user
+// or, if empty, everyone.
+func nodeStats(ctx context.Context, log io.Writer, n *fleet.Node, target string, window time.Duration, user string) (stats.Report, error) {
 	if target == "" {
 		if target = n.SSH; target == "" {
 			return stats.Report{}, errors.New("no ssh: in princo.yaml; pass --host")
@@ -124,9 +125,16 @@ func nodeStats(ctx context.Context, log io.Writer, n *fleet.Node, target string,
 	}
 	// first passes fn the engine's first message: what it has now.
 	first := func(fn func(stats.Events)) error {
-		return client.Subscribe(ctx, time.Second, func(e stats.Events) error { fn(e); return stats.ErrStop })
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		got := false
+		err := client.Subscribe(ctx, time.Second, func(e stats.Events) error { fn(e); got = true; return stats.ErrStop })
+		if err == nil && !got {
+			err = errors.New("the engine's stats sent nothing")
+		}
+		return err
 	}
-	t := &stats.Tally{Window: window > 0}
+	t := &stats.Tally{Window: window > 0, User: user}
 	if window == 0 {
 		err := first(func(e stats.Events) { t.Add(e, time.Now()) })
 		return t.Report(), err
@@ -168,16 +176,11 @@ func printStats(out io.Writer, node string, r stats.Report, window time.Duration
 	var table strings.Builder
 	w := tabwriter.NewWriter(&table, 0, 4, 2, ' ', 0)
 	printf(w, "USER\tOPEN\tCONNECTIONS\tADDRESSES\tUPLOAD\tDOWNLOAD\n")
-	shown := 0
 	for _, row := range r.Rows {
 		name := row.User
 		if name == "" {
 			name = "(none)"
 		}
-		if user != "" && row.User != user {
-			continue
-		}
-		shown++
 		printf(w, "%s\t%d\t%d\t%d\t%s\t%s\n", name, row.Open, row.Conn, len(row.IPs), byteSize(row.Upload), byteSize(row.Download))
 		if showIPs {
 			for _, ip := range row.IPs {
@@ -190,7 +193,7 @@ func printStats(out io.Writer, node string, r stats.Report, window time.Duration
 	for line := range strings.Lines(table.String()) {
 		printf(&b, "%s\n", strings.TrimRight(line, " \n"))
 	}
-	if user != "" && shown == 0 {
+	if user != "" && len(r.Rows) == 0 {
 		printf(&b, "no connections of %s\n", user)
 	}
 	_, err := io.WriteString(out, b.String())

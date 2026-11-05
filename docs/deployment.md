@@ -239,8 +239,9 @@ ip rule add pref 4430 from 127.0.0.0/8 iif lo ipproto 6 sport 8444 lookup 4430
 ```
 
 Table 4430 delivers everything locally. Only the engine's ports behind the
-multiplexer, 8444 for Reality and 8445 for Naive, are affected; passthrough
-sites and the subscription site still see `127.0.0.1`. nginx needs
+multiplexer, 8444 for Reality and 8445 for Naive, are affected. Sites, the
+subscription site and passthrough targets see nginx's own address as
+before: `127.0.0.1` on the node, its outgoing address elsewhere. nginx needs
 `CAP_NET_RAW` to bind to the clients' addresses. Debian's nginx keeps it for
 its workers, and the NixOS module grants it.
 

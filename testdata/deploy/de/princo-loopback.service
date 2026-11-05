@@ -9,16 +9,15 @@ Before=nginx.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 2>/dev/null; do :; done; while /usr/sbin/ip -6 rule del pref 4430 2>/dev/null; do :; done'
+ExecStart=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 iif lo ipproto 6 lookup 4430 2>/dev/null; do :; done; while /usr/sbin/ip -6 rule del pref 4430 iif lo ipproto 6 lookup 4430 2>/dev/null; do :; done; /usr/sbin/ip route del local 0.0.0.0/0 dev lo table 4430 2>/dev/null; /usr/sbin/ip -6 route del local ::/0 dev lo table 4430 2>/dev/null; true'
 ExecStart=/usr/sbin/ip route replace local 0.0.0.0/0 dev lo table 4430
 ExecStart=/usr/sbin/ip -6 route replace local ::/0 dev lo table 4430
 ExecStart=/usr/sbin/ip rule add pref 4430 from 127.0.0.0/8 iif lo ipproto 6 sport 8444 lookup 4430
 ExecStart=/usr/sbin/ip -6 rule add pref 4430 from ::1 iif lo ipproto 6 sport 8444 lookup 4430
 ExecStart=/usr/sbin/ip rule add pref 4430 from 127.0.0.0/8 iif lo ipproto 6 sport 8445 lookup 4430
 ExecStart=/usr/sbin/ip -6 rule add pref 4430 from ::1 iif lo ipproto 6 sport 8445 lookup 4430
-ExecStop=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 2>/dev/null; do :; done; while /usr/sbin/ip -6 rule del pref 4430 2>/dev/null; do :; done'
-ExecStop=-/usr/sbin/ip route flush table 4430
-ExecStop=-/usr/sbin/ip -6 route flush table 4430
+ExecStop=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 iif lo ipproto 6 lookup 4430 2>/dev/null; do :; done; while /usr/sbin/ip -6 rule del pref 4430 iif lo ipproto 6 lookup 4430 2>/dev/null; do :; done; /usr/sbin/ip route del local 0.0.0.0/0 dev lo table 4430 2>/dev/null; /usr/sbin/ip -6 route del local ::/0 dev lo table 4430 2>/dev/null; true'
 
 [Install]
-WantedBy=multi-user.target
+# nginx, started or restarted, starts it again if it failed.
+WantedBy=multi-user.target nginx.service

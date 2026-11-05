@@ -138,6 +138,21 @@ func TestTally(t *testing.T) {
 		{Type: New, ID: "1", Conn: withSource(Conn{ID: "1", User: "alice", Upload: 200, Download: 2000}, "198.51.100.1")},
 	}})
 	require.Equal(t, int64(103), w.Report().Rows[0].Upload)
+	w.Settle(Events{Reset: true, Events: []Event{
+		{Type: New, ID: "4", Conn: withSource(Conn{ID: "4", User: "alice", Closed: t0.Add(4 * time.Minute), Upload: 3, Download: 4}, "198.51.100.1")},
+	}})
+	r = w.Report()
+	require.Equal(t, 1, r.Open, "a close the window missed")
+	require.Equal(t, 2, r.Closed)
+
+	// One user's: the counts are theirs alone.
+	only := Tally{User: "bob"}
+	only.Add(start, t0)
+	r = only.Report()
+	require.Equal(t, 1, r.Open)
+	require.Zero(t, r.Closed)
+	require.Equal(t, t0, r.Since)
+	require.Len(t, r.Rows, 1)
 }
 
 func withSource(c Conn, addr string) *Conn {
@@ -279,4 +294,14 @@ func freePort(t *testing.T) int {
 	require.NoError(t, err)
 	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port
+}
+
+func TestSubscribe_TrailerWithoutStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(frame(0x80, []byte("grpc-message: cut\r\n")))
+	}))
+	defer srv.Close()
+	client := &Client{HTTP: srv.Client(), URL: srv.URL}
+	err := client.Subscribe(t.Context(), time.Second, func(Events) error { return nil })
+	require.ErrorContains(t, err, "ended without a status")
 }
