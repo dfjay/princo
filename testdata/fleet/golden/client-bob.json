@@ -170,6 +170,7 @@
       {
         "action": "reject",
         "ip_version": 6,
+        "no_drop": true,
         "rule_set": [
           "geoip-ru"
         ]

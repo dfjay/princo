@@ -108,7 +108,7 @@ protocol when it has its own block, even an empty one (`hysteria2: {}`).
 | `egress` | where traffic leaves: `direct`, `warp`, or another node's name |
 | `warp` | the WARP account for `egress: warp` (*secret* fields) |
 | `tags` | labels client groups select nodes by |
-| `ipv6` | defaults to `true`; set `false` when the node has no IPv6, so the client refuses IPv6 destinations and AAAA answers for traffic routed through it |
+| `ipv6` | defaults to `true`; set `false` when the node has no IPv6, so the client refuses IPv6 destinations and AAAA answers for traffic routed through it; for the user's own network see [`client`](#client) |
 | `passthrough` | other TLS sites on 443: `host: target` (see below) |
 | `dns`, `rules`, `engine`, `acme_email`, `log`, `stats` | override `defaults` |
 | `ssh` | `user@host` or a `~/.ssh/config` Host that `princo deploy` connects to |
@@ -281,6 +281,21 @@ The sing-box profile users import.
 | `rules` | see [Rules](#rules) |
 | `final` | where unmatched traffic goes: a group or `direct` (the default) |
 | `log` | the app's log level, as for nodes; `warn` by default |
+| `ipv6` | whether the user's own network has IPv6, for traffic that leaves directly; unset, the app checks (see below) |
+
+Traffic that leaves directly, by a `direct` rule, a `direct` `final` or a
+group that falls back to `direct` or offers it, has only the IPv6 of the
+network the device is on. While the default interface has no global IPv6
+address, or the app can't tell, the app refuses IPv6 to the IPs of those
+rules, `ip:private` aside, and answers no AAAA for their domains, so apps
+use IPv4. Set `ipv6: false` for a network that has an address but no
+working IPv6, and `ipv6: true` to never refuse. Nodes with `ipv6: false`
+are refused IPv6 the same way, always.
+
+AAAA answers follow the domains of `rules` and `final`, whichever DNS
+server answers. A rule that matches IPs, ports or protocols ahead of one
+matching domains isn't known when the name is looked up: its domains lose
+AAAA with the later rule's.
 
 At `info` and `debug`, sing-box, in the app or on a node, logs every
 destination it connects to. The client's level reaches every user's app with the next

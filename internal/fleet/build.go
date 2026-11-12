@@ -478,6 +478,7 @@ func (b *builder) buildClient(where string, c config.Client) Client {
 	// Client profiles sniff before any rule.
 	out.Rules = b.rules(where+".rules", c.Rules, []string{ActionDirect, ActionReject}, groups, true)
 	out.Log = b.logLevel(where+".log", c.Log)
+	out.IPv6 = c.IPv6
 	out.Final = cmp.Or(c.Final, "direct")
 	if out.Final != "direct" && !slices.Contains(groups, out.Final) {
 		b.errorf("%s.final: want direct or a group, got %q", where, out.Final)

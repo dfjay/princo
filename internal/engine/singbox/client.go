@@ -24,19 +24,51 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 	c := newClientView(f, u)
 	var sets ruleSets
 
-	// Where a group can't carry IPv6, refuse IPv6 to the IPs routed into it,
-	// ahead of everything else, so apps fall back to IPv4 instead of timing
-	// out on whichever rule would have matched.
-	var noIPv6 []any
+	// Where a path can't carry IPv6, refuse it IPv6, so apps fall back to
+	// IPv4 instead of timing out: to the IPs routed into it, ahead of
+	// everything else, and by answering no AAAA for its domains, which are
+	// only known to routing once the app has connected.
+	var noIPv6, noAAAA []any
+	// The domains of the rules so far, by how far their path carries IPv6:
+	// those rules match first.
+	var earlier [ipv6Missing + 1][]any
+	refuseAAAA := func(support ipv6Support, names map[string]any) {
+		names["query_type"] = []any{"AAAA"}
+		noAAAA = append(noAAAA, withoutIPv6(support, names,
+			slices.Concat(earlier[:support]...), map[string]any{"action": "predefined"}))
+	}
 	for _, r := range u.Client.Rules {
-		if r.Action == fleet.ActionVia && c.ipv4Only(c.resolve(r.Via)) {
-			if ips := ipOnly(r.Match); len(ips) > 0 {
-				noIPv6 = append(noIPv6, withAction(compileMatch(ips, &sets), map[string]any{
-					"ip_version": 6,
-					"action":     "reject",
-				})...)
-			}
+		var out string
+		switch r.Action {
+		case fleet.ActionVia:
+			out = c.resolve(r.Via)
+		case fleet.ActionDirect:
+			out = "direct"
+		default:
+			continue
 		}
+		support := c.ipv6(out)
+		ips := ipOnly(r.Match)
+		if !c.ipv4Only(out) {
+			// A network without global IPv6 may still route its own.
+			ips = publicOnly(ips)
+		}
+		if body := destination(ips, &sets); body != nil && support != ipv6Carried {
+			body["ip_version"] = 6
+			// no_drop: a burst of refusals would turn into drops.
+			noIPv6 = append(noIPv6, withoutIPv6(support, body, nil,
+				map[string]any{"action": "reject", "no_drop": true}))
+		}
+		if names := domainOnly(r.Match); len(names) > 0 {
+			if support != ipv6Carried {
+				refuseAAAA(support, destination(names, &sets))
+			}
+			earlier[support] = append(earlier[support], destination(names, &sets))
+		}
+	}
+	final := c.resolve(u.Client.Final)
+	if support := c.ipv6(final); support != ipv6Carried {
+		refuseAAAA(support, map[string]any{})
 	}
 	rules := append(noIPv6,
 		map[string]any{"action": "sniff"},
@@ -54,7 +86,6 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 		}
 	}
 
-	final := c.resolve(u.Client.Final)
 	tun := map[string]any{
 		"type":         "tun",
 		"tag":          "tun-in",
@@ -82,17 +113,12 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 		"default_http_client":   "proxy-http",
 	}
 	if d := u.Client.DNS; d != nil {
-		cfg["dns"] = renderDNS(d, &sets,
-			func(s fleet.DNSServer) string {
-				if s.Via == "" {
-					return ""
-				}
-				return detourOf(c.resolve(s.Via))
-			},
-			func(server string) bool {
-				i := slices.IndexFunc(d.Servers, func(s fleet.DNSServer) bool { return s.Name == server })
-				return i >= 0 && d.Servers[i].Via != "" && c.ipv4Only(c.resolve(d.Servers[i].Via))
-			})
+		cfg["dns"] = renderDNS(d, &sets, noAAAA, func(s fleet.DNSServer) string {
+			if s.Via == "" {
+				return ""
+			}
+			return detourOf(c.resolve(s.Via))
+		})
 		if d.DefaultResolver != "" {
 			route["default_domain_resolver"] = d.DefaultResolver
 		}
@@ -160,6 +186,25 @@ func (c *clientView) resolve(name string) string {
 // ipv4Only reports whether an outbound includes a node without IPv6.
 func (c *clientView) ipv4Only(outbound string) bool {
 	return slices.ContainsFunc(c.members[outbound], func(n *fleet.Node) bool { return !n.IPv6 })
+}
+
+// ipv6 is how far an outbound carries IPv6. Where traffic may leave
+// directly, that is the user's own network: client.ipv6, or left to the
+// profile to check.
+func (c *clientView) ipv6(outbound string) ipv6Support {
+	if c.ipv4Only(outbound) {
+		return ipv6Missing
+	}
+	if g, _ := c.group(outbound); outbound != "direct" && !g.IncludeDirect {
+		return ipv6Carried
+	}
+	switch own := c.user.Client.IPv6; {
+	case own == nil:
+		return ipv6Uplink
+	case *own:
+		return ipv6Carried
+	}
+	return ipv6Missing
 }
 
 func (c *clientView) outbounds() []any {

@@ -135,6 +135,7 @@ users:
         select: { auto: true, default: auto }
       rules:
         - { action: sniff }
+      ipv6: false
 client:
   groups:
     select: { nodes: "!domestic", default: first }
@@ -156,6 +157,8 @@ client:
 	require.Equal(t, Group{Nodes: "!domestic", Default: "auto", Auto: true}, sel)
 	require.Equal(t, []Rule{{Action: "sniff"}}, router.Rules, "lists are replaced")
 	require.Equal(t, "select", router.Final)
+	require.Nil(t, alice.IPv6, "left to the profile")
+	require.Equal(t, false, *router.IPv6)
 }
 
 func TestUserClient_WithoutClient(t *testing.T) {
