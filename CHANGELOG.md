@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/dfjay/princo/compare/v0.5.0...v0.6.0) (2026-11-12)
+
+
+### Features
+
+* certificates: wildcards over DNS-01 and certificates from secrets ([#42](https://github.com/dfjay/princo/issues/42)) ([b5eac4e](https://github.com/dfjay/princo/commit/b5eac4e110be34eecbcdd2455042ec1a422f20b7))
+* **client:** refuse IPv6 to direct traffic on networks without it ([#48](https://github.com/dfjay/princo/issues/48)) ([bbacdbb](https://github.com/dfjay/princo/commit/bbacdbbe1cefca3d5fd4402530b49babdf297064))
+* real client addresses behind the multiplexer, and princo stats ([#44](https://github.com/dfjay/princo/issues/44)) ([1d70c57](https://github.com/dfjay/princo/commit/1d70c57641fb15bc71b6a4eb89e5e4ce3b6b5c08))
+* Reality self-steal: reality.target ([#40](https://github.com/dfjay/princo/issues/40)) ([b8f0299](https://github.com/dfjay/princo/commit/b8f0299d50346e48f3d9f5ca50e95b54edbb5b87))
+
+
+### Bug Fixes
+
+* **deploy:** reload nginx when the node stops serving sites ([#43](https://github.com/dfjay/princo/issues/43)) ([b109897](https://github.com/dfjay/princo/commit/b109897770a09c2cb90ad2fc68d9a6aef83d3141))
+
 ## [0.5.0](https://github.com/dfjay/princo/compare/v0.4.0...v0.5.0) (2026-11-03)
 
 
