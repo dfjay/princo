@@ -29,13 +29,13 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 	// everything else, and by answering no AAAA for its domains, which are
 	// only known to routing once the app has connected.
 	var noIPv6, noAAAA []any
-	// The domains of the rules so far, by how far their path carries IPv6:
+	// What the rules so far match, by how far their path carries IPv6:
 	// those rules match first.
-	var earlier [ipv6Missing + 1][]any
+	var earlierIPs, earlierNames [ipv6Missing + 1][]any
 	refuseAAAA := func(support ipv6Support, names map[string]any) {
 		names["query_type"] = []any{"AAAA"}
 		noAAAA = append(noAAAA, withoutIPv6(support, names,
-			slices.Concat(earlier[:support]...), map[string]any{"action": "predefined"}))
+			slices.Concat(earlierNames[:support]...), map[string]any{"action": "predefined"}))
 	}
 	for _, r := range u.Client.Rules {
 		var out string
@@ -49,21 +49,25 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 		}
 		support := c.ipv6(out)
 		ips := ipOnly(r.Match)
+		refused := ips
 		if !c.ipv4Only(out) {
 			// A network without global IPv6 may still route its own.
-			ips = publicOnly(ips)
+			refused = publicOnly(ips)
 		}
-		if body := destination(ips, &sets); body != nil && support != ipv6Carried {
+		if body := destination(refused, &sets); body != nil && support != ipv6Carried {
 			body["ip_version"] = 6
 			// no_drop: a burst of refusals would turn into drops.
-			noIPv6 = append(noIPv6, withoutIPv6(support, body, nil,
-				map[string]any{"action": "reject", "no_drop": true}))
+			noIPv6 = append(noIPv6, withoutIPv6(support, body,
+				slices.Concat(earlierIPs[:support]...), map[string]any{"action": "reject", "no_drop": true}))
+		}
+		if body := destination(ips, &sets); body != nil {
+			earlierIPs[support] = append(earlierIPs[support], body)
 		}
 		if names := domainOnly(r.Match); len(names) > 0 {
 			if support != ipv6Carried {
 				refuseAAAA(support, destination(names, &sets))
 			}
-			earlier[support] = append(earlier[support], destination(names, &sets))
+			earlierNames[support] = append(earlierNames[support], destination(names, &sets))
 		}
 	}
 	final := c.resolve(u.Client.Final)

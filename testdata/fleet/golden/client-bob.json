@@ -169,11 +169,27 @@
     "rules": [
       {
         "action": "reject",
-        "ip_version": 6,
+        "mode": "and",
         "no_drop": true,
-        "rule_set": [
-          "geoip-ru"
-        ]
+        "rules": [
+          {
+            "ip_version": 6,
+            "rule_set": [
+              "geoip-ru"
+            ]
+          },
+          {
+            "invert": true,
+            "mode": "or",
+            "rules": [
+              {
+                "ip_is_private": true
+              }
+            ],
+            "type": "logical"
+          }
+        ],
+        "type": "logical"
       },
       {
         "action": "sniff"

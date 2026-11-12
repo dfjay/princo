@@ -113,11 +113,15 @@ func TestClientGroups(t *testing.T) {
 	}
 	require.Equal(t, []any{"select-auto", "us-reality"}, selectors["select"])
 	require.Equal(t, []any{"direct", "relay-reality"}, selectors["ru-select"])
-	// relay has no IPv6: refuse IPv6 to RU IPs before anything else.
+	// relay has no IPv6: refuse IPv6 to RU IPs before anything else, but
+	// for the private ones an earlier rule sends directly.
 	first := bob["route"].(map[string]any)["rules"].([]any)[0].(map[string]any)
-	require.EqualValues(t, 6, first["ip_version"])
 	require.Equal(t, "reject", first["action"])
 	require.Equal(t, true, first["no_drop"], "a burst of refusals must not turn into drops")
+	require.Equal(t, []any{
+		map[string]any{"ip_version": float64(6), "rule_set": []any{"geoip-ru"}},
+		map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": []any{map[string]any{"ip_is_private": true}}},
+	}, first["rules"])
 
 	// alice can't reach relay, so ru-select falls back to direct.
 	alice := renderJSON(t, client(e, engine.AnyPlatform), f, "alice")
@@ -252,25 +256,31 @@ func TestClientDirectIPv6(t *testing.T) {
 	require.Equal(t, []any{all(reject, noIPv6, geoip), sniff}, route[:2])
 	require.Equal(t, []any{all(predefined, noIPv6, aaaa)}, dns)
 
-	// Everything else going directly gets no AAAA either, but for the
-	// domains an earlier rule sends through nodes.
+	// Everything else going directly gets no AAAA either. What an earlier
+	// rule sends through nodes keeps its IPv6.
 	own.Rules = append([]fleet.Rule{{
-		Match:  []fleet.Matcher{{Kind: fleet.MatchDomainSuffix, Value: "example.org"}, {Kind: fleet.MatchPort, Value: "22"}},
+		Match: []fleet.Matcher{
+			{Kind: fleet.MatchDomainSuffix, Value: "example.org"},
+			{Kind: fleet.MatchIP, Value: "2001:db8::/32"},
+			{Kind: fleet.MatchPort, Value: "22"},
+		},
 		Action: fleet.ActionVia, Via: "select",
 	}}, own.Rules...)
 	own.Final = "direct"
-	proxied := map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": []any{
-		map[string]any{"domain_suffix": []any{"example.org"}},
-	}}
+	but := func(body map[string]any) map[string]any {
+		return map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": []any{body}}
+	}
+	proxied := but(map[string]any{"domain_suffix": []any{"example.org"}})
+	proxiedIPs := but(map[string]any{"ip_cidr": []any{"2001:db8::/32"}})
 	anyAAAA := map[string]any{"query_type": []any{"AAAA"}}
-	_, dns = render()
+	route, dns = render()
+	require.Equal(t, []any{all(reject, noIPv6, geoip, proxiedIPs), sniff}, route[:2])
 	require.Equal(t, []any{all(predefined, noIPv6, aaaa, proxied), all(predefined, noIPv6, anyAAAA, proxied)}, dns)
 
 	no, yes := false, true
 	own.IPv6 = &no
 	route, dns = render()
-	geoip["action"], geoip["no_drop"] = "reject", true
-	require.Equal(t, []any{geoip, sniff}, route[:2])
+	require.Equal(t, []any{all(reject, geoip, proxiedIPs), sniff}, route[:2])
 	require.Equal(t, []any{all(predefined, aaaa, proxied), all(predefined, anyAAAA, proxied)}, dns)
 
 	own.IPv6 = &yes
