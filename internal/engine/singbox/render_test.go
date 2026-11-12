@@ -114,13 +114,16 @@ func TestClientGroups(t *testing.T) {
 	require.Equal(t, []any{"select-auto", "us-reality"}, selectors["select"])
 	require.Equal(t, []any{"direct", "relay-reality"}, selectors["ru-select"])
 	// relay has no IPv6: refuse IPv6 to RU IPs before anything else, but
-	// for the private ones an earlier rule sends directly.
+	// for what an earlier rule sends directly.
 	first := bob["route"].(map[string]any)["rules"].([]any)[0].(map[string]any)
 	require.Equal(t, "reject", first["action"])
 	require.Equal(t, true, first["no_drop"], "a burst of refusals must not turn into drops")
 	require.Equal(t, []any{
 		map[string]any{"ip_version": float64(6), "rule_set": []any{"geoip-ru"}},
-		map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": []any{map[string]any{"ip_is_private": true}}},
+		map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": []any{
+			map[string]any{"ip_is_private": true},
+			map[string]any{"network": "icmp"},
+		}},
 	}, first["rules"])
 
 	// alice can't reach relay, so ru-select falls back to direct.
@@ -267,11 +270,12 @@ func TestClientDirectIPv6(t *testing.T) {
 		Action: fleet.ActionVia, Via: "select",
 	}}, own.Rules...)
 	own.Final = "direct"
-	but := func(body map[string]any) map[string]any {
-		return map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": []any{body}}
+	but := func(bodies ...any) map[string]any {
+		return map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": bodies}
 	}
 	proxied := but(map[string]any{"domain_suffix": []any{"example.org"}})
-	proxiedIPs := but(map[string]any{"ip_cidr": []any{"2001:db8::/32"}})
+	// Ahead of sniff the rule is known by its IPs and ports.
+	proxiedIPs := but(map[string]any{"ip_cidr": []any{"2001:db8::/32"}}, map[string]any{"port": []any{float64(22)}})
 	anyAAAA := map[string]any{"query_type": []any{"AAAA"}}
 	route, dns = render()
 	require.Equal(t, []any{all(reject, noIPv6, geoip, proxiedIPs), sniff}, route[:2])
@@ -287,6 +291,15 @@ func TestClientDirectIPv6(t *testing.T) {
 	route, dns = render()
 	require.Equal(t, sniff, route[0])
 	require.Empty(t, dns)
+
+	// A range sent directly may hold the network's own addresses, and
+	// without client.dns the rules stand ahead of the app's own resolver.
+	own.IPv6, own.DNS = nil, nil
+	own.Rules = []fleet.Rule{{Match: []fleet.Matcher{{Kind: fleet.MatchIP, Value: "::/0"}}, Action: fleet.ActionDirect}}
+	route, dns = render()
+	everywhere := map[string]any{"ip_version": float64(6), "ip_cidr": []any{"::/0"}}
+	require.Equal(t, all(reject, noIPv6, everywhere, but(map[string]any{"ip_is_private": true})), route[0])
+	require.Equal(t, []any{all(predefined, noIPv6, anyAAAA)}, dns)
 }
 
 func TestClientPlatforms(t *testing.T) {

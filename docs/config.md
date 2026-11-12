@@ -293,9 +293,12 @@ working IPv6, and `ipv6: true` to never refuse. Nodes with `ipv6: false`
 are refused IPv6 the same way, always.
 
 AAAA answers follow the domains of `rules` and `final`, whichever DNS
-server answers. A rule that matches IPs, ports or protocols ahead of one
-matching domains isn't known when the name is looked up: its domains lose
-AAAA with the later rule's.
+server answers. What an earlier rule sends where IPv6 works keeps it, as far
+as the rule is known at that point: a name's lookup knows only domains, and
+a connection's first packet only IPs, ports and networks. So a rule matching
+IPs or ports ahead of one matching domains leaves its domains without AAAA,
+and a rule matching domains ahead of one matching IPs leaves its IPs
+refused.
 
 At `info` and `debug`, sing-box, in the app or on a node, logs every
 destination it connects to. The client's level reaches every user's app with the next

@@ -30,8 +30,9 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 	// only known to routing once the app has connected.
 	var noIPv6, noAAAA []any
 	// What the rules so far match, by how far their path carries IPv6:
-	// those rules match first.
-	var earlierIPs, earlierNames [ipv6Missing + 1][]any
+	// those rules match first. Ahead of sniff that is all but domains and
+	// protocols; for a name, its domains.
+	var earlierConns, earlierNames [ipv6Missing + 1][]any
 	refuseAAAA := func(support ipv6Support, names map[string]any) {
 		names["query_type"] = []any{"AAAA"}
 		noAAAA = append(noAAAA, withoutIPv6(support, names,
@@ -48,20 +49,25 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 			continue
 		}
 		support := c.ipv6(out)
-		ips := ipOnly(r.Match)
-		refused := ips
+		refused := ipOnly(r.Match)
+		except := slices.Concat(earlierConns[:support]...)
 		if !c.ipv4Only(out) {
 			// A network without global IPv6 may still route its own.
-			refused = publicOnly(ips)
+			refused = publicOnly(refused)
+			if slices.ContainsFunc(refused, func(m fleet.Matcher) bool { return m.Kind == fleet.MatchIP }) {
+				except = append(except, map[string]any{"ip_is_private": true})
+			}
 		}
 		if body := destination(refused, &sets); body != nil && support != ipv6Carried {
 			body["ip_version"] = 6
 			// no_drop: a burst of refusals would turn into drops.
-			noIPv6 = append(noIPv6, withoutIPv6(support, body,
-				slices.Concat(earlierIPs[:support]...), map[string]any{"action": "reject", "no_drop": true}))
+			noIPv6 = append(noIPv6, withoutIPv6(support, body, except,
+				map[string]any{"action": "reject", "no_drop": true}))
 		}
-		if body := destination(ips, &sets); body != nil {
-			earlierIPs[support] = append(earlierIPs[support], body)
+		if known := beforeSniff(r.Match); len(known) > 0 {
+			for _, body := range compileMatch(known, &sets) {
+				earlierConns[support] = append(earlierConns[support], body)
+			}
 		}
 		if names := domainOnly(r.Match); len(names) > 0 {
 			if support != ipv6Carried {
@@ -126,6 +132,9 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 		if d.DefaultResolver != "" {
 			route["default_domain_resolver"] = d.DefaultResolver
 		}
+	} else if len(noAAAA) > 0 {
+		// The app's own resolver answers the rest.
+		cfg["dns"] = map[string]any{"rules": noAAAA}
 	}
 	if len(sets.tags) > 0 {
 		route["rule_set"] = remoteRuleSets(f, sets.tags)

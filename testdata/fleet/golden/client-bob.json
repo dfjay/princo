@@ -184,6 +184,9 @@
             "rules": [
               {
                 "ip_is_private": true
+              },
+              {
+                "network": "icmp"
               }
             ],
             "type": "logical"

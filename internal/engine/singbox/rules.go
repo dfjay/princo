@@ -122,6 +122,18 @@ func domainOnly(match []fleet.Matcher) []fleet.Matcher {
 	return out
 }
 
+// beforeSniff keeps the matchers that hold of a connection before it is
+// sniffed: all but its domain and protocol.
+func beforeSniff(match []fleet.Matcher) []fleet.Matcher {
+	var out []fleet.Matcher
+	for _, m := range match {
+		if !m.IsDomain() && m.Kind != fleet.MatchProtocol {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // ipOnly keeps the matchers that test destination addresses.
 func ipOnly(match []fleet.Matcher) []fleet.Matcher {
 	var out []fleet.Matcher
