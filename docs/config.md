@@ -13,7 +13,7 @@ settings together and reports the validation problems it finds in one pass.
 [Defaults](#defaults) · [Nodes](#nodesname) · [Users](#usersname) ·
 [Client profiles](#client) · [Rules](#rules) · [Rule data](#rule_data) ·
 [DNS](#dns) · [Engines](#engines) · [Subscriptions](#subscription) ·
-[Secrets](#secrets) · [Several files](#several-files)
+[Monitor](#monitor) · [Secrets](#secrets) · [Several files](#several-files)
 
 ## File structure
 
@@ -31,6 +31,7 @@ secrets: {}         # where secrets live
 #   domain: subs.example.com
 # certificates: {}  # wildcards and certificates issued elsewhere
 # rule_data: runetfreedom  # where geoip: and geosite: data comes from
+# monitor: {}       # nodes check themselves and report to Telegram
 ```
 
 This is an outline; add your nodes and users before rendering. Omit optional
@@ -59,11 +60,13 @@ can be shared without exposing them.
 | `shared/hysteria2_obfs` | the Hysteria2 obfuscation password, shared by nodes with `obfs` |
 | `nodes/<node>/warp/{private_key,ipv4,ipv6}` | the node's WARP account |
 | `nodes/<node>/chain` | the UUID a chained node uses on its upstream |
-| `nodes/<node>/stats` | the secret of the engine's API for `princo stats`, with `stats: true` |
+| `nodes/<node>/stats` | the secret of the engine's API, with `stats: true` or, on a node with `egress: warp`, [`monitor`](#monitor) |
+| `telegram/token`, `telegram/chat` | the bot and the chat [`monitor`](#monitor) reports to |
 
 `princo secret gen` generates every missing one it can: UUIDs, Reality key
 pairs (writing the public half to the node's `reality.public_key`) and the
-Hysteria2 obfuscation password. WARP credentials come from an existing account.
+Hysteria2 obfuscation password. WARP credentials come from an existing account,
+and Telegram's from your bot.
 
 To use another path, set the field to `!secret <path>`: for example, two
 nodes can share a Reality key with `private_key: !secret shared/reality`.
@@ -502,6 +505,69 @@ also uses what only that platform has; `princo render --user <name>
 | Platform | sing-box |
 | --- | --- |
 | `linux` | sing-box running as a service, on a router or a desktop: TCP is redirected in the kernel with nftables (`auto_redirect`), faster than the TUN stack, and on a router that takes in the LAN's traffic |
+
+## `monitor`
+
+A GUI panel watches whether it reaches its nodes. That misses what users
+notice first: an address blocked from their country, or a WARP account that
+stopped passing traffic. With `monitor`, each node checks itself on a timer
+and writes to a Telegram chat when something changes:
+
+```yaml
+monitor:
+  from: domestic   # nodes with this tag check that they reach the others
+  interval: 2m
+```
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `telegram.token` | `telegram/token` | *secret*: the bot's token, from [@BotFather](https://t.me/BotFather) |
+| `telegram.chat` | `telegram/chat` | *secret*: the chat's ID, or `@channel`; the bot must be allowed to write there |
+| `telegram.api` | `https://api.telegram.org` | another Bot API address over HTTPS, such as your own relay, for nodes that can't reach Telegram |
+| `from` | — | a [tag](#nodesname): nodes that carry it also check that they reach every other node |
+| `interval` | `2m` | how often a node runs its checks; a minute at least |
+
+Every node checks:
+
+- **the engine**: that `princo.service` runs;
+- **certificates**: that each one the node serves has two weeks left or more.
+  ACME renews with a month left, so less means renewal keeps failing;
+- **WARP**, with `egress: warp` on sing-box: that a request through it gets an
+  answer. The check goes through the engine's API, so the node needs the
+  secret `nodes/<node>/stats`, which `princo secret gen` makes.
+
+Nodes tagged `from` also check **reachability**: they connect to TCP 443 of
+every other node and, where it serves Reality or Naive, complete a
+TLS handshake under that name, as a client's first packets would. Put the tag
+on a node inside the country your users connect from: this is the check that
+notices a node blocked there. The message says which step failed, the
+connection or the handshake.
+
+A check changes state once two runs in a row find it so, and Telegram hears
+of each change once, including the recovery:
+
+```text
+princo node ru
+🔴 Can't reach node us: connecting to 203.0.113.7:443: timed out
+
+princo node ru
+🟢 Node us is reachable again, after 2h13m
+```
+
+A message Telegram didn't take is sent again on the next run. To see what a
+node finds now, run `princo host monitor --dry-run` on it; see
+[Monitoring](deployment.md#monitoring).
+
+What it doesn't see:
+
+- One node sees one network. Blocks differ by operator and region, so a
+  node in a data center may reach what a mobile operator's users can't.
+- Hysteria2 is not probed: UDP 443 answers nothing to a stranger. A node
+  serving only Hysteria2 is left out of the reachability checks.
+- A blocked protocol, where the address and the name still answer.
+- xray nodes' WARP: xray has no API to test it through.
+- A node that is down doesn't report itself. A `from` node reports the
+  others; tag two, and they report each other.
 
 ## `certificates`
 

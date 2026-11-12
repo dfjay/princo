@@ -27,7 +27,8 @@ or through sudo -n: install the engine, nginx and certbot, and princo of
 this version, verified with cosign (or --princo-deb); issue the
 certificates the host lacks; then apply the node's bundle with princo
 host apply: its rendered files, rule sets, a systemd unit for the
-engine, and nginx for the SNI multiplexer and the subscription site.
+engine, nginx for the SNI multiplexer and the subscription site, and,
+with monitor: in princo.yaml, the timer that checks the node.
 
 Rule sets are built from the fleet's rule_data, downloaded unless
 --rule-sets names a directory holding it: geoip.dat or geoip.mmdb, and

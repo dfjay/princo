@@ -108,7 +108,7 @@ func TestDeploy_FreshHost(t *testing.T) {
 	}, r.steps)
 	require.Equal(t, "deb 0.2.0 arm64", string(r.deb))
 	require.True(t, r.bundles[0].Partial, "the engine waits for the certificates")
-	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(r.bundles[1]))
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service", "princo-monitor.timer"}, unitNames(r.bundles[1]))
 }
 
 func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
@@ -152,6 +152,7 @@ func TestDeploy_DevBuild(t *testing.T) {
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps)
 	require.Contains(t, log.String(), "the host runs princo 0.1.1, this is 0.2.0+abc1234")
+	require.Contains(t, log.String(), "which must have host monitor", "the fixture has monitor:")
 
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.1.1\n"}
 	d, _ = newDeployer(r, "0.2.0+abc1234")
@@ -177,7 +178,7 @@ func TestDeploy_MuxRemoved(t *testing.T) {
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
-	require.Equal(t, []string{"nginx.service", "princo.service"}, unitNames(r.bundles[0]))
+	require.Equal(t, []string{"nginx.service", "princo.service", "princo-monitor.timer"}, unitNames(r.bundles[0]))
 }
 
 func TestCheck(t *testing.T) {
@@ -187,7 +188,7 @@ func TestCheck(t *testing.T) {
 	d, _ := newDeployer(r, "0.2.0")
 	require.NoError(t, d.Check(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "check"}, r.steps)
-	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(r.bundles[0]), "the node as it will be")
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service", "princo-monitor.timer"}, unitNames(r.bundles[0]), "the node as it will be")
 
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\n"}
 	d, _ = newDeployer(r, "0.2.0")
@@ -234,12 +235,18 @@ func TestCleanup(t *testing.T) {
 	for _, dir := range []string{"sing-box-1.0.0", "sing-box-1.1.0"} {
 		require.NoError(t, os.Mkdir(filepath.Join(root, dir), 0o755))
 	}
-	// The timer stays: its unit file is there.
-	require.NoError(t, os.WriteFile(filepath.Join(root, "princo-lego.timer"), nil, 0o644))
+	// The timer stays: its unit file is there. The monitor's is gone, and
+	// its state goes with it.
+	units := t.TempDir()
+	state := filepath.Join(units, "monitor-state.json")
+	require.NoError(t, os.WriteFile(filepath.Join(units, "princo-lego.timer"), nil, 0o644))
+	require.NoError(t, os.WriteFile(state, []byte("{}"), 0o600))
 	p, _, _ := plan(t, "us")
 	script, err := execute("cleanup.sh", map[string]any{
 		"Root": root, "Keep": filepath.Join(root, "sing-box-1.1.0"),
-		"LegoRoot": filepath.Join(root, "lego"), "KeepLego": "", "LegoTimer": filepath.Join(root, "princo-lego.timer"),
+		"LegoRoot": filepath.Join(root, "lego"), "KeepLego": "",
+		"LegoTimer":    filepath.Join(units, "princo-lego.timer"),
+		"MonitorTimer": filepath.Join(units, "princo-monitor.timer"), "MonitorState": state,
 		"Ports": ports(p),
 	})
 	require.NoError(t, err)
@@ -256,6 +263,7 @@ func TestCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	require.Equal(t, "sing-box-1.1.0", entries[0].Name())
+	require.NoFileExists(t, state)
 }
 
 // runUFW runs script against an active ufw with rules, and returns the
@@ -397,5 +405,5 @@ func TestDeploy_SitesRemoved(t *testing.T) {
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
-	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(r.bundles[0]), "the probe told of an earlier site config")
+	require.Equal(t, []string{"princo.service", "nginx.service", "princo-monitor.timer"}, unitNames(r.bundles[0]), "the probe told of an earlier site config")
 }

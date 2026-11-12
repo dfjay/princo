@@ -2,6 +2,7 @@ dir  0755 root     /var/lib/princo
 dir  0751 princo-engine /var/lib/princo/files
 dir  0750 www-data /var/lib/princo/files/subscription
 dir  0755 root     /var/lib/princo/acme
+file 0600 root     /var/lib/princo/files/monitor.json
 file 0640 princo-engine /var/lib/princo/files/sing-box.json
 file 0640 www-data /var/lib/princo/files/subscription/40dcd5639946db76d72a779de6104b30/base64
 file 0640 www-data /var/lib/princo/files/subscription/40dcd5639946db76d72a779de6104b30/index.html
@@ -23,6 +24,8 @@ file 0644 root     /etc/systemd/system/princo-loopback.service
 file 0644 root     /etc/nginx/modules-enabled/99-princo-stream.conf
 file 0644 root     /etc/nginx/sites-enabled/princo.conf
 file 0755 root     /etc/letsencrypt/renewal-hooks/deploy/princo
+file 0644 root     /etc/systemd/system/princo-monitor.service
+file 0644 root     /etc/systemd/system/princo-monitor.timer
 unit princo.service reload=false check=["/usr/local/lib/princo/sing-box-1.14.3/sing-box" "check" "-c" "/var/lib/princo/files/sing-box.json"]
   /etc/systemd/system/princo.service
   /var/lib/princo/files/sing-box.json
@@ -33,3 +36,6 @@ unit princo-loopback.service reload=false check=[]
 unit nginx.service reload=true check=["nginx" "-t" "-q"]
   /etc/nginx/modules-enabled/99-princo-stream.conf
   /etc/nginx/sites-enabled/princo.conf
+unit princo-monitor.timer reload=false check=[]
+  /etc/systemd/system/princo-monitor.service
+  /etc/systemd/system/princo-monitor.timer

@@ -44,6 +44,8 @@ already installed. Never use a production node as an end-to-end test target.
 - `internal/host/`: runtime files and the host requirements plan.
 - `internal/deploy/`: SSH deployment, pinned engines and provisioning templates.
 - `internal/bundle/`: managed files, service checks and rollback.
+- `internal/monitor/`: the checks a node runs on itself, their state and
+  the Telegram reports.
 - `internal/secrets/`: age, sops and directory-backed secret access.
 - `internal/subscription/`: protocol links, subscription files and QR pages.
 - `nix/`: packaging, NixOS integration and VM tests.

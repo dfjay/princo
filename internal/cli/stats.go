@@ -85,14 +85,14 @@ func statsNodes(f *fleet.Fleet, name string) ([]*fleet.Node, error) {
 		if !ok {
 			return nil, fmt.Errorf("no node named %q", name)
 		}
-		if n.Stats == nil {
+		if !n.Stats {
 			return nil, fmt.Errorf("node %s doesn't report its connections; set stats: true on it in princo.yaml, then princo secret gen and deploy it", name)
 		}
 		return []*fleet.Node{n}, nil
 	}
 	var out []*fleet.Node
 	for _, n := range f.Nodes {
-		if n.Stats != nil {
+		if n.Stats {
 			out = append(out, n)
 		}
 	}
@@ -121,7 +121,7 @@ func nodeStats(ctx context.Context, log io.Writer, n *fleet.Node, target string,
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return ssh.Dial(ctx, api) },
 		}},
 		URL:    "http://" + api,
-		Secret: n.Stats.Secret,
+		Secret: n.API.Secret,
 	}
 	// first passes fn the engine's first message: what it has now.
 	first := func(fn func(stats.Events)) error {

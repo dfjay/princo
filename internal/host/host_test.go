@@ -67,12 +67,14 @@ func TestPlan_Mux(t *testing.T) {
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
 	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
 	require.Equal(t, &Site{Domain: "subs.example.com", Certificate: "subs.example.com", Root: "subscription", Listen: SiteAddr}, p.Subscription)
-	// Its own keys, the chain hop exiting here, and every user for the site.
+	// Its own keys, the chain hop exiting here, the monitor's chat, and
+	// every user for the site.
 	require.Equal(t, []string{
 		"nodes/de/reality", "nodes/de/stats", "nodes/de/warp/ipv4", "nodes/de/warp/ipv6", "nodes/de/warp/private_key",
-		"nodes/relay/chain", "users/alice", "users/bob",
+		"nodes/relay/chain", "telegram/chat", "telegram/token", "users/alice", "users/bob",
 	}, secretPaths(p))
-	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[6].Source)
+	require.Equal(t, &Monitor{Config: "monitor.json", IntervalSeconds: 300}, p.Monitor)
+	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[8].Source)
 }
 
 // Without the engine behind it, the multiplexer needs no routing back.
@@ -105,10 +107,10 @@ func TestPlan_RealityOnly(t *testing.T) {
 	require.Nil(t, p.Mux)
 	require.Nil(t, p.Subscription)
 	require.Empty(t, p.Certificates)
-	require.Equal(t, []string{"nodes/us/reality", "users/alice", "users/bob"}, secretPaths(p))
+	require.Equal(t, []string{"nodes/us/reality", "telegram/chat", "telegram/token", "users/alice", "users/bob"}, secretPaths(p))
 
 	relay := plan(t, "relay")
-	require.Equal(t, []string{"nodes/relay/chain", "nodes/relay/reality", "users/bob"}, secretPaths(relay))
+	require.Equal(t, []string{"nodes/relay/chain", "nodes/relay/reality", "telegram/chat", "telegram/token", "users/bob"}, secretPaths(relay))
 }
 
 func TestFiles_Subscription(t *testing.T) {
@@ -133,8 +135,9 @@ func TestFiles_Subscription(t *testing.T) {
 
 	us, err := Files(f, "us")
 	require.NoError(t, err)
-	require.Len(t, us, 1, "only the subscription node gets the site")
+	require.Len(t, us, 2, "only the subscription node gets the site")
 	require.Contains(t, us, "sing-box.json")
+	require.Contains(t, us, MonitorFile)
 }
 
 func TestPlan_Xray(t *testing.T) {
@@ -147,7 +150,8 @@ func TestPlan_Xray(t *testing.T) {
 	require.Empty(t, p.Certificates)
 	require.Equal(t, []string{"geoip.dat", "geosite.dat"}, p.RuleSets)
 	require.Equal(t, []string{
-		"nodes/fi/reality", "nodes/fi/warp/ipv4", "nodes/fi/warp/ipv6", "nodes/fi/warp/private_key", "users/alice",
+		"nodes/fi/reality", "nodes/fi/warp/ipv4", "nodes/fi/warp/ipv6", "nodes/fi/warp/private_key",
+		"telegram/chat", "telegram/token", "users/alice",
 	}, secretPaths(p))
 }
 

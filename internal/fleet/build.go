@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dfjay/princo/internal/config"
 	"github.com/dfjay/princo/internal/secrets"
@@ -20,6 +21,8 @@ import (
 // Default secret paths, used when princo.yaml doesn't name one.
 const (
 	secretHysteria2Obfs = "shared/hysteria2_obfs"
+	secretTelegramToken = "telegram/token"
+	secretTelegramChat  = "telegram/chat"
 )
 
 func secretUserUUID(user string) string    { return "users/" + user }
@@ -64,6 +67,7 @@ func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
 	b.users()
 	b.subscription()
 	b.certificates()
+	b.monitor()
 	b.realityNames()
 	b.ruleData()
 	b.client()
@@ -235,11 +239,8 @@ func (b *builder) nodes() {
 			if n.Engine != "sing-box" {
 				b.errorf("%s.stats: engine %s doesn't report connections; only sing-box does", where, n.Engine)
 			}
-			n.Stats = &Stats{Secret: b.secret(where+".stats", nil, secretStats(name), SecretPassword)}
-			if n.Stats.Secret == "" {
-				// sing-box would leave its API open to the host's every user.
-				b.errorf("%s.stats: the secret %s is empty", where, secretStats(name))
-			}
+			n.Stats = true
+			b.api(n, where+".stats")
 		}
 
 		b.f.Nodes = append(b.f.Nodes, n)
@@ -336,6 +337,60 @@ func (b *builder) egress() {
 			}
 			seen[m] = true
 		}
+	}
+}
+
+// monitor resolves monitor: and gives the nodes whose WARP it checks their
+// engine's API, once egress is known.
+func (b *builder) monitor() {
+	c := b.cfg.Monitor
+	if c == nil {
+		return
+	}
+	t := deref(c.Telegram)
+	m := &Monitor{
+		Telegram: Telegram{
+			API:   strings.TrimSuffix(cmp.Or(t.API, DefaultTelegramAPI), "/"),
+			Token: b.secret("monitor.telegram.token", t.Token, secretTelegramToken, SecretExternal),
+			Chat:  b.secret("monitor.telegram.chat", t.Chat, secretTelegramChat, SecretExternal),
+		},
+		From:     c.From,
+		Interval: DefaultMonitorInterval,
+	}
+	if u, err := url.Parse(m.Telegram.API); err != nil || u.Scheme != "https" || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
+		b.errorf("monitor.telegram.api: want an https:// URL, got %q", t.API)
+	}
+	if c.Interval != "" {
+		d, err := time.ParseDuration(c.Interval)
+		switch {
+		case err != nil:
+			b.errorf("monitor.interval: want a duration such as 2m, got %q", c.Interval)
+		case d < MinMonitorInterval || d%time.Second != 0:
+			b.errorf("monitor.interval: want %s or longer, in whole seconds, got %s", MinMonitorInterval, c.Interval)
+		default:
+			m.Interval = d
+		}
+	}
+	if m.From != "" && !slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return n.HasTag(m.From) }) {
+		b.errorf("monitor.from: no node is tagged %s", m.From)
+	}
+	b.f.Monitor = m
+	for _, n := range b.f.Nodes {
+		if b.f.MonitorsWarp(n) {
+			b.api(n, "nodes."+n.Name+".warp")
+		}
+	}
+}
+
+// api turns on the API of n's engine, which where in princo.yaml needs.
+func (b *builder) api(n *Node, where string) {
+	if n.API != nil {
+		return
+	}
+	n.API = &API{Secret: b.secret(where, nil, secretStats(n.Name), SecretPassword)}
+	if n.API.Secret == "" {
+		// sing-box would leave its API open to the host's every user.
+		b.errorf("%s: the secret %s is empty", where, secretStats(n.Name))
 	}
 }
 

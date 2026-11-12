@@ -32,14 +32,14 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	if n.Egress.Kind == fleet.EgressWarp {
 		cfg["endpoints"] = []any{warpEndpoint(n.Warp)}
 	}
-	if n.Stats != nil {
+	if n.API != nil {
 		// Without a dashboard, which it would download.
 		cfg["services"] = []any{map[string]any{
 			"type":        "api",
 			"tag":         "stats",
 			"listen":      "127.0.0.1",
 			"listen_port": engine.StatsPort,
-			"secret":      n.Stats.Secret,
+			"secret":      n.API.Secret,
 		}}
 	}
 
@@ -178,7 +178,7 @@ func serverOutbounds(f *fleet.Fleet, n *fleet.Node) []any {
 func egressTag(n *fleet.Node) string {
 	switch n.Egress.Kind {
 	case fleet.EgressWarp:
-		return "warp"
+		return engine.WarpTag
 	case fleet.EgressNode:
 		return outboundTag(n.Egress.Node, "reality")
 	default:
@@ -207,7 +207,7 @@ func warpEndpoint(w *fleet.Warp) map[string]any {
 	}
 	return map[string]any{
 		"type":        "wireguard",
-		"tag":         "warp",
+		"tag":         engine.WarpTag,
 		"mtu":         1280,
 		"address":     []any{w.IPv4, w.IPv6},
 		"private_key": w.PrivateKey,

@@ -2,7 +2,10 @@
 // secrets substituted, references checked. Engines render from it.
 package fleet
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // Fleet is everything princo knows about the VPN.
 type Fleet struct {
@@ -14,6 +17,8 @@ type Fleet struct {
 	// Certificates are princo.yaml's, in its order.
 	Certificates []*Certificate
 	RuleData     RuleData
+	// Monitor is nil when the nodes don't check themselves.
+	Monitor *Monitor
 
 	nodes map[string]*Node
 	users map[string]*User
@@ -80,8 +85,11 @@ type Node struct {
 	Passthrough []Passthrough
 	// Log is the engine's log level, one of LogLevels.
 	Log string
-	// Stats, when set, has the engine report its connections.
-	Stats *Stats
+	// Stats has princo stats read the engine's connections.
+	Stats bool
+	// API, when set, is the engine's API at 127.0.0.1:StatsPort, which
+	// princo stats and the monitor's WARP check talk to.
+	API *API
 
 	// ServesSubscription is set on the node hosting the subscription site.
 	ServesSubscription bool
@@ -115,12 +123,58 @@ const (
 	MuxNaivePort   = 8445
 )
 
-// StatsPort is the engine's API for princo stats, on 127.0.0.1.
+// StatsPort is the engine's API, on 127.0.0.1.
 const StatsPort = 8446
 
-type Stats struct {
-	// Secret keeps the host's other users from reading the connections.
+type API struct {
+	// Secret keeps the host's other users out of the engine.
 	Secret string
+}
+
+// Monitor is the checks each node runs on itself every Interval, telling
+// the Telegram chat what changed.
+type Monitor struct {
+	Telegram Telegram
+	// From tags the nodes that also check they reach the others; empty
+	// when none do.
+	From     string
+	Interval time.Duration
+}
+
+type Telegram struct {
+	API   string
+	Token string
+	Chat  string
+}
+
+const DefaultTelegramAPI = "https://api.telegram.org"
+
+// Monitor intervals: the default, and the shortest that leaves a run time
+// to end before the next.
+const (
+	DefaultMonitorInterval = 2 * time.Minute
+	MinMonitorInterval     = time.Minute
+)
+
+// MonitorsWarp tells whether the monitor checks n's WARP, which takes an
+// engine with an API: sing-box.
+func (f *Fleet) MonitorsWarp(n *Node) bool {
+	return f.Monitor != nil && n.Egress.Kind == EgressWarp && n.Engine == "sing-box"
+}
+
+// Reaches lists the nodes n checks that it reaches: the others, when n
+// carries the monitor's From tag.
+func (f *Fleet) Reaches(n *Node) []*Node {
+	if f.Monitor == nil || f.Monitor.From == "" || !n.HasTag(f.Monitor.From) {
+		return nil
+	}
+	var out []*Node
+	for _, m := range f.Nodes {
+		if m != n {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // Mux reports whether TCP 443 is shared through the SNI multiplexer, which

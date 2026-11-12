@@ -22,28 +22,22 @@ import (
 
 // The fields of the messages, as sing-box encodes them.
 
-func bytesField(b []byte, num int, v []byte) []byte {
-	b = appendVarint(b, uint64(num)<<3|wireBytes)
-	b = appendVarint(b, uint64(len(v)))
-	return append(b, v...)
-}
-
 func connMsg(c Conn, source string) []byte {
 	var b []byte
-	b = bytesField(b, 1, []byte(c.ID))
-	b = bytesField(b, 2, []byte("vless-reality-in"))
-	b = bytesField(b, 5, []byte("tcp"))
-	b = bytesField(b, 6, []byte(source))
-	b = bytesField(b, 7, []byte("93.184.216.34:443")) // a destination, which princo skips
-	b = bytesField(b, 8, []byte("example.com"))
-	b = bytesField(b, 10, []byte(c.User))
+	b = appendBytesField(b, 1, []byte(c.ID))
+	b = appendBytesField(b, 2, []byte("vless-reality-in"))
+	b = appendBytesField(b, 5, []byte("tcp"))
+	b = appendBytesField(b, 6, []byte(source))
+	b = appendBytesField(b, 7, []byte("93.184.216.34:443")) // a destination, which princo skips
+	b = appendBytesField(b, 8, []byte("example.com"))
+	b = appendBytesField(b, 10, []byte(c.User))
 	b = appendVarintField(b, 12, uint64(c.Created.UnixMilli()))
 	if !c.Closed.IsZero() {
 		b = appendVarintField(b, 13, uint64(c.Closed.UnixMilli()))
 	}
 	b = appendVarintField(b, 16, uint64(c.Upload))
 	b = appendVarintField(b, 17, uint64(c.Download))
-	return bytesField(b, 21, []byte("chain")) // repeated chainList
+	return appendBytesField(b, 21, []byte("chain")) // repeated chainList
 }
 
 func eventMsg(typ EventType, id string, conn []byte, up, down int64) []byte {
@@ -51,9 +45,9 @@ func eventMsg(typ EventType, id string, conn []byte, up, down int64) []byte {
 	if typ != New {
 		b = appendVarintField(b, 1, uint64(typ))
 	}
-	b = bytesField(b, 2, []byte(id))
+	b = appendBytesField(b, 2, []byte(id))
 	if conn != nil {
-		b = bytesField(b, 3, conn)
+		b = appendBytesField(b, 3, conn)
 	}
 	if up != 0 {
 		b = appendVarintField(b, 4, uint64(up))
@@ -67,7 +61,7 @@ func eventMsg(typ EventType, id string, conn []byte, up, down int64) []byte {
 func eventsMsg(reset bool, events ...[]byte) []byte {
 	var b []byte
 	for _, e := range events {
-		b = bytesField(b, 1, e)
+		b = appendBytesField(b, 1, e)
 	}
 	if reset {
 		b = appendVarintField(b, 2, 1)

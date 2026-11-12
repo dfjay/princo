@@ -5,7 +5,8 @@
 # turns that into firewall rules, an nginx stream map, ACME certificates and
 # sops-nix secrets. On the host, princo-render.service renders the node's
 # files from the decrypted secrets, and princo.service runs the node's engine
-# (engines.nix) on them; no secret reaches the Nix store.
+# (engines.nix) on them; no secret reaches the Nix store. With `monitor:` in
+# princo.yaml, princo-monitor.timer has the node check itself.
 {
   config,
   lib,
@@ -47,6 +48,7 @@ let
   # Absent from the plan JSON when the node has none.
   site = plan.subscription or null;
   mux = plan.mux or null;
+  monitor = plan.monitor or null;
   siteRoot = "${outDir}/${site.root}";
 
   useSops = cfg.secretsDir == null;
@@ -616,6 +618,62 @@ in
             };
           })
         ];
+        # The node checks itself and tells Telegram what changed.
+        systemd.services.princo-monitor = lib.mkIf (monitor != null) {
+          description = "princo node ${cfg.node}: check the node and tell Telegram what changed";
+          wants = [ "network-online.target" ];
+          after = [
+            "network-online.target"
+            "princo-render.service"
+            "princo.service"
+          ];
+          # systemctl, to ask whether the engine runs.
+          path = [ config.systemd.package ];
+          serviceConfig = {
+            Type = "oneshot";
+            ExecStart = lib.escapeShellArgs [
+              (lib.getExe cfg.package)
+              "host"
+              "monitor"
+              "--config"
+              "${outDir}/${monitor.config}"
+              "--state"
+              "/var/lib/princo/monitor-state.json"
+            ];
+            TimeoutStartSec = "90s";
+            NoNewPrivileges = true;
+            ProtectSystem = "strict";
+            ReadWritePaths = [ "/var/lib/princo" ];
+            ProtectHome = true;
+            PrivateTmp = true;
+            PrivateDevices = true;
+            ProtectClock = true;
+            ProtectControlGroups = true;
+            ProtectHostname = true;
+            ProtectKernelLogs = true;
+            ProtectKernelModules = true;
+            ProtectKernelTunables = true;
+            LockPersonality = true;
+            RestrictNamespaces = true;
+            RestrictRealtime = true;
+            RestrictAddressFamilies = [
+              "AF_INET"
+              "AF_INET6"
+              "AF_NETLINK"
+              "AF_UNIX"
+            ];
+            SystemCallArchitectures = "native";
+          };
+        };
+        systemd.timers.princo-monitor = lib.mkIf (monitor != null) {
+          description = "Check princo node ${cfg.node} every ${toString monitor.interval_seconds} seconds";
+          wantedBy = [ "timers.target" ];
+          timerConfig = {
+            OnActiveSec = "30s";
+            OnUnitActiveSec = "${toString monitor.interval_seconds}s";
+            AccuracySec = "5s";
+          };
+        };
         systemd.services.princo-loopback = lib.mkIf (loopback != null) {
           description = "princo node ${cfg.node}: the engine's replies back to nginx";
           wantedBy = [ "multi-user.target" ];

@@ -83,7 +83,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 			return err
 		}
 	}
-	if err := d.installPrinco(ctx, f); err != nil {
+	if err := d.installPrinco(ctx, f, p.Monitor != nil); err != nil {
 		return err
 	}
 	if err := d.copyLinked(ctx, p, f.linked); err != nil {
@@ -299,12 +299,14 @@ func (d *Deployer) cleanup(ctx context.Context, p *host.Plan, e engineSpec) erro
 		keepLego = legoDir()
 	}
 	script, err := execute("cleanup.sh", map[string]any{
-		"Root":      engineRoot,
-		"Keep":      e.dir(),
-		"LegoRoot":  legoRoot,
-		"KeepLego":  keepLego,
-		"LegoTimer": LegoTimer,
-		"Ports":     ports(p),
+		"Root":         engineRoot,
+		"Keep":         e.dir(),
+		"LegoRoot":     legoRoot,
+		"KeepLego":     keepLego,
+		"LegoTimer":    LegoTimer,
+		"MonitorTimer": MonitorTimer,
+		"MonitorState": MonitorState,
+		"Ports":        ports(p),
 	})
 	if err != nil {
 		return err
@@ -371,7 +373,7 @@ dpkg -i "$f" >/dev/null
 // installPrinco puts this princo's release or Deb on the host. A build
 // between releases has no .deb; it makes do with the host's princo, as the
 // bundle format refuses one too old.
-func (d *Deployer) installPrinco(ctx context.Context, f facts) error {
+func (d *Deployer) installPrinco(ctx context.Context, f facts, monitor bool) error {
 	deb := d.Deb
 	switch {
 	case deb != nil:
@@ -386,6 +388,10 @@ func (d *Deployer) installPrinco(ctx context.Context, f facts) error {
 		return fmt.Errorf("this princo, %s, isn't a release, so there's no .deb of it for the host; pass --princo-deb (just snapshot builds one)", d.Version)
 	default:
 		d.logf("the host runs princo %s, this is %s", f.princo, d.Version)
+		if monitor {
+			// Nothing else tells: the timer runs, and each run fails.
+			d.logf("warning: the node's checks run the host's princo, which must have host monitor; pass --princo-deb if it is older")
+		}
 		return nil
 	}
 	d.logf("installing princo on the host")

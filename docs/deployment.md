@@ -60,6 +60,8 @@ princo deploy --node nl --host admin@nl.example.com
    [`file`](config.md#certificates) come with the node's files.
 5. Applies the rendered files, rule sets, `princo.service` and nginx config,
    restarting or reloading services whose files changed.
+6. With [`monitor`](config.md#monitor) in `princo.yaml`, enables
+   `princo-monitor.timer`; see [Monitoring](#monitoring).
 
 The engine runs as a dynamic user without access to other users' files. Its
 config and certificates belong to root and the `princo-engine` group, which
@@ -281,3 +283,48 @@ at `nodes/<node>/stats`. `princo stats` reaches it over the node's `ssh:` with
 each connection's destination along, over that SSH connection; princo skips
 it, so the report says who connected and how much, never where users went.
 Only sing-box nodes report connections.
+
+## Monitoring
+
+With [`monitor`](config.md#monitor) in `princo.yaml`, every node checks
+itself and tells a Telegram chat what changed. Create a bot with
+[@BotFather](https://t.me/BotFather), add it to the chat, and store its
+token and the chat's ID:
+
+```yaml
+monitor:
+  from: domestic
+```
+
+```bash
+princo secret set telegram/token
+princo secret set telegram/chat
+princo secret gen          # the engine API's secret, on nodes with WARP
+princo deploy --node nl    # and every other node
+```
+
+Deploy every node: each one runs its own checks. On the host,
+`princo-monitor.timer` runs `princo host monitor` at the interval, as a
+deploy over SSH and the NixOS module both set up. The rendered
+`monitor.json` holds the bot's token, so it is root's alone. The checks'
+states are in `/var/lib/princo/monitor-state.json`; removing that file
+starts them over.
+
+To see what a node finds right now, without telling Telegram:
+
+```console
+# princo host monitor --dry-run
+ok   engine
+ok   certificate/nl.example.com: expires in 61 days, on 2027-01-12
+FAIL warp: the test request got no answer
+ok   reach/us
+```
+
+Under the NixOS module, pass the rendered file:
+`princo host monitor --dry-run --config /run/princo/files/monitor.json`.
+`journalctl -u princo-monitor` shows the same lines for every run, and a
+run that couldn't reach Telegram fails there.
+
+A node that can't reach `api.telegram.org`, as may happen inside the
+country you watch from, needs `monitor.telegram.api` pointed at a relay of
+the Bot API that it can reach.

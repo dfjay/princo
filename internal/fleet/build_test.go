@@ -594,9 +594,10 @@ nodes:
 `, values)
 	require.NoError(t, err)
 	a, _ := f.Node("a")
-	require.Equal(t, &Stats{Secret: "stats-a"}, a.Stats)
+	require.True(t, a.Stats)
+	require.Equal(t, &API{Secret: "stats-a"}, a.API)
 	b, _ := f.Node("b")
-	require.Nil(t, b.Stats, "a node's own stats: false wins")
+	require.False(t, b.Stats, "a node's own stats: false wins")
 
 	cfg, err := config.Parse([]byte("princo: v1\nnodes:\n  a:\n    address: a.example.com\n    reality: {}\n    stats: true\n"))
 	require.NoError(t, err)

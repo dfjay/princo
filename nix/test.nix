@@ -32,7 +32,7 @@ in
   name = "princo";
 
   nodes.machine =
-    { pkgs, ... }:
+    { pkgs, config, ... }:
     {
       imports = [ self.nixosModules.default ];
       services.princo = {
@@ -48,6 +48,7 @@ in
       environment.systemPackages = [
         pkgs.curl
         pkgs.sing-box
+        config.services.princo.package
       ];
     };
 
@@ -131,6 +132,16 @@ in
         machine.wait_until_succeeds(f"ss -Htn state established 'sport = :8445' | grep -qF '{peer}'", timeout=30)
     # The site, which isn't the engine, still sees nginx.
     machine.succeed(curl + "/ -o /dev/null")
+
+    # The node checks itself on a timer. Offline, WARP fails its check; the
+    # engine and the certificates pass theirs.
+    machine.succeed("systemctl is-active princo-monitor.timer")
+    assert "OnUnitActiveSec=300s" in machine.succeed("systemctl cat princo-monitor.timer")
+    checks = machine.succeed("princo host monitor --dry-run --config /run/princo/files/monitor.json")
+    assert "ok   engine" in checks, checks
+    assert "certificate/de.example.com" in checks, checks
+    assert "FAIL warp" in checks, checks
+    machine.succeed("stat -c %a /run/princo/files/monitor.json | grep -qx 640")
 
     # The engine reads its files through its group, not by bypassing permissions.
     caps = machine.succeed("grep CapEff /proc/$(systemctl show -P MainPID princo.service)/status")

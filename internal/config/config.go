@@ -23,6 +23,7 @@ type Config struct {
 	Subscription *Subscription        `yaml:"subscription"`
 	Certificates Ordered[Certificate] `yaml:"certificates"`
 	RuleData     *RuleData            `yaml:"rule_data"`
+	Monitor      *Monitor             `yaml:"monitor"`
 	Secrets      Ordered[string]      `yaml:"secrets"`
 
 	// The index of the file Merge took each secrets: pattern from.
@@ -227,6 +228,23 @@ func (r *RuleData) UnmarshalYAML(node *yaml.Node) error {
 	}
 	type plain RuleData
 	return decodeStrict(node, (*plain)(r))
+}
+
+// Monitor has every node check itself on a timer and tell Telegram what
+// changed.
+type Monitor struct {
+	Telegram *Telegram `yaml:"telegram"`
+	// From is the tag of the nodes that also check they reach the others.
+	From string `yaml:"from"`
+	// Interval between checks, e.g. 2m.
+	Interval string `yaml:"interval"`
+}
+
+type Telegram struct {
+	Token *secrets.SecretOrPlain `yaml:"token"`
+	Chat  *secrets.SecretOrPlain `yaml:"chat"`
+	// API replaces https://api.telegram.org, for nodes that can't reach it.
+	API string `yaml:"api"`
 }
 
 // Parse decodes a princo.yaml document strictly: unknown fields anywhere

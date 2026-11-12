@@ -70,7 +70,7 @@ func TestGolden(t *testing.T) {
 			for _, f := range b.Files {
 				fmt.Fprintf(&listing, "file %04o %-8s %s\n", f.Mode, group(f.Group), f.Path)
 				switch f.Path {
-				case UnitFile, LoopbackUnitFile, StreamConf, SiteConf:
+				case UnitFile, LoopbackUnitFile, StreamConf, SiteConf, MonitorService, MonitorTimer, FilesDir + "/" + host.MonitorFile:
 					golden(t, node, filepath.Base(f.Path), f.Data)
 				case CertbotHook:
 					golden(t, node, "certbot-hook", f.Data)
@@ -150,14 +150,14 @@ func TestBuild_MuxRemoved(t *testing.T) {
 	b, err := Build(p, files, ruleSets, Earlier{Stream: true})
 	require.NoError(t, err)
 	require.Equal(t, "# Written by princo deploy; changes here are overwritten.\n# Node us has no multiplexer.\n", string(file(t, b, StreamConf)))
-	require.Equal(t, []string{"nginx.service", "princo.service"}, unitNames(b), "nginx lets go of TCP 443 first")
+	require.Equal(t, []string{"nginx.service", "princo.service", "princo-monitor.timer"}, unitNames(b), "nginx lets go of TCP 443 first")
 	require.False(t, b.Units[0].Reload, "and is gone from it after a restart")
 
 	p, files, ruleSets = plan(t, "de")
 	b, err = Build(p, files, ruleSets, Earlier{Stream: true})
 	require.NoError(t, err)
 	require.Contains(t, string(file(t, b, StreamConf)), "stream {")
-	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(b),
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service", "princo-monitor.timer"}, unitNames(b),
 		"the engine's replies route back before nginx connects from the clients' addresses")
 }
 
@@ -165,12 +165,12 @@ func TestBuild_SitesRemoved(t *testing.T) {
 	p, files, ruleSets := plan(t, "us")
 	b, err := Build(p, files, ruleSets, Earlier{})
 	require.NoError(t, err)
-	require.Equal(t, []string{"princo.service"}, unitNames(b), "no nginx for a Reality-only node")
+	require.Equal(t, []string{"princo.service", "princo-monitor.timer"}, unitNames(b), "no nginx for a Reality-only node")
 
 	b, err = Build(p, files, ruleSets, Earlier{Site: true})
 	require.NoError(t, err)
 	require.Equal(t, "# Written by princo deploy; changes here are overwritten.\n# Node us serves no sites.\n", string(file(t, b, SiteConf)))
-	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(b))
+	require.Equal(t, []string{"princo.service", "nginx.service", "princo-monitor.timer"}, unitNames(b))
 	require.True(t, b.Units[1].Reload, "nginx drops the sites it served")
 	require.Equal(t, []string{SiteConf}, b.Units[1].Files)
 }
@@ -259,7 +259,7 @@ func TestBuild_LoopbackRetired(t *testing.T) {
 	require.Contains(t, unit, "ExecStart=/bin/sh -c 'while /usr/sbin/ip rule del pref 4430 iif lo ipproto 6 lookup 4430 2>/dev/null; do :; done;")
 	require.NotContains(t, unit, "rule add")
 	require.NotContains(t, unit, "route replace")
-	require.Equal(t, []string{"nginx.service", "princo.service", "princo-loopback.service"}, unitNames(b))
+	require.Equal(t, []string{"nginx.service", "princo.service", "princo-loopback.service", "princo-monitor.timer"}, unitNames(b))
 
 	b, err = Build(p, files, ruleSets, Earlier{})
 	require.NoError(t, err)

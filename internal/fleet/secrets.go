@@ -36,6 +36,7 @@ func Secrets(cfg *config.Config) []SecretUse {
 	b.egress()
 	b.users()
 	b.certificates()
+	b.monitor()
 	return b.uses
 }
 

@@ -1,0 +1,11 @@
+{
+  "node": "fi",
+  "telegram": {
+    "api": "https://api.telegram.org",
+    "token": "123456789:AAsynthetic-token-for-tests-only0000",
+    "chat": "-1001234567890"
+  },
+  "unit": "princo.service",
+  "certificates": [],
+  "reach": []
+}
