@@ -111,6 +111,29 @@ func withAction(bodies []map[string]any, fields map[string]any) []any {
 	return out
 }
 
+// domainOnly keeps the matchers that test the destination domain.
+func domainOnly(match []fleet.Matcher) []fleet.Matcher {
+	var out []fleet.Matcher
+	for _, m := range match {
+		if m.IsDomain() {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// beforeSniff keeps the matchers that hold of a connection before it is
+// sniffed: all but its domain and protocol.
+func beforeSniff(match []fleet.Matcher) []fleet.Matcher {
+	var out []fleet.Matcher
+	for _, m := range match {
+		if !m.IsDomain() && m.Kind != fleet.MatchProtocol {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // ipOnly keeps the matchers that test destination addresses.
 func ipOnly(match []fleet.Matcher) []fleet.Matcher {
 	var out []fleet.Matcher
@@ -120,4 +143,57 @@ func ipOnly(match []fleet.Matcher) []fleet.Matcher {
 		}
 	}
 	return out
+}
+
+// ipv6Support is how far a path carries IPv6.
+type ipv6Support int
+
+const (
+	ipv6Carried ipv6Support = iota
+	// ipv6Uplink is as far as the network the device is on.
+	ipv6Uplink
+	ipv6Missing
+)
+
+// noGlobalIPv6 matches while the default interface has no global IPv6
+// address, and where sing-box can't tell.
+var noGlobalIPv6 = map[string]any{
+	"default_interface_address": []any{"2000::/3"},
+	"invert":                    true,
+}
+
+// withoutIPv6 returns the rule taking action on what body matches and no
+// rule of except does: always for ipv6Missing, under noGlobalIPv6 for
+// ipv6Uplink.
+func withoutIPv6(s ipv6Support, body map[string]any, except []any, action map[string]any) map[string]any {
+	var all []any
+	if s == ipv6Uplink {
+		all = append(all, noGlobalIPv6)
+	}
+	all = append(all, body)
+	if len(except) > 0 {
+		all = append(all, map[string]any{"type": "logical", "mode": "or", "rules": except, "invert": true})
+	}
+	rule := body
+	if len(all) > 1 {
+		rule = map[string]any{"type": "logical", "mode": "and", "rules": all}
+	}
+	maps.Copy(rule, action)
+	return rule
+}
+
+// destination compiles matchers of destinations, addresses or domains,
+// into the one rule body they make; nil without any.
+func destination(match []fleet.Matcher, sets *ruleSets) map[string]any {
+	if len(match) == 0 {
+		return nil
+	}
+	return compileMatch(match, sets)[0]
+}
+
+// publicOnly drops ip:private.
+func publicOnly(match []fleet.Matcher) []fleet.Matcher {
+	return slices.DeleteFunc(slices.Clone(match), func(m fleet.Matcher) bool {
+		return m.Kind == fleet.MatchIP && m.Value == "private"
+	})
 }

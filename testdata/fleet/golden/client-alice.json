@@ -3,6 +3,27 @@
     "final": "proxy-dns",
     "rules": [
       {
+        "action": "predefined",
+        "mode": "and",
+        "rules": [
+          {
+            "default_interface_address": [
+              "2000::/3"
+            ],
+            "invert": true
+          },
+          {
+            "query_type": [
+              "AAAA"
+            ],
+            "rule_set": [
+              "geosite-category-ru"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
         "action": "route",
         "rule_set": [
           "geosite-category-ru"
@@ -188,18 +209,38 @@
     "rule_set": [
       {
         "format": "binary",
-        "tag": "geosite-category-ru",
-        "type": "remote",
-        "url": "https://subs.example.com/rules/geosite-category-ru.srs"
-      },
-      {
-        "format": "binary",
         "tag": "geoip-ru",
         "type": "remote",
         "url": "https://subs.example.com/rules/geoip-ru.srs"
+      },
+      {
+        "format": "binary",
+        "tag": "geosite-category-ru",
+        "type": "remote",
+        "url": "https://subs.example.com/rules/geosite-category-ru.srs"
       }
     ],
     "rules": [
+      {
+        "action": "reject",
+        "mode": "and",
+        "no_drop": true,
+        "rules": [
+          {
+            "default_interface_address": [
+              "2000::/3"
+            ],
+            "invert": true
+          },
+          {
+            "ip_version": 6,
+            "rule_set": [
+              "geoip-ru"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
       {
         "action": "sniff"
       },

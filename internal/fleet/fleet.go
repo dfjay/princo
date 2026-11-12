@@ -247,6 +247,9 @@ type Client struct {
 	Final  string
 	// Log is the apps' log level, one of LogLevels.
 	Log string
+	// IPv6 says whether direct traffic can use IPv6; nil leaves it to the
+	// profile, which checks the network it is on.
+	IPv6 *bool
 }
 
 // LogLevels are the log levels, most verbose first; engines map them to

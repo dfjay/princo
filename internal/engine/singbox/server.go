@@ -26,9 +26,8 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 		// The node's own lookups, the REALITY handshake target's among them,
 		// leave directly: through the egress, a WARP stall would refuse every
 		// new connection. The xray engine routes its DNS the same way.
-		cfg["dns"] = renderDNS(n.DNS, &sets,
-			func(fleet.DNSServer) string { return "direct" },
-			func(string) bool { return false })
+		cfg["dns"] = renderDNS(n.DNS, &sets, nil,
+			func(fleet.DNSServer) string { return "direct" })
 	}
 	if n.Egress.Kind == fleet.EgressWarp {
 		cfg["endpoints"] = []any{warpEndpoint(n.Warp)}

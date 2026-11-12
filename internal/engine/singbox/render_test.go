@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"flag"
+	"maps"
 	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -111,10 +113,18 @@ func TestClientGroups(t *testing.T) {
 	}
 	require.Equal(t, []any{"select-auto", "us-reality"}, selectors["select"])
 	require.Equal(t, []any{"direct", "relay-reality"}, selectors["ru-select"])
-	// relay has no IPv6: refuse IPv6 to RU IPs before anything else.
+	// relay has no IPv6: refuse IPv6 to RU IPs before anything else, but
+	// for what an earlier rule sends directly.
 	first := bob["route"].(map[string]any)["rules"].([]any)[0].(map[string]any)
-	require.EqualValues(t, 6, first["ip_version"])
 	require.Equal(t, "reject", first["action"])
+	require.Equal(t, true, first["no_drop"], "a burst of refusals must not turn into drops")
+	require.Equal(t, []any{
+		map[string]any{"ip_version": float64(6), "rule_set": []any{"geoip-ru"}},
+		map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": []any{
+			map[string]any{"ip_is_private": true},
+			map[string]any{"network": "icmp"},
+		}},
+	}, first["rules"])
 
 	// alice can't reach relay, so ru-select falls back to direct.
 	alice := renderJSON(t, client(e, engine.AnyPlatform), f, "alice")
@@ -203,6 +213,93 @@ func TestClientOverride(t *testing.T) {
 	}
 	require.Equal(t, "direct", final("bob"), "bob's own profile")
 	require.Equal(t, "select", final("alice"))
+}
+
+// Direct traffic has the IPv6 of the network the device is on: the profile
+// refuses it IPv6 while the default interface has no global address,
+// unless client.ipv6 settles it.
+func TestClientDirectIPv6(t *testing.T) {
+	e := New()
+	f := fleettest.Load(t, fixture)
+	alice, _ := f.User("alice")
+	own := *alice.Client
+	alice.Client = &own
+
+	noIPv6 := map[string]any{"default_interface_address": []any{"2000::/3"}, "invert": true}
+	geoip := map[string]any{"ip_version": float64(6), "rule_set": []any{"geoip-ru"}}
+	aaaa := map[string]any{"query_type": []any{"AAAA"}, "rule_set": []any{"geosite-category-ru"}}
+	all := func(action map[string]any, rules ...any) map[string]any {
+		rule := map[string]any{"type": "logical", "mode": "and", "rules": rules}
+		maps.Copy(rule, action)
+		return rule
+	}
+	reject := map[string]any{"action": "reject", "no_drop": true}
+	predefined := map[string]any{"action": "predefined"}
+	sniff := map[string]any{"action": "sniff"}
+	lookup := map[string]any{"action": "route", "rule_set": []any{"geosite-category-ru"}, "server": "ru-dns"}
+	render := func() (route, dns []any) {
+		cfg := renderJSON(t, client(e, engine.AnyPlatform), f, "alice")
+		dns, _ = cfg["dns"].(map[string]any)["rules"].([]any)
+		return cfg["route"].(map[string]any)["rules"].([]any), dns
+	}
+
+	// alice has no domestic node, so ru-select is direct. ip:private goes
+	// directly too, but a network without global IPv6 may still route it.
+	route, dns := render()
+	require.Equal(t, []any{all(reject, noIPv6, geoip), sniff}, route[:2])
+	require.Equal(t, []any{all(predefined, noIPv6, aaaa), lookup}, dns)
+
+	// The same for action: direct, whichever server answers.
+	own.Rules = slices.Clone(own.Rules)
+	own.Rules[1].Action, own.Rules[1].Via = fleet.ActionDirect, ""
+	d := *own.DNS
+	d.Rules = nil
+	own.DNS = &d
+	route, dns = render()
+	require.Equal(t, []any{all(reject, noIPv6, geoip), sniff}, route[:2])
+	require.Equal(t, []any{all(predefined, noIPv6, aaaa)}, dns)
+
+	// Everything else going directly gets no AAAA either. What an earlier
+	// rule sends through nodes keeps its IPv6.
+	own.Rules = append([]fleet.Rule{{
+		Match: []fleet.Matcher{
+			{Kind: fleet.MatchDomainSuffix, Value: "example.org"},
+			{Kind: fleet.MatchIP, Value: "2001:db8::/32"},
+			{Kind: fleet.MatchPort, Value: "22"},
+		},
+		Action: fleet.ActionVia, Via: "select",
+	}}, own.Rules...)
+	own.Final = "direct"
+	but := func(bodies ...any) map[string]any {
+		return map[string]any{"type": "logical", "mode": "or", "invert": true, "rules": bodies}
+	}
+	proxied := but(map[string]any{"domain_suffix": []any{"example.org"}})
+	// Ahead of sniff the rule is known by its IPs and ports.
+	proxiedIPs := but(map[string]any{"ip_cidr": []any{"2001:db8::/32"}}, map[string]any{"port": []any{float64(22)}})
+	anyAAAA := map[string]any{"query_type": []any{"AAAA"}}
+	route, dns = render()
+	require.Equal(t, []any{all(reject, noIPv6, geoip, proxiedIPs), sniff}, route[:2])
+	require.Equal(t, []any{all(predefined, noIPv6, aaaa, proxied), all(predefined, noIPv6, anyAAAA, proxied)}, dns)
+
+	no, yes := false, true
+	own.IPv6 = &no
+	route, dns = render()
+	require.Equal(t, []any{all(reject, geoip, proxiedIPs), sniff}, route[:2])
+	require.Equal(t, []any{all(predefined, aaaa, proxied), all(predefined, anyAAAA, proxied)}, dns)
+
+	own.IPv6 = &yes
+	route, dns = render()
+	require.Equal(t, sniff, route[0])
+	require.Empty(t, dns)
+
+	// A range sent directly may hold the network's own addresses, and
+	// without client.dns the rules stand ahead of the app's own resolver.
+	own.IPv6, own.DNS = nil, nil
+	own.Rules = []fleet.Rule{{Match: []fleet.Matcher{{Kind: fleet.MatchIP, Value: "::/0"}}, Action: fleet.ActionDirect}}
+	route, dns = render()
+	everywhere := map[string]any{"ip_version": float64(6), "ip_cidr": []any{"::/0"}}
+	require.Equal(t, all(reject, noIPv6, everywhere, but(map[string]any{"ip_is_private": true})), route[0])
+	require.Equal(t, []any{all(predefined, noIPv6, anyAAAA)}, dns)
 }
 
 func TestClientPlatforms(t *testing.T) {

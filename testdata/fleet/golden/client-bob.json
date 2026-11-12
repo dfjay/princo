@@ -169,10 +169,30 @@
     "rules": [
       {
         "action": "reject",
-        "ip_version": 6,
-        "rule_set": [
-          "geoip-ru"
-        ]
+        "mode": "and",
+        "no_drop": true,
+        "rules": [
+          {
+            "ip_version": 6,
+            "rule_set": [
+              "geoip-ru"
+            ]
+          },
+          {
+            "invert": true,
+            "mode": "or",
+            "rules": [
+              {
+                "ip_is_private": true
+              },
+              {
+                "network": "icmp"
+              }
+            ],
+            "type": "logical"
+          }
+        ],
+        "type": "logical"
       },
       {
         "action": "sniff"

@@ -171,6 +171,9 @@ type Client struct {
 	Final  string         `yaml:"final"`
 	// Log is the apps' log level; above warn they log every destination.
 	Log string `yaml:"log"`
+	// IPv6 says whether the user's own network has IPv6; unset, the
+	// profile checks.
+	IPv6 *bool `yaml:"ipv6"`
 }
 
 // Group is a selector in the client app over some of the user's nodes.

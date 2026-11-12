@@ -25,10 +25,9 @@ func renderDNSServer(s fleet.DNSServer, detour string) map[string]any {
 	return out
 }
 
-// renderDNS renders a resolver. detourOf maps a server to its outbound;
-// aaaaBlocked reports servers whose path can't carry IPv6, for which AAAA
-// queries are answered empty instead.
-func renderDNS(d *fleet.DNS, sets *ruleSets, detourOf func(fleet.DNSServer) string, aaaaBlocked func(server string) bool) map[string]any {
+// renderDNS renders a resolver. first are rules ahead of the resolver's
+// own; detourOf maps a server to its outbound.
+func renderDNS(d *fleet.DNS, sets *ruleSets, first []any, detourOf func(fleet.DNSServer) string) map[string]any {
 	servers := make([]any, 0, len(d.Servers))
 	for _, s := range d.Servers {
 		servers = append(servers, renderDNSServer(s, detourOf(s)))
@@ -37,15 +36,9 @@ func renderDNS(d *fleet.DNS, sets *ruleSets, detourOf func(fleet.DNSServer) stri
 		"servers": servers,
 		"final":   d.Final,
 	}
-	var rules []any
+	rules := first
 	for _, r := range d.Rules {
 		bodies := compileMatch(r.Match, sets)
-		if aaaaBlocked(r.Server) {
-			rules = append(rules, withAction(bodies, map[string]any{
-				"query_type": []any{"AAAA"},
-				"action":     "predefined",
-			})...)
-		}
 		rules = append(rules, withAction(bodies, map[string]any{
 			"action": "route",
 			"server": r.Server,
