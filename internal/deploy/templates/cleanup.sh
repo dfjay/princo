@@ -12,7 +12,8 @@ if ! [ -e {{q .MonitorTimer}} ]; then
 	systemctl disable --now --quiet princo-monitor.timer 2>/dev/null || true
 	# A run under way would write the state again.
 	systemctl stop --quiet princo-monitor.service 2>/dev/null || true
-	rm -f {{q .MonitorState}} {{q (print .MonitorState ".lock")}}
+	# Under the lock of a run someone started by hand.
+	flock {{q .StateDir}} rm -f {{q .MonitorState}}
 fi
 if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
 	want='{{range .Ports}} {{.}}{{end}} '

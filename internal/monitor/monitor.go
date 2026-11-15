@@ -19,6 +19,9 @@ import (
 	"time"
 )
 
+// sendTimeout bounds what a channel takes to hear a run's changes.
+const sendTimeout = 15 * time.Second
+
 // stepTimeout bounds a connection attempt and a TLS handshake each.
 const stepTimeout = 8 * time.Second
 
@@ -94,41 +97,64 @@ func (m *Monitor) Run(ctx context.Context, dryRun bool) error {
 	if err != nil {
 		return err
 	}
-	now := m.Now()
-	st.update(results, skipped, m.Config.Confirm, now)
-
-	var errs []error
-	ids := map[string]bool{}
-	for _, ch := range m.Config.Notify {
-		id := ch.id()
-		ids[id] = true
-		var changes []change
-		var checks []*checkState
-		for _, name := range slices.Sorted(maps.Keys(st.Checks)) {
-			if c := st.Checks[name]; c.Down != c.Told[id] {
-				changes = append(changes, change{Check: name, Down: c.Down, Detail: c.Detail, Text: describe(name, c)})
-				checks = append(checks, c)
-			}
-		}
-		if len(changes) == 0 {
-			continue
-		}
-		told, err := ch.sender().send(ctx, m.HTTP, m.Config.Node, changes)
-		if err != nil {
-			// The next run tells what still differs then.
-			errs = append(errs, fmt.Errorf("%s: %w", ch.Name, err))
-		}
-		for _, c := range checks[:told] {
-			c.tell(id)
-		}
-	}
-	for _, c := range st.Checks {
-		maps.DeleteFunc(c.Told, func(id string, _ bool) bool { return !ids[id] })
-	}
+	st.update(results, skipped, m.Config.Confirm, m.Now())
+	errs := m.notify(ctx, st)
 	if err := st.save(m.StatePath); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// notify tells each channel of the checks whose state it hasn't heard, all
+// at once and each with its own time: one that hangs keeps nothing from
+// the others. What a channel couldn't be told, the next run tells.
+func (m *Monitor) notify(ctx context.Context, st *state) []error {
+	type delivery struct {
+		channel Channel
+		id      string
+		changes []change
+		checks  []*checkState
+		told    int
+		err     error
+	}
+	var deliveries []*delivery
+	ids := map[string]bool{}
+	for _, ch := range m.Config.Notify {
+		d := &delivery{channel: ch, id: ch.id()}
+		ids[d.id] = true
+		for _, name := range slices.Sorted(maps.Keys(st.Checks)) {
+			if c := st.Checks[name]; c.Down != c.Told[d.id] {
+				d.changes = append(d.changes, change{Check: name, Down: c.Down, Detail: c.Detail, Text: describe(name, c)})
+				d.checks = append(d.checks, c)
+			}
+		}
+		if len(d.changes) > 0 {
+			deliveries = append(deliveries, d)
+		}
+	}
+	var wg sync.WaitGroup
+	for _, d := range deliveries {
+		wg.Go(func() {
+			ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+			defer cancel()
+			d.told, d.err = d.channel.sender().send(ctx, m.HTTP, m.Config.Node, d.changes)
+		})
+	}
+	wg.Wait()
+	var errs []error
+	for _, d := range deliveries {
+		if d.err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", d.channel.Name, d.err))
+		}
+		for _, c := range d.checks[:d.told] {
+			c.tell(d.id)
+		}
+	}
+	// A channel that is gone, or leads elsewhere now, is forgotten.
+	for _, c := range st.Checks {
+		maps.DeleteFunc(c.Told, func(id string, _ bool) bool { return !ids[id] })
+	}
+	return errs
 }
 
 // check runs every check. skipped are those it couldn't tell about, whose

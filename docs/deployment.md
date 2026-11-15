@@ -311,7 +311,8 @@ Deploy every node: each one runs its own checks. On the host,
 deploy over SSH and the NixOS module both set up. The rendered
 `monitor.json` holds the channels' secrets, so it is root's alone. The checks'
 states are in `/var/lib/princo/monitor-state.json`; removing that file
-starts them over.
+starts them over. A deploy over SSH removes it once `monitor` is gone from
+`princo.yaml`; under the NixOS module it stays.
 
 To see what a node finds right now, without reporting it:
 

@@ -9,11 +9,8 @@ package monitor
 type Config struct {
 	Node string `json:"node"`
 	// Notify are the channels to tell, sorted by name.
-	Notify []Channel `json:"notify"`
-	// Confirm is how many runs in a row change a check's state.
-	Confirm int `json:"confirm"`
-	// CertificateDays is how long before a certificate expires its check
-	// fails.
+	Notify          []Channel     `json:"notify"`
+	Confirm         int           `json:"confirm"`
 	CertificateDays int           `json:"certificate_days"`
 	Unit            string        `json:"unit"`
 	Certificates    []Certificate `json:"certificates"`

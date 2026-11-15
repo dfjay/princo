@@ -80,9 +80,11 @@ func (s *state) update(results []result, skipped map[string]bool, confirm int, n
 }
 
 // lock keeps other runs off the state at path until unlock: two at once
-// would tell of the same change twice and lose each other's counts.
+// would tell of the same change twice and lose each other's counts. It
+// locks the directory, which stays where a file of its own would come and
+// go with the state.
 func lock(path string) (unlock func(), err error) {
-	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return nil, err
 	}

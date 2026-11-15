@@ -53,10 +53,10 @@ monitor:
 			{Name: "hook", Webhook: &Webhook{URL: "https://hooks.example.com/t0ken"}},
 			{Name: "ops", Telegram: &Telegram{API: "https://api.telegram.org", Token: "123:abc", Chat: "-100"}},
 		},
-		Interval:           2 * time.Minute,
-		Confirm:            2,
-		CertificateWarning: 14 * 24 * time.Hour,
-		Reach:              []Reach{{From: Selector{Tag: "home"}, To: Selector{All: true}}},
+		Interval:        2 * time.Minute,
+		Confirm:         2,
+		CertificateDays: 14,
+		Reach:           []Reach{{From: Selector{Tag: "home"}, To: Selector{All: true}}},
 	}, f.Monitor)
 
 	a, _ := f.Node("a")
@@ -90,7 +90,7 @@ monitor:
 	require.Equal(t, []Channel{{Name: "tg", Telegram: &Telegram{API: "https://tg.example.com", Token: "plain-token", Chat: "42"}}}, f.Monitor.Notify)
 	require.Equal(t, 90*time.Second, f.Monitor.Interval)
 	require.Equal(t, 3, f.Monitor.Confirm)
-	require.Equal(t, 7*24*time.Hour, f.Monitor.CertificateWarning)
+	require.Equal(t, 7, f.Monitor.CertificateDays)
 	a, _ := f.Node("a")
 	b, _ := f.Node("b")
 	require.Empty(t, f.Reaches(a), "a node doesn't check itself")
@@ -105,10 +105,12 @@ func TestBuild_MonitorErrors(t *testing.T) {
 		"certificate days":   {"monitor: { " + ops + ", certificate_days: 0 }", "monitor.certificate_days: want 1 or more, got 0"},
 		"unknown tag":        {"monitor: { " + ops + ", reach: [{ from: domestic }] }", "monitor.reach[0].from: no node matches domestic"},
 		"unknown target":     {"monitor: { " + ops + ", reach: [{ from: home, to: abroad }] }", "monitor.reach[0].to: no node matches abroad"},
+		"both wrong":         {"monitor: { " + ops + ", reach: [{ to: abroad }] }", "monitor.reach[0].to: no node matches abroad"},
 		"no source":          {"monitor: { " + ops + ", reach: [{ to: home }] }", "monitor.reach[0].from: want the nodes that check"},
 		"plain http":         {"monitor: { notify: { ops: { type: telegram, api: http://tg.example.com } } }", "monitor.notify.ops.api: want an https:// URL"},
 		"query mark":         {"monitor: { notify: { ops: { type: telegram, api: 'https://tg.example.com/?' } } }", "monitor.notify.ops.api: want an https:// URL"},
 		"fragment mark":      {"monitor: { notify: { ops: { type: telegram, api: 'https://tg.example.com/#' } } }", "monitor.notify.ops.api: want an https:// URL"},
+		"webhook url":        {"monitor: { notify: { hook: { type: webhook, url: hooks.example.com/t0ken } } }", "monitor.notify.hook.url: want an http:// or https:// URL"},
 		"no channel":         {"monitor: {}", "monitor.notify: want a channel to tell"},
 		"unknown type":       {"monitor: { notify: { ops: { type: pager } } }", `monitor.notify.ops.type: want telegram or webhook, got "pager"`},
 		"another's field":    {"monitor: { notify: { hook: { type: webhook, chat: x } } }", "monitor.notify.hook.chat: a webhook channel has none"},

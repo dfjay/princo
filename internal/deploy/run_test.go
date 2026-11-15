@@ -112,7 +112,7 @@ func TestDeploy_FreshHost(t *testing.T) {
 }
 
 func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nopenssl\nlinked de.example.com\nlinked subs.example.com\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\nopenssl\nlinked de.example.com\nlinked subs.example.com\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "de")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
@@ -124,7 +124,7 @@ func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
 }
 
 func TestDeploy_UpToDate(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
@@ -147,6 +147,12 @@ func TestDeploy_DevBuild(t *testing.T) {
 	d, _ := newDeployer(r, "0.2.0+abc1234")
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "pass --princo-deb")
 
+	// A princo of this version that can't run the fixture's monitor: is
+	// no reason to keep it.
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0+abc1234\n"}
+	d, _ = newDeployer(r, "0.2.0+abc1234")
+	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "the host's princo, 0.2.0+abc1234, has no host monitor")
+
 	// The fixture has monitor:, which an older princo can't run.
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.1.1\n"}
 	d, _ = newDeployer(r, "0.2.0+abc1234")
@@ -166,19 +172,19 @@ func TestDeploy_DevBuild(t *testing.T) {
 }
 
 func TestDeploy_OtherNode(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "de")
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "this host runs node us, not de")
 	require.Equal(t, []string{"probe"}, r.steps, "nothing changes on the host")
 
-	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nnode de\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nnode de\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 }
 
 func TestDeploy_MuxRemoved(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nstream\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nstream\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
@@ -188,7 +194,7 @@ func TestDeploy_MuxRemoved(t *testing.T) {
 func TestCheck(t *testing.T) {
 	p, files, ruleSets := plan(t, "de")
 
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmissing subs.example.com\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\nmissing subs.example.com\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	require.NoError(t, d.Check(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "check"}, r.steps)
@@ -252,7 +258,7 @@ func TestCleanup(t *testing.T) {
 		"Root": root, "Keep": filepath.Join(root, "sing-box-1.1.0"),
 		"LegoRoot": filepath.Join(root, "lego"), "KeepLego": "",
 		"LegoTimer":    filepath.Join(units, "princo-lego.timer"),
-		"MonitorTimer": filepath.Join(units, "princo-monitor.timer"), "MonitorState": state,
+		"MonitorTimer": filepath.Join(units, "princo-monitor.timer"), "MonitorState": state, "StateDir": units,
 		"Ports": ports(p),
 	})
 	require.NoError(t, err)
@@ -284,6 +290,7 @@ func runUFW(t *testing.T, script, rules string) []string {
 	fake := map[string]string{
 		"dpkg-query": "echo 'install ok installed'",
 		"getent":     "exit 0",
+		"flock":      `shift; "$@"`,
 		// Never the machine's own units.
 		"systemctl": `echo "$*" >>"${SYSTEMCTL_LOG:-/dev/null}"`,
 		"ufw":       `if [ "$1" = status ]; then printf 'Status: active\n\n%s' "$RULES"; else echo "$*" >>"$LOG"; fi`,
@@ -348,7 +355,7 @@ func TestDeploy_InstallsEngine(t *testing.T) {
 	withRelease(t, "xray", "https://example.com/xray.zip", zipped)
 
 	p, files, ruleSets := plan(t, "fi")
-	r := &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	var fetched []string
 	d.Fetch = func(_ context.Context, url string) ([]byte, error) {
@@ -360,16 +367,16 @@ func TestDeploy_InstallsEngine(t *testing.T) {
 	require.Equal(t, []string{"https://example.com/xray.zip"}, fetched)
 	require.Equal(t, map[string]string{"xray": "xray"}, untar(t, r.release), "only the files the engine needs")
 
-	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps, "the host has this release")
 
-	r = &fakeRemote{t: t, probe: "arch arm64\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch arm64\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "there's no xray 26.10.21 for arm64")
 
-	r = &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	d.Fetch = func(context.Context, string) ([]byte, error) { return []byte("tampered"), nil }
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "doesn't match its pinned SHA-256")
@@ -412,7 +419,7 @@ func (f remoteFunc) Run(_ context.Context, script string, _ io.Reader, _ io.Writ
 }
 
 func TestDeploy_SitesRemoved(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nsite\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\nsite\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))

@@ -32,8 +32,9 @@ func newHostCommand() *cobra.Command {
 	return cmd
 }
 
-// monitorTimeout ends a run before the timer's shortest interval is over.
-const monitorTimeout = 50 * time.Second
+// monitorTimeout ends a run before the timer's shortest interval is over,
+// and leaves it its longest check and the channels' time.
+const monitorTimeout = 55 * time.Second
 
 func newHostMonitorCommand() *cobra.Command {
 	var configPath, statePath string

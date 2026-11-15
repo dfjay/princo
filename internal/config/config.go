@@ -233,21 +233,18 @@ func (r *RuleData) UnmarshalYAML(node *yaml.Node) error {
 // Monitor has every node check itself on a timer and tell the channels of
 // Notify what changed.
 type Monitor struct {
-	// Notify are the channels to tell, by name.
 	Notify Ordered[Channel] `yaml:"notify"`
 	// Interval between checks, e.g. 2m.
 	Interval string `yaml:"interval"`
 	// Confirm is how many runs in a row change a check's state.
 	Confirm *int `yaml:"confirm"`
 	// CertificateDays is how long before a certificate expires to tell.
-	CertificateDays *int `yaml:"certificate_days"`
-	// Reach are the nodes that check they reach others.
-	Reach []Reach `yaml:"reach"`
+	CertificateDays *int    `yaml:"certificate_days"`
+	Reach           []Reach `yaml:"reach"`
 }
 
 // Channel is where reports go. Its Type says which fields it has.
 type Channel struct {
-	// Type is telegram or webhook.
 	Type string `yaml:"type"`
 
 	// A Telegram bot's token and the chat it writes to. API replaces

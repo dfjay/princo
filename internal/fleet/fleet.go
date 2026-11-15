@@ -139,10 +139,10 @@ type Monitor struct {
 	Interval time.Duration
 	// Confirm is how many runs in a row change a check's state.
 	Confirm int
-	// CertificateWarning is how long before a certificate expires its
-	// check fails.
-	CertificateWarning time.Duration
-	Reach              []Reach
+	// CertificateDays is how long before a certificate expires its check
+	// fails.
+	CertificateDays int
+	Reach           []Reach
 }
 
 // Channel is where reports go: Telegram or Webhook, whichever is set.
@@ -173,10 +173,11 @@ const DefaultTelegramAPI = "https://api.telegram.org"
 // The monitor's defaults, and the shortest interval that leaves a run time
 // to end before the next.
 const (
-	DefaultMonitorInterval    = 2 * time.Minute
-	MinMonitorInterval        = time.Minute
-	DefaultMonitorConfirm     = 2
-	DefaultCertificateWarning = 14 * 24 * time.Hour
+	DefaultMonitorInterval = 2 * time.Minute
+	MinMonitorInterval     = time.Minute
+	DefaultMonitorConfirm  = 2
+	// ACME renews with a month left: by then renewal has failed for weeks.
+	DefaultCertificateDays = 14
 )
 
 // MonitorsWarp tells whether the monitor checks n's WARP, which takes an

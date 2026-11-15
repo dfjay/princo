@@ -247,6 +247,21 @@ func TestRun_Webhook(t *testing.T) {
 	require.Regexp(t, `^hook:[0-9a-f]{8}$`, hook.id())
 }
 
+// A redirect leads to a page that isn't the webhook's answer.
+func TestRun_WebhookRedirect(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/hook" {
+			http.Redirect(w, r, "/login", http.StatusFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	h.m.Config.Notify = []Channel{{Name: "hook", Webhook: &Webhook{URL: srv.URL + "/hook"}}}
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	require.EqualError(t, h.m.Run(t.Context(), false), "hook: it answered 302 Found")
+}
+
 func TestRun_WebhookErrorsHideTheURL(t *testing.T) {
 	h := newHarness(t, warpConfig())
 	h.m.Config.Notify = []Channel{{Name: "hook", Webhook: &Webhook{URL: "https://127.0.0.1:1/hook/s3cret"}}}

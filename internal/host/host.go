@@ -4,7 +4,6 @@
 package host
 
 import (
-	"cmp"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -15,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/dfjay/princo/internal/engine"
 	_ "github.com/dfjay/princo/internal/engine/singbox"
@@ -112,7 +110,7 @@ func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Confi
 		Node:            n.Name,
 		Unit:            EngineUnit,
 		Confirm:         f.Monitor.Confirm,
-		CertificateDays: int(f.Monitor.CertificateWarning / (24 * time.Hour)),
+		CertificateDays: f.Monitor.CertificateDays,
 		Certificates:    []monitor.Certificate{},
 		Reach:           []monitor.Target{},
 	}
@@ -142,8 +140,8 @@ func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Confi
 		case m.Reality != nil:
 			t.ServerName = m.Reality.ServerName
 		case m.Naive != nil:
-			t.ServerName = m.Naive.Domain
-			t.Address = cmp.Or(t.Address, m.Naive.Domain)
+			// Where its clients connect.
+			t.ServerName, t.Address = m.Naive.Domain, m.Naive.Domain
 		}
 		// Hysteria2 alone listens on UDP, which tells a probe nothing.
 		if t.Address != "" && (m.Reality != nil || m.Mux()) {

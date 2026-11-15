@@ -345,9 +345,9 @@ func (b *builder) monitor() {
 		return
 	}
 	m := &Monitor{
-		Interval:           DefaultMonitorInterval,
-		Confirm:            DefaultMonitorConfirm,
-		CertificateWarning: DefaultCertificateWarning,
+		Interval:        DefaultMonitorInterval,
+		Confirm:         DefaultMonitorConfirm,
+		CertificateDays: DefaultCertificateDays,
 	}
 	for _, name := range slices.Sorted(slices.Values(c.Notify.Keys())) {
 		ch, _ := c.Notify.Get(name)
@@ -373,17 +373,20 @@ func (b *builder) monitor() {
 		}
 	}
 	if c.CertificateDays != nil {
-		if m.CertificateWarning = time.Duration(*c.CertificateDays) * 24 * time.Hour; m.CertificateWarning <= 0 {
-			b.errorf("monitor.certificate_days: want 1 or more, got %d", *c.CertificateDays)
+		if m.CertificateDays = *c.CertificateDays; m.CertificateDays < 1 {
+			b.errorf("monitor.certificate_days: want 1 or more, got %d", m.CertificateDays)
 		}
 	}
 	for i, r := range c.Reach {
 		where := fmt.Sprintf("monitor.reach[%d]", i)
+		rule := Reach{To: b.selector(where+".to", r.To)}
+		// Empty is all for to; here it would have every node check.
 		if r.From == "" {
 			b.errorf("%s.from: want the nodes that check: <tag>, !<tag> or all", where)
 			continue
 		}
-		m.Reach = append(m.Reach, Reach{From: b.selector(where+".from", r.From), To: b.selector(where+".to", r.To)})
+		rule.From = b.selector(where+".from", r.From)
+		m.Reach = append(m.Reach, rule)
 	}
 	b.f.Monitor = m
 	for _, n := range b.f.Nodes {
@@ -418,6 +421,13 @@ func (b *builder) channel(where, name string, c config.Channel) Channel {
 		unused("chat", c.Chat != nil)
 		unused("api", c.API != "")
 		out.Webhook = &Webhook{URL: b.filled(where+".url", c.URL, secretChannel(name, "url"))}
+		// Unless it is a placeholder: princo plan has no secrets.
+		if v := out.Webhook.URL; v != "" && len(secrets.Placeholders([]byte(v))) == 0 {
+			if u, err := url.Parse(v); err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
+				// Not quoted: it is a secret.
+				b.errorf("%s.url: want an http:// or https:// URL", where)
+			}
+		}
 	default:
 		b.errorf("%s.type: want telegram or webhook, got %q", where, c.Type)
 	}

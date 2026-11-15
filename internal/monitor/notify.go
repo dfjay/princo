@@ -37,7 +37,6 @@ func (c Channel) sender() sender {
 	return c.Webhook
 }
 
-// change is a check's new state, to tell a channel.
 type change struct {
 	Check  string `json:"check"`
 	Down   bool   `json:"down"`
@@ -62,7 +61,11 @@ func post(ctx context.Context, client *http.Client, to, contentType string, body
 		return nil, errors.New("its URL is malformed")
 	}
 	req.Header.Set("Content-Type", contentType)
-	resp, err := client.Do(req)
+	// A redirect turns the POST into a GET, whose answer isn't the
+	// channel's.
+	c := *client
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := c.Do(req)
 	if ue, ok := errors.AsType[*url.Error](err); ok {
 		// It quotes the URL.
 		err = ue.Err
