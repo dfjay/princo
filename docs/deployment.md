@@ -330,5 +330,9 @@ Under the NixOS module, pass the rendered file:
 run that couldn't reach a channel fails there.
 
 A node that can't reach `api.telegram.org`, as may happen inside the
-country you watch from, needs its channel's `api` pointed at a relay of
-the Bot API that it can reach.
+country you watch from, sends its reports through the nodes that can: set
+the channel's [`via`](config.md#notify) to their tag, run
+`princo secret gen` for the node's `nodes/<node>/monitor`, and deploy
+every node, as the ones the reports leave through have to know that UUID.
+The channel's `api`, pointed at a relay of the Bot API the node can reach,
+does without the other nodes.

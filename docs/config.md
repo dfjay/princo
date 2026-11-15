@@ -61,6 +61,7 @@ can be shared without exposing them.
 | `nodes/<node>/warp/{private_key,ipv4,ipv6}` | the node's WARP account |
 | `nodes/<node>/chain` | the UUID a chained node uses on its upstream |
 | `nodes/<node>/api` | the secret of the engine's API, with `stats: true` or, on a node with `egress: warp`, [`monitor`](#monitor) |
+| `nodes/<node>/monitor` | the UUID a node sends its reports with through the nodes of a channel's [`via`](#notify) |
 | `monitor/<channel>/token`, `monitor/<channel>/chat` | the bot and the chat of a Telegram channel of [`monitor`](#monitor) |
 | `monitor/<channel>/url` | the URL of a webhook channel of [`monitor`](#monitor) |
 
@@ -560,6 +561,35 @@ webhook that reads `text`, or a script of yours:
 | Field | Default | Description |
 | --- | --- | --- |
 | `url` | `monitor/<channel>/url` | *secret*: where to post; an answer outside 2xx counts as not delivered |
+
+Either type takes `via`, for the nodes that can't reach the channel, as
+Telegram can't be reached from some countries:
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `via` | — | the nodes that reach the channel: a [tag](#nodesname), `!tag` or `all`. The others send their reports through them |
+
+```yaml
+monitor:
+  notify:
+    ops: { type: telegram, via: "!domestic" }
+```
+
+A node `via` selects reports on its own. Every other node reports through
+the selected ones that serve `reality`, over the tunnel a
+[chain](#egress) uses but with its own UUID, the *secret*
+`nodes/<node>/monitor`; there the reports leave directly, whatever the
+node's `egress`. A run tries up to three of them, so the report that one
+is blocked leaves through another: first those it can still
+[reach](#reach), and of them those no report has failed to leave through.
+
+The reports enter the tunnel through a proxy of the node's engine on
+`127.0.0.1:8447`, behind that UUID as its password.
+
+`via` doesn't help a node whose engine is down, or one cut off from every
+node it selects. Have the others watch it: `reach: [{ from: "!domestic", to: domestic }]`.
+
+The body a webhook gets:
 
 ```json
 {

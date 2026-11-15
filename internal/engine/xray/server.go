@@ -26,9 +26,22 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 		"version":   map[string]any{"min": minVersion},
 		"log":       renderLog(n.Log),
 		"inbounds":  serverInbounds(f, n),
-		"outbounds": serverOutbounds(n),
+		"outbounds": serverOutbounds(f, n),
 	}
+	// Each user of the monitor's proxy leaves through their node, and
+	// nothing else from it anywhere.
 	var rules []any
+	for _, up := range n.MonitorVia {
+		rules = append(rules, map[string]any{"inboundTag": []any{engine.MonitorInbound}, "user": []any{up.Name}, "outboundTag": engine.MonitorTag(up)})
+	}
+	if len(rules) > 0 {
+		rules = append(rules, map[string]any{"inboundTag": []any{engine.MonitorInbound}, "outboundTag": "block"})
+	}
+	// Other nodes' reports leave directly: a stalled WARP, or a chain back
+	// to their node, would keep them in.
+	if reporters := engine.MonitorAccounts(f, n); len(reporters) > 0 {
+		rules = append(rules, map[string]any{"user": reporters, "outboundTag": "direct"})
+	}
 	if n.DNS != nil {
 		cfg["dns"] = renderDNS(n.DNS)
 		rules = append(rules, map[string]any{"inboundTag": []any{dnsTag}, "outboundTag": "direct"})
@@ -76,6 +89,10 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	// Chain hops that exit here log in like users, as no user can be named.
 	for _, m := range f.ChainsInto(n) {
 		clients = append(clients, map[string]any{"id": m.ChainUUID, "email": "chain:" + m.Name, "flow": vision})
+	}
+	// So do the nodes that send their monitor's reports through here.
+	for _, m := range f.MonitorsInto(n) {
+		clients = append(clients, map[string]any{"id": m.MonitorUUID, "email": fleet.MonitorAccount(m), "flow": vision})
 	}
 	settings := map[string]any{"clients": clients, "decryption": "none"}
 	if n.XHTTP != nil {
@@ -139,12 +156,35 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 		}
 		out = append(out, in)
 	}
+	if via := n.MonitorVia; len(via) > 0 {
+		accounts := make([]any, 0, len(via))
+		for _, up := range via {
+			accounts = append(accounts, map[string]any{"user": up.Name, "pass": n.MonitorUUID})
+		}
+		out = append(out, map[string]any{
+			"tag":      engine.MonitorInbound,
+			"listen":   "127.0.0.1",
+			"port":     engine.MonitorPort,
+			"protocol": "socks",
+			"settings": map[string]any{"auth": "password", "accounts": accounts, "udp": false},
+		})
+	}
 	return out
 }
 
 // serverOutbounds puts the egress first: xray sends what no rule matches
-// to the first outbound.
-func serverOutbounds(n *fleet.Node) []any {
+// to the first outbound. The monitor's outbounds come last.
+func serverOutbounds(f *fleet.Fleet, n *fleet.Node) []any {
+	out := egressOutbounds(n)
+	for _, up := range n.MonitorVia {
+		o := realityOutbound(up, n.MonitorUUID)
+		o["tag"] = engine.MonitorTag(up)
+		out = append(out, o)
+	}
+	return out
+}
+
+func egressOutbounds(n *fleet.Node) []any {
 	direct := map[string]any{"protocol": "freedom", "tag": "direct"}
 	var ip string
 	if n.DNS != nil {

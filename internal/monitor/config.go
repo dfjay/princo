@@ -4,6 +4,8 @@
 // channels of monitor.notify when a check changes state.
 package monitor
 
+import "net/url"
+
 // Config is the node's monitor.json, rendered with its other files. It
 // holds secrets: the channels' and the engine's API secret.
 type Config struct {
@@ -17,6 +19,21 @@ type Config struct {
 	// Warp is nil where the node has no WARP to check.
 	Warp  *Warp    `json:"warp,omitzero"`
 	Reach []Target `json:"reach"`
+	// Proxy is nil where every channel is told directly.
+	Proxy *Proxy `json:"proxy,omitzero"`
+}
+
+// Proxy is the engine's SOCKS proxy at Address, for the channels the node
+// can't reach. A connection leaves through the node its user names.
+type Proxy struct {
+	Address  string `json:"address"`
+	Password string `json:"password"`
+}
+
+// URL is the proxy as node's user. The name goes to it unresolved: the
+// node's own DNS may lie about a channel it can't reach.
+func (p *Proxy) URL(node string) *url.URL {
+	return &url.URL{Scheme: "socks5h", User: url.UserPassword(node, p.Password), Host: p.Address}
 }
 
 type Certificate struct {

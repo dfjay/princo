@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -48,6 +49,8 @@ type Monitor struct {
 	Now func() time.Time
 	// HTTP reaches the channels.
 	HTTP *http.Client
+	// Via reaches them through the node named, by Config.Proxy.
+	Via  func(node string) *http.Client
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// Active fails unless the systemd unit runs.
 	Active func(ctx context.Context, unit string) error
@@ -114,8 +117,11 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 		id      string
 		changes []change
 		checks  []*checkState
+		routes  []route
 		told    int
-		err     error
+		// failed is how many of routes didn't reach the channel.
+		failed int
+		err    error
 	}
 	var deliveries []*delivery
 	ids := map[string]bool{}
@@ -129,6 +135,7 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 			}
 		}
 		if len(d.changes) > 0 {
+			d.routes = m.routes(ch, st)
 			deliveries = append(deliveries, d)
 		}
 	}
@@ -137,7 +144,7 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 			defer cancel()
-			d.told, d.err = d.channel.sender().send(ctx, m.HTTP, m.Config.Node, d.changes)
+			d.told, d.failed, d.err = m.send(ctx, d.channel, d.routes, d.changes)
 		})
 	}
 	wg.Wait()
@@ -150,11 +157,94 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 			c.tell(d.id)
 		}
 	}
+	via := map[string]bool{}
+	for _, ch := range m.Config.Notify {
+		for _, node := range ch.Via {
+			via[node] = true
+		}
+	}
+	for _, d := range deliveries {
+		for i, r := range d.routes {
+			switch {
+			case r.via == "" || i > d.failed:
+			case i < d.failed:
+				if st.ViaFailed == nil {
+					st.ViaFailed = map[string]time.Time{}
+				}
+				st.ViaFailed[r.via] = m.Now()
+			default:
+				delete(st.ViaFailed, r.via)
+			}
+		}
+	}
+	maps.DeleteFunc(st.ViaFailed, func(node string, _ time.Time) bool { return !via[node] })
 	// A channel that is gone, or leads elsewhere now, is forgotten.
 	for _, c := range st.Checks {
 		maps.DeleteFunc(c.Told, func(id string, _ bool) bool { return !ids[id] })
 	}
 	return errs
+}
+
+// maxVia is how many nodes a run tries a channel through, each with its
+// share of sendTimeout.
+const maxVia = 3
+
+// route is a way to a channel: through the node via, or directly.
+type route struct {
+	via    string
+	client *http.Client
+}
+
+// routes lists the ways to try ch in turn: directly, or through its nodes.
+// Those the latest run couldn't reach come last, and before them those a
+// report failed to leave through, the latest failure last: a run that
+// can't try them all tries others than the one before it.
+func (m *Monitor) routes(ch Channel, st *state) []route {
+	if len(ch.Via) == 0 {
+		return []route{{client: m.HTTP}}
+	}
+	down := func(node string) int {
+		if c := st.Checks[checkReach+node]; c != nil && c.Down != (c.Streak > 0) {
+			return 1
+		}
+		return 0
+	}
+	via := slices.Clone(ch.Via)
+	slices.SortStableFunc(via, func(a, b string) int {
+		return cmp.Or(cmp.Compare(down(a), down(b)), st.ViaFailed[a].Compare(st.ViaFailed[b]))
+	})
+	var out []route
+	for _, node := range via[:min(len(via), maxVia)] {
+		out = append(out, route{node, m.Via(node)})
+	}
+	return out
+}
+
+// send tells ch of changes by the first of routes that reaches it, each
+// with an equal share of the time left. It returns how many changes it
+// told and how many routes didn't reach ch. A route goes on where the one
+// before it stopped.
+func (m *Monitor) send(ctx context.Context, ch Channel, routes []route, changes []change) (told, failed int, err error) {
+	deadline, _ := ctx.Deadline()
+	var errs []error
+	for i, r := range routes {
+		tryCtx, cancel := context.WithTimeout(ctx, time.Until(deadline)/time.Duration(len(routes)-i))
+		n, err := ch.sender().send(tryCtx, r.client, m.Config.Node, changes[told:])
+		cancel()
+		told += n
+		if err == nil {
+			return told, failed, nil
+		}
+		if r.via != "" {
+			err = fmt.Errorf("through %s: %w", r.via, err)
+		}
+		errs = append(errs, err)
+		if _, ok := errors.AsType[*unreachable](err); !ok {
+			break
+		}
+		failed++
+	}
+	return told, failed, errors.Join(errs...)
 }
 
 // check runs every check. skipped are those it couldn't tell about, whose

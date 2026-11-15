@@ -18,6 +18,11 @@
             "email": "alice",
             "flow": "xtls-rprx-vision",
             "id": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+          },
+          {
+            "email": "monitor:relay",
+            "flow": "xtls-rprx-vision",
+            "id": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
           }
         ],
         "decryption": "none",
@@ -132,6 +137,12 @@
   "routing": {
     "domainStrategy": "IPOnDemand",
     "rules": [
+      {
+        "outboundTag": "direct",
+        "user": [
+          "monitor:relay"
+        ]
+      },
       {
         "inboundTag": [
           "dns"

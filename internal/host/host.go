@@ -122,6 +122,9 @@ func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Confi
 		if ch.Webhook != nil {
 			out.Webhook = new(monitor.Webhook(*ch.Webhook))
 		}
+		for _, up := range f.Via(n, ch) {
+			out.Via = append(out.Via, up.Name)
+		}
 		c.Notify = append(c.Notify, out)
 	}
 	for _, name := range certs {
@@ -132,6 +135,12 @@ func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Confi
 			URL:      "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(engine.APIPort)),
 			Secret:   n.API.Secret,
 			Outbound: engine.WarpTag,
+		}
+	}
+	if n.MonitorUUID != "" {
+		c.Proxy = &monitor.Proxy{
+			Address:  net.JoinHostPort("127.0.0.1", strconv.Itoa(engine.MonitorPort)),
+			Password: n.MonitorUUID,
 		}
 	}
 	for _, m := range f.Reaches(n) {

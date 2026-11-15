@@ -72,10 +72,10 @@ func TestPlan_Mux(t *testing.T) {
 	require.Equal(t, []string{
 		"monitor/ops/chat", "monitor/ops/token", "nodes/de/api", "nodes/de/reality",
 		"nodes/de/warp/ipv4", "nodes/de/warp/ipv6", "nodes/de/warp/private_key",
-		"nodes/relay/chain", "users/alice", "users/bob",
+		"nodes/relay/chain", "nodes/relay/monitor", "users/alice", "users/bob",
 	}, secretPaths(p))
 	require.Equal(t, &Monitor{Config: "monitor.json", IntervalSeconds: 300}, p.Monitor)
-	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[8].Source)
+	require.Equal(t, Source{Type: "sops", File: "s.yaml", Key: "users/alice"}, p.Secrets[9].Source)
 }
 
 // Without the engine behind it, the multiplexer needs no routing back.
@@ -108,10 +108,11 @@ func TestPlan_RealityOnly(t *testing.T) {
 	require.Nil(t, p.Mux)
 	require.Nil(t, p.Subscription)
 	require.Empty(t, p.Certificates)
-	require.Equal(t, []string{"monitor/ops/chat", "monitor/ops/token", "nodes/us/reality", "users/alice", "users/bob"}, secretPaths(p))
+	// relay's reports leave through here.
+	require.Equal(t, []string{"monitor/ops/chat", "monitor/ops/token", "nodes/relay/monitor", "nodes/us/reality", "users/alice", "users/bob"}, secretPaths(p))
 
 	relay := plan(t, "relay")
-	require.Equal(t, []string{"monitor/ops/chat", "monitor/ops/token", "nodes/relay/chain", "nodes/relay/reality", "users/bob"}, secretPaths(relay))
+	require.Equal(t, []string{"monitor/ops/chat", "monitor/ops/token", "nodes/relay/chain", "nodes/relay/monitor", "nodes/relay/reality", "users/bob"}, secretPaths(relay))
 }
 
 func TestFiles_Subscription(t *testing.T) {
@@ -153,7 +154,7 @@ func TestPlan_Xray(t *testing.T) {
 	require.Equal(t, []string{
 		"monitor/ops/chat", "monitor/ops/token",
 		"nodes/fi/reality", "nodes/fi/warp/ipv4", "nodes/fi/warp/ipv6", "nodes/fi/warp/private_key",
-		"users/alice",
+		"nodes/relay/monitor", "users/alice",
 	}, secretPaths(p))
 }
 

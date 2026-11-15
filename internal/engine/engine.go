@@ -26,11 +26,30 @@ const (
 	// multiplexer, on :: for both 127.0.0.1 and ::1.
 	LoopbackInterface = "lo"
 	APIPort           = fleet.APIPort
+	MonitorPort       = fleet.MonitorPort
 )
 
 // WarpTag is the WARP outbound, or endpoint, of a server config, which the
 // monitor names to the engine's API.
 const WarpTag = "warp"
+
+// MonitorInbound is the SOCKS proxy of a server config that the monitor
+// sends its reports through; its user names the node they leave by.
+const MonitorInbound = "monitor-in"
+
+// MonitorTag is the outbound those reports leave through up with; no
+// node's name has a colon to make another outbound's tag of it.
+func MonitorTag(up *fleet.Node) string { return "monitor:" + up.Name }
+
+// MonitorAccounts names the nodes that send their reports through n, as
+// they log in there.
+func MonitorAccounts(f *fleet.Fleet, n *fleet.Node) []any {
+	var out []any
+	for _, m := range f.MonitorsInto(n) {
+		out = append(out, fleet.MonitorAccount(m))
+	}
+	return out
+}
 
 // WarpPeerPublicKey is Cloudflare WARP's WireGuard peer key.
 const WarpPeerPublicKey = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="

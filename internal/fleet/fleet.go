@@ -79,6 +79,11 @@ type Node struct {
 	Warp *Warp
 	// ChainUUID is this node's identity on its upstream when Egress.Node is set.
 	ChainUUID string
+	// MonitorVia are the nodes this one sends its monitor's reports
+	// through, to any channel, sorted by name. MonitorUUID is its identity
+	// there, and the password of its own proxy to them.
+	MonitorVia  []*Node
+	MonitorUUID string
 
 	DNS         *DNS
 	Rules       []Rule
@@ -126,6 +131,14 @@ const (
 // APIPort is the engine's API, on 127.0.0.1.
 const APIPort = 8446
 
+// MonitorPort is the engine's SOCKS proxy for the monitor's reports, on
+// 127.0.0.1. Its user names the node a connection leaves through.
+const MonitorPort = 8447
+
+// MonitorAccount is the name n logs in with on the nodes it sends its
+// reports through.
+func MonitorAccount(n *Node) string { return "monitor:" + n.Name }
+
 type API struct {
 	// Secret keeps the host's other users out of the engine.
 	Secret string
@@ -150,6 +163,9 @@ type Channel struct {
 	Name     string
 	Telegram *Telegram
 	Webhook  *Webhook
+	// Via, when set, selects the nodes that reach the channel themselves;
+	// the others send through them.
+	Via *Selector
 }
 
 type Telegram struct {
@@ -195,6 +211,34 @@ func (f *Fleet) Reaches(n *Node) []*Node {
 	var out []*Node
 	for _, m := range f.Nodes {
 		if m != n && slices.ContainsFunc(f.Monitor.Reach, func(r Reach) bool { return r.From.Matches(n) && r.To.Matches(m) }) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// Via lists the nodes n sends its reports to ch through, sorted by name:
+// those ch.Via selects that serve Reality. None when n is one of them, and
+// sends on its own.
+func (f *Fleet) Via(n *Node, ch Channel) []*Node {
+	if ch.Via == nil || ch.Via.Matches(n) {
+		return nil
+	}
+	var out []*Node
+	for _, m := range f.Nodes {
+		if ch.Via.Matches(m) && m.Reality != nil {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// MonitorsInto lists the nodes that send their reports through n, sorted
+// by name.
+func (f *Fleet) MonitorsInto(n *Node) []*Node {
+	var out []*Node
+	for _, m := range f.Nodes {
+		if slices.Contains(m.MonitorVia, n) {
 			out = append(out, m)
 		}
 	}

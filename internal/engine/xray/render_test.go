@@ -157,6 +157,60 @@ func TestRenderServer_Edges(t *testing.T) {
 	}
 }
 
+// fi takes relay's reports in the fixture; here it also sends its own
+// through de and us.
+func TestRenderServer_MonitorVia(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	fi, _ := f.Node("fi")
+	de, _ := f.Node("de")
+	us, _ := f.Node("us")
+	fi.MonitorVia, fi.MonitorUUID = []*fleet.Node{de, us}, "11111111-2222-4333-8444-555555555555"
+	data, err := New().RenderServer(f, "fi")
+	require.NoError(t, err)
+	var cfg map[string]any
+	require.NoError(t, json.Unmarshal(data, &cfg))
+
+	inbounds := cfg["inbounds"].([]any)
+	require.Equal(t, map[string]any{
+		"tag": "monitor-in", "listen": "127.0.0.1", "port": 8447.0, "protocol": "socks",
+		"settings": map[string]any{"auth": "password", "udp": false, "accounts": []any{
+			map[string]any{"user": "de", "pass": "11111111-2222-4333-8444-555555555555"},
+			map[string]any{"user": "us", "pass": "11111111-2222-4333-8444-555555555555"},
+		}},
+	}, inbounds[len(inbounds)-1])
+	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+	require.Equal(t, []any{
+		map[string]any{"inboundTag": []any{"monitor-in"}, "user": []any{"de"}, "outboundTag": "monitor:de"},
+		map[string]any{"inboundTag": []any{"monitor-in"}, "user": []any{"us"}, "outboundTag": "monitor:us"},
+		map[string]any{"inboundTag": []any{"monitor-in"}, "outboundTag": "block"},
+	}, rules[:3])
+	outbounds := cfg["outbounds"].([]any)
+	require.Equal(t, "warp", outbounds[0].(map[string]any)["tag"], "what no rule matches still leaves by the egress")
+	hop := outbounds[len(outbounds)-1].(map[string]any)
+	require.Equal(t, "monitor:us", hop["tag"])
+	require.Equal(t, "11111111-2222-4333-8444-555555555555", hop["settings"].(map[string]any)["id"])
+	xrayCheck(t, data)
+
+	// And takes relay's, past its WARP.
+	f = fleettest.Load(t, fixture)
+	data, err = New().RenderServer(f, "fi")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &cfg))
+	require.Equal(t, map[string]any{"user": []any{"monitor:relay"}, "outboundTag": "direct"}, cfg["routing"].(map[string]any)["rules"].([]any)[0])
+	xrayCheck(t, data)
+}
+
+// xrayCheck has xray, when there is one, load config.
+func xrayCheck(t *testing.T, config []byte) {
+	t.Helper()
+	if bin, err := exec.LookPath("xray"); err == nil {
+		path := filepath.Join(t.TempDir(), "config.json")
+		require.NoError(t, os.WriteFile(path, config, 0o600))
+		out, err := exec.CommandContext(t.Context(), bin, "run", "-test", "-c", path).CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+}
+
 func xrayNodes(f *fleet.Fleet) []*fleet.Node {
 	var out []*fleet.Node
 	for _, n := range f.Nodes {
