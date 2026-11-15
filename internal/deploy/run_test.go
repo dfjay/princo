@@ -147,12 +147,16 @@ func TestDeploy_DevBuild(t *testing.T) {
 	d, _ := newDeployer(r, "0.2.0+abc1234")
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "pass --princo-deb")
 
+	// The fixture has monitor:, which an older princo can't run.
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.1.1\n"}
+	d, _ = newDeployer(r, "0.2.0+abc1234")
+	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "the host's princo, 0.1.1, has no host monitor")
+
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.1.1\nmonitor\n"}
 	d, log := newDeployer(r, "0.2.0+abc1234")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps)
 	require.Contains(t, log.String(), "the host runs princo 0.1.1, this is 0.2.0+abc1234")
-	require.Contains(t, log.String(), "which must have host monitor", "the fixture has monitor:")
 
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.1.1\n"}
 	d, _ = newDeployer(r, "0.2.0+abc1234")
@@ -241,6 +245,8 @@ func TestCleanup(t *testing.T) {
 	state := filepath.Join(units, "monitor-state.json")
 	require.NoError(t, os.WriteFile(filepath.Join(units, "princo-lego.timer"), nil, 0o644))
 	require.NoError(t, os.WriteFile(state, []byte("{}"), 0o600))
+	systemctl := filepath.Join(units, "systemctl.log")
+	t.Setenv("SYSTEMCTL_LOG", systemctl)
 	p, _, _ := plan(t, "us")
 	script, err := execute("cleanup.sh", map[string]any{
 		"Root": root, "Keep": filepath.Join(root, "sing-box-1.1.0"),
@@ -264,6 +270,9 @@ func TestCleanup(t *testing.T) {
 	require.Len(t, entries, 1)
 	require.Equal(t, "sing-box-1.1.0", entries[0].Name())
 	require.NoFileExists(t, state)
+	calls, err := os.ReadFile(systemctl)
+	require.NoError(t, err)
+	require.Equal(t, "disable --now --quiet princo-monitor.timer\nstop --quiet princo-monitor.service\n", string(calls))
 }
 
 // runUFW runs script against an active ufw with rules, and returns the
@@ -275,7 +284,9 @@ func runUFW(t *testing.T, script, rules string) []string {
 	fake := map[string]string{
 		"dpkg-query": "echo 'install ok installed'",
 		"getent":     "exit 0",
-		"ufw":        `if [ "$1" = status ]; then printf 'Status: active\n\n%s' "$RULES"; else echo "$*" >>"$LOG"; fi`,
+		// Never the machine's own units.
+		"systemctl": `echo "$*" >>"${SYSTEMCTL_LOG:-/dev/null}"`,
+		"ufw":       `if [ "$1" = status ]; then printf 'Status: active\n\n%s' "$RULES"; else echo "$*" >>"$LOG"; fi`,
 	}
 	for name, body := range fake {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755))

@@ -1,3 +1,5 @@
+// Package stats tallies a node's connections from the events of its
+// engine's API: who is connected, from where, and their traffic.
 package stats
 
 import (
@@ -5,6 +7,8 @@ import (
 	"net/netip"
 	"slices"
 	"time"
+
+	"github.com/dfjay/princo/internal/engineapi"
 )
 
 // Tally follows a node's connections from its events. By default it
@@ -24,7 +28,7 @@ type Tally struct {
 }
 
 type tracked struct {
-	Conn
+	engineapi.Conn
 	// The traffic before the window.
 	baseUp, baseDown int64
 }
@@ -36,7 +40,7 @@ type folded struct {
 }
 
 // Add applies one message, which came at now.
-func (t *Tally) Add(e Events, now time.Time) {
+func (t *Tally) Add(e engineapi.Events, now time.Time) {
 	if t.conns == nil || e.Reset {
 		t.conns = map[string]*tracked{}
 	}
@@ -47,7 +51,7 @@ func (t *Tally) Add(e Events, now time.Time) {
 	for _, ev := range e.Events {
 		c := t.conns[ev.ID]
 		switch ev.Type {
-		case New:
+		case engineapi.New:
 			if ev.Conn == nil {
 				continue
 			}
@@ -62,12 +66,12 @@ func (t *Tally) Add(e Events, now time.Time) {
 				c.baseUp, c.baseDown = c.Upload, c.Download
 			}
 			t.conns[ev.ID] = c
-		case Update:
+		case engineapi.Update:
 			if c != nil {
 				c.Upload += ev.UploadDelta
 				c.Download += ev.DownloadDelta
 			}
-		case Closed:
+		case engineapi.Closed:
 			if c == nil {
 				continue
 			}
@@ -103,7 +107,7 @@ func (t *Tally) fold(c *tracked) {
 // Settle takes the totals of the connections still open from e, a later
 // first message, for their traffic since the last update, and folds
 // those it shows closed.
-func (t *Tally) Settle(e Events) {
+func (t *Tally) Settle(e engineapi.Events) {
 	for _, ev := range e.Events {
 		c := t.conns[ev.ID]
 		if c == nil || ev.Conn == nil || !c.Closed.IsZero() {

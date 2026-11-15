@@ -580,7 +580,7 @@ nodes:
 
 func TestBuild_Stats(t *testing.T) {
 	values := conventionalSecrets()
-	values["nodes"].(map[string]any)["a"].(map[string]any)["stats"] = "stats-a"
+	values["nodes"].(map[string]any)["a"].(map[string]any)["api"] = "stats-a"
 	f, err := build(t, `
 defaults: { stats: true }
 nodes:
@@ -601,7 +601,7 @@ nodes:
 
 	cfg, err := config.Parse([]byte("princo: v1\nnodes:\n  a:\n    address: a.example.com\n    reality: {}\n    stats: true\n"))
 	require.NoError(t, err)
-	require.Contains(t, Secrets(cfg), SecretUse{Path: "nodes/a/stats", Field: "nodes.a.stats", Kind: SecretPassword},
+	require.Contains(t, Secrets(cfg), SecretUse{Path: "nodes/a/api", Field: "nodes.a.stats", Kind: SecretPassword},
 		"princo secret gen makes it")
 
 	_, err = build(t, `
@@ -614,7 +614,7 @@ nodes:
 `, values)
 	require.ErrorContains(t, err, "nodes.a.stats: engine xray doesn't report connections; only sing-box does")
 
-	values["nodes"].(map[string]any)["a"].(map[string]any)["stats"] = ""
+	values["nodes"].(map[string]any)["a"].(map[string]any)["api"] = ""
 	_, err = build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n    stats: true\n", values)
-	require.ErrorContains(t, err, "nodes.a.stats: the secret nodes/a/stats is empty")
+	require.ErrorContains(t, err, "nodes.a.stats: the secret nodes/a/api is empty")
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dfjay/princo/internal/deploy"
+	"github.com/dfjay/princo/internal/engineapi"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/stats"
 )
@@ -115,8 +116,8 @@ func nodeStats(ctx context.Context, log io.Writer, n *fleet.Node, target string,
 		return stats.Report{}, err
 	}
 	defer func() { _ = ssh.Close() }()
-	api := net.JoinHostPort("127.0.0.1", strconv.Itoa(fleet.StatsPort))
-	client := &stats.Client{
+	api := net.JoinHostPort("127.0.0.1", strconv.Itoa(fleet.APIPort))
+	client := &engineapi.Client{
 		HTTP: &http.Client{Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) { return ssh.Dial(ctx, api) },
 		}},
@@ -124,11 +125,11 @@ func nodeStats(ctx context.Context, log io.Writer, n *fleet.Node, target string,
 		Secret: n.API.Secret,
 	}
 	// first passes fn the engine's first message: what it has now.
-	first := func(fn func(stats.Events)) error {
+	first := func(fn func(engineapi.Events)) error {
 		ctx, cancel := context.WithTimeout(ctx, time.Minute)
 		defer cancel()
 		got := false
-		err := client.Subscribe(ctx, time.Second, func(e stats.Events) error { fn(e); got = true; return stats.ErrStop })
+		err := client.Subscribe(ctx, time.Second, func(e engineapi.Events) error { fn(e); got = true; return engineapi.ErrStop })
 		if err == nil && !got {
 			err = errors.New("the engine's stats sent nothing")
 		}
@@ -136,14 +137,14 @@ func nodeStats(ctx context.Context, log io.Writer, n *fleet.Node, target string,
 	}
 	t := &stats.Tally{Window: window > 0, User: user}
 	if window == 0 {
-		err := first(func(e stats.Events) { t.Add(e, time.Now()) })
+		err := first(func(e engineapi.Events) { t.Add(e, time.Now()) })
 		return t.Report(), err
 	}
 
 	_, _ = fmt.Fprintf(log, "watching node %s for %s\n", n.Name, window) // progress only
 	watch, cancel := context.WithTimeout(ctx, window)
 	defer cancel()
-	err := client.Subscribe(watch, time.Second, func(e stats.Events) error {
+	err := client.Subscribe(watch, time.Second, func(e engineapi.Events) error {
 		t.Add(e, time.Now())
 		return nil
 	})

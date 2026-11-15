@@ -87,7 +87,7 @@ type Node struct {
 	Log string
 	// Stats has princo stats read the engine's connections.
 	Stats bool
-	// API, when set, is the engine's API at 127.0.0.1:StatsPort, which
+	// API, when set, is the engine's API at 127.0.0.1:APIPort, which
 	// princo stats and the monitor's WARP check talk to.
 	API *API
 
@@ -123,8 +123,8 @@ const (
 	MuxNaivePort   = 8445
 )
 
-// StatsPort is the engine's API, on 127.0.0.1.
-const StatsPort = 8446
+// APIPort is the engine's API, on 127.0.0.1.
+const APIPort = 8446
 
 type API struct {
 	// Secret keeps the host's other users out of the engine.
@@ -132,13 +132,24 @@ type API struct {
 }
 
 // Monitor is the checks each node runs on itself every Interval, telling
-// the Telegram chat what changed.
+// the channels of Notify what changed.
 type Monitor struct {
-	Telegram Telegram
-	// From tags the nodes that also check they reach the others; empty
-	// when none do.
-	From     string
+	// Notify are the channels, sorted by name.
+	Notify   []Channel
 	Interval time.Duration
+	// Confirm is how many runs in a row change a check's state.
+	Confirm int
+	// CertificateWarning is how long before a certificate expires its
+	// check fails.
+	CertificateWarning time.Duration
+	Reach              []Reach
+}
+
+// Channel is where reports go: Telegram or Webhook, whichever is set.
+type Channel struct {
+	Name     string
+	Telegram *Telegram
+	Webhook  *Webhook
 }
 
 type Telegram struct {
@@ -147,13 +158,25 @@ type Telegram struct {
 	Chat  string
 }
 
+// Webhook takes the reports as JSON, posted to URL.
+type Webhook struct {
+	URL string
+}
+
+// Reach has the nodes From selects check that they reach those of To.
+type Reach struct {
+	From, To Selector
+}
+
 const DefaultTelegramAPI = "https://api.telegram.org"
 
-// Monitor intervals: the default, and the shortest that leaves a run time
+// The monitor's defaults, and the shortest interval that leaves a run time
 // to end before the next.
 const (
-	DefaultMonitorInterval = 2 * time.Minute
-	MinMonitorInterval     = time.Minute
+	DefaultMonitorInterval    = 2 * time.Minute
+	MinMonitorInterval        = time.Minute
+	DefaultMonitorConfirm     = 2
+	DefaultCertificateWarning = 14 * 24 * time.Hour
 )
 
 // MonitorsWarp tells whether the monitor checks n's WARP, which takes an
@@ -162,15 +185,15 @@ func (f *Fleet) MonitorsWarp(n *Node) bool {
 	return f.Monitor != nil && n.Egress.Kind == EgressWarp && n.Engine == "sing-box"
 }
 
-// Reaches lists the nodes n checks that it reaches: the others, when n
-// carries the monitor's From tag.
+// Reaches lists the nodes n checks that it reaches, sorted by name: those
+// the monitor's Reach rules select for it, n aside.
 func (f *Fleet) Reaches(n *Node) []*Node {
-	if f.Monitor == nil || f.Monitor.From == "" || !n.HasTag(f.Monitor.From) {
+	if f.Monitor == nil {
 		return nil
 	}
 	var out []*Node
 	for _, m := range f.Nodes {
-		if m != n {
+		if m != n && slices.ContainsFunc(f.Monitor.Reach, func(r Reach) bool { return r.From.Matches(n) && r.To.Matches(m) }) {
 			out = append(out, m)
 		}
 	}

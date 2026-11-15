@@ -230,21 +230,41 @@ func (r *RuleData) UnmarshalYAML(node *yaml.Node) error {
 	return decodeStrict(node, (*plain)(r))
 }
 
-// Monitor has every node check itself on a timer and tell Telegram what
-// changed.
+// Monitor has every node check itself on a timer and tell the channels of
+// Notify what changed.
 type Monitor struct {
-	Telegram *Telegram `yaml:"telegram"`
-	// From is the tag of the nodes that also check they reach the others.
-	From string `yaml:"from"`
+	// Notify are the channels to tell, by name.
+	Notify Ordered[Channel] `yaml:"notify"`
 	// Interval between checks, e.g. 2m.
 	Interval string `yaml:"interval"`
+	// Confirm is how many runs in a row change a check's state.
+	Confirm *int `yaml:"confirm"`
+	// CertificateDays is how long before a certificate expires to tell.
+	CertificateDays *int `yaml:"certificate_days"`
+	// Reach are the nodes that check they reach others.
+	Reach []Reach `yaml:"reach"`
 }
 
-type Telegram struct {
+// Channel is where reports go. Its Type says which fields it has.
+type Channel struct {
+	// Type is telegram or webhook.
+	Type string `yaml:"type"`
+
+	// A Telegram bot's token and the chat it writes to. API replaces
+	// https://api.telegram.org, for nodes that can't reach it.
 	Token *secrets.SecretOrPlain `yaml:"token"`
 	Chat  *secrets.SecretOrPlain `yaml:"chat"`
-	// API replaces https://api.telegram.org, for nodes that can't reach it.
-	API string `yaml:"api"`
+	API   string                 `yaml:"api"`
+
+	// A webhook's URL, which takes the reports as JSON.
+	URL *secrets.SecretOrPlain `yaml:"url"`
+}
+
+// Reach has the nodes From selects check that they reach the ones To
+// does: a tag, !tag or all, as a client group's nodes.
+type Reach struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
 }
 
 // Parse decodes a princo.yaml document strictly: unknown fields anywhere

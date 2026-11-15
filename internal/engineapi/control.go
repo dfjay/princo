@@ -1,4 +1,4 @@
-package stats
+package engineapi
 
 import (
 	"context"
@@ -7,8 +7,9 @@ import (
 	"time"
 )
 
-// testTimeout outlasts the engine's own limit on a test, 15 seconds.
-const testTimeout = 20 * time.Second
+// testTimeout outlasts the engine's own limits on a test: 15 seconds a
+// request, and over WireGuard two of them, the first to warm the tunnel.
+const testTimeout = 35 * time.Second
 
 // ErrTestFailed tells that the outbound passed no traffic.
 var ErrTestFailed = errors.New("the test request got no answer")
@@ -38,6 +39,15 @@ func (c *Client) TestOutbound(ctx context.Context, tag string) (time.Duration, e
 	}
 	if !known {
 		return 0, fmt.Errorf("the engine has no outbound %s; deploy the node again", tag)
+	}
+	// The engine times a test to the second: one that ends within the
+	// second of the last and took as long would look like no result.
+	if wait := time.Until(time.Unix(before.at+1, 0)); wait > 0 {
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
 	}
 	if err := c.call(ctx, "URLTest", appendBytesField(nil, 1, []byte(tag)), func([]byte) error { return nil }); err != nil {
 		return 0, err

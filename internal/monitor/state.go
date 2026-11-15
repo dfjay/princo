@@ -6,12 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
-
-// threshold is how many runs in a row must disagree with a check's state
-// to change it: one lost packet tells nothing.
-const threshold = 2
 
 // state is what the last runs found, kept between them.
 type state struct {
@@ -29,12 +26,27 @@ type checkState struct {
 	LastedSeconds int64     `json:"lasted_seconds,omitzero"`
 	// Detail is the latest result's.
 	Detail string `json:"detail,omitzero"`
-	// Reported is the state Telegram last heard of.
-	Reported bool `json:"reported"`
+	// Told are the channels that last heard the check is down, by
+	// Channel.id; the others last heard it is up, or nothing.
+	Told map[string]bool `json:"told,omitzero"`
 }
 
-// update takes a run's results into s, forgetting the checks that are gone.
-func (s *state) update(results []result, skipped map[string]bool, now time.Time) {
+// tell notes that the channel has heard c's state.
+func (c *checkState) tell(channel string) {
+	if !c.Down {
+		delete(c.Told, channel)
+		return
+	}
+	if c.Told == nil {
+		c.Told = map[string]bool{}
+	}
+	c.Told[channel] = true
+}
+
+// update takes a run's results into s, forgetting the checks that are
+// gone. A check's state changes once confirm runs in a row disagree with
+// it: one lost packet tells nothing.
+func (s *state) update(results []result, skipped map[string]bool, confirm int, now time.Time) {
 	seen := map[string]bool{}
 	for _, r := range results {
 		seen[r.id] = true
@@ -49,7 +61,7 @@ func (s *state) update(results []result, skipped map[string]bool, now time.Time)
 			c.Detail = r.detail
 			continue
 		}
-		if c.Streak++; c.Streak < threshold {
+		if c.Streak++; c.Streak < confirm {
 			continue
 		}
 		c.Down, c.Streak, c.Detail = !r.ok, 0, r.detail
@@ -65,6 +77,23 @@ func (s *state) update(results []result, skipped map[string]bool, now time.Time)
 			delete(s.Checks, id)
 		}
 	}
+}
+
+// lock keeps other runs off the state at path until unlock: two at once
+// would tell of the same change twice and lose each other's counts.
+func lock(path string) (unlock func(), err error) {
+	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errors.New("another run is under way; --dry-run checks beside it")
+		}
+		return nil, err
+	}
+	return func() { _ = f.Close() }, nil
 }
 
 func loadState(path string) (*state, error) {

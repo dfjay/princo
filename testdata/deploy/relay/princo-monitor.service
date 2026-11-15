@@ -1,6 +1,6 @@
 # Written by princo deploy; changes here are overwritten.
 [Unit]
-Description=princo node relay: check the node and tell Telegram what changed
+Description=princo node relay: check the node and report what changed
 Wants=network-online.target
 After=network-online.target princo.service
 

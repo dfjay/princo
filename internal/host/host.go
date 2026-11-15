@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dfjay/princo/internal/engine"
 	_ "github.com/dfjay/princo/internal/engine/singbox"
@@ -108,18 +109,29 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 // its WARP and the nodes it is to reach.
 func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Config {
 	c := &monitor.Config{
-		Node:         n.Name,
-		Telegram:     monitor.Telegram(f.Monitor.Telegram),
-		Unit:         EngineUnit,
-		Certificates: []monitor.Certificate{},
-		Reach:        []monitor.Target{},
+		Node:            n.Name,
+		Unit:            EngineUnit,
+		Confirm:         f.Monitor.Confirm,
+		CertificateDays: int(f.Monitor.CertificateWarning / (24 * time.Hour)),
+		Certificates:    []monitor.Certificate{},
+		Reach:           []monitor.Target{},
+	}
+	for _, ch := range f.Monitor.Notify {
+		out := monitor.Channel{Name: ch.Name}
+		if ch.Telegram != nil {
+			out.Telegram = new(monitor.Telegram(*ch.Telegram))
+		}
+		if ch.Webhook != nil {
+			out.Webhook = new(monitor.Webhook(*ch.Webhook))
+		}
+		c.Notify = append(c.Notify, out)
 	}
 	for _, name := range certs {
 		c.Certificates = append(c.Certificates, monitor.Certificate{Name: name, File: path.Join(engine.CertDir, name, "fullchain.pem")})
 	}
 	if f.MonitorsWarp(n) {
 		c.Warp = &monitor.Warp{
-			URL:      "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(engine.StatsPort)),
+			URL:      "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(engine.APIPort)),
 			Secret:   n.API.Secret,
 			Outbound: engine.WarpTag,
 		}

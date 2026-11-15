@@ -1,26 +1,25 @@
 // Package monitor is what a node checks about itself on a timer: that its
 // engine runs, its certificates aren't about to expire, WARP passes traffic
-// and, from the nodes told to, that the other nodes answer. It tells a
-// Telegram chat when a check changes state.
+// and, from the nodes told to, that the other nodes answer. It tells the
+// channels of monitor.notify when a check changes state.
 package monitor
 
 // Config is the node's monitor.json, rendered with its other files. It
-// holds secrets: Telegram's token and the engine's API secret.
+// holds secrets: the channels' and the engine's API secret.
 type Config struct {
-	Node         string        `json:"node"`
-	Telegram     Telegram      `json:"telegram"`
-	Unit         string        `json:"unit"`
-	Certificates []Certificate `json:"certificates"`
+	Node string `json:"node"`
+	// Notify are the channels to tell, sorted by name.
+	Notify []Channel `json:"notify"`
+	// Confirm is how many runs in a row change a check's state.
+	Confirm int `json:"confirm"`
+	// CertificateDays is how long before a certificate expires its check
+	// fails.
+	CertificateDays int           `json:"certificate_days"`
+	Unit            string        `json:"unit"`
+	Certificates    []Certificate `json:"certificates"`
 	// Warp is nil where the node has no WARP to check.
 	Warp  *Warp    `json:"warp,omitzero"`
 	Reach []Target `json:"reach"`
-}
-
-type Telegram struct {
-	// API is the Bot API's base URL, e.g. https://api.telegram.org.
-	API   string `json:"api"`
-	Token string `json:"token"`
-	Chat  string `json:"chat"`
 }
 
 type Certificate struct {

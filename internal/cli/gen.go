@@ -24,8 +24,8 @@ obfuscation password. A Reality key's public half goes into the node's
 reality.public_key in princo.yaml.
 
 Without paths, generates every one that is missing. WARP credentials come
-from a WARP account and Telegram's from your bot; store them with princo
-secret set.`,
+from a WARP account, and the monitor's channels have their own; store
+them with princo secret set.`,
 		Example: `  princo secret gen                     # every missing secret
   princo secret gen nodes/fr/reality    # one that is missing
   princo secret gen --force users/alice # replace alice's UUID`,

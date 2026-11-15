@@ -17,9 +17,9 @@ import (
 
 	"github.com/dfjay/princo/internal/bundle"
 	"github.com/dfjay/princo/internal/deploy"
+	"github.com/dfjay/princo/internal/engineapi"
 	"github.com/dfjay/princo/internal/host"
 	"github.com/dfjay/princo/internal/monitor"
-	"github.com/dfjay/princo/internal/stats"
 )
 
 func newHostCommand() *cobra.Command {
@@ -40,13 +40,13 @@ func newHostMonitorCommand() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "monitor",
-		Short: "Check this node and tell Telegram what changed",
+		Short: "Check this node and report what changed",
 		Long: `Run the checks of a fleet with monitor: on this node: that its engine
 runs, its certificates aren't about to expire, WARP passes traffic and, on
-the nodes monitor.from tags, that the other nodes answer. A check changes
-state once two runs in a row find it so; Telegram then hears of it, once.
-A deploy runs it on a timer; run it with --dry-run to see what the checks
-find now.`,
+the nodes monitor.reach selects, that other nodes answer. A check changes
+state once monitor.confirm runs in a row find it so; each channel of
+monitor.notify then hears of it, once. A deploy runs it on a timer; run it with --dry-run
+to see what the checks find now.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			data, err := os.ReadFile(configPath)
@@ -73,7 +73,7 @@ find now.`,
 				},
 			}
 			if cfg.Warp != nil {
-				m.Engine = &stats.Client{HTTP: &http.Client{}, URL: cfg.Warp.URL, Secret: cfg.Warp.Secret}
+				m.Engine = &engineapi.Client{HTTP: &http.Client{}, URL: cfg.Warp.URL, Secret: cfg.Warp.Secret}
 			}
 			return m.Run(ctx, dryRun)
 		},

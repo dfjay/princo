@@ -44,8 +44,10 @@ already installed. Never use a production node as an end-to-end test target.
 - `internal/host/`: runtime files and the host requirements plan.
 - `internal/deploy/`: SSH deployment, pinned engines and provisioning templates.
 - `internal/bundle/`: managed files, service checks and rollback.
+- `internal/engineapi/`: the client of sing-box's API, for `princo stats`
+  and the monitor.
 - `internal/monitor/`: the checks a node runs on itself, their state and
-  the Telegram reports.
+  the reports to Telegram or a webhook.
 - `internal/secrets/`: age, sops and directory-backed secret access.
 - `internal/subscription/`: protocol links, subscription files and QR pages.
 - `nix/`: packaging, NixOS integration and VM tests.

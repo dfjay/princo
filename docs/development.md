@@ -56,7 +56,7 @@ has princo installed. The test installs software and changes host services.
 | `internal/deploy/` | SSH deployment, engine versions and provisioning templates |
 | `internal/bundle/` | Applying managed files, service checks and rollback |
 | `internal/subscription/` | Share links and the subscription site |
-| `internal/monitor/` | The checks a node runs on itself and its Telegram reports |
+| `internal/monitor/` | The checks a node runs on itself and its reports to Telegram or a webhook |
 | `internal/secrets/` | age, sops and directory-backed secrets |
 | `nix/` | Package, NixOS module and VM tests |
 | `testdata/` | Fixture fleet, golden configs and deploy bundles |

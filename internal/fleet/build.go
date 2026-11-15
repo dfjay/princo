@@ -19,17 +19,14 @@ import (
 )
 
 // Default secret paths, used when princo.yaml doesn't name one.
-const (
-	secretHysteria2Obfs = "shared/hysteria2_obfs"
-	secretTelegramToken = "telegram/token"
-	secretTelegramChat  = "telegram/chat"
-)
+const secretHysteria2Obfs = "shared/hysteria2_obfs"
 
-func secretUserUUID(user string) string    { return "users/" + user }
-func secretReality(node string) string     { return "nodes/" + node + "/reality" }
-func secretWarp(node, field string) string { return "nodes/" + node + "/warp/" + field }
-func secretChainUUID(node string) string   { return "nodes/" + node + "/chain" }
-func secretStats(node string) string       { return "nodes/" + node + "/stats" }
+func secretChannel(name, field string) string { return "monitor/" + name + "/" + field }
+func secretUserUUID(user string) string       { return "users/" + user }
+func secretReality(node string) string        { return "nodes/" + node + "/reality" }
+func secretWarp(node, field string) string    { return "nodes/" + node + "/warp/" + field }
+func secretChainUUID(node string) string      { return "nodes/" + node + "/chain" }
+func secretAPI(node string) string            { return "nodes/" + node + "/api" }
 
 // engineProtocols are the protocols each engine serves.
 var engineProtocols = map[string][]string{
@@ -347,18 +344,17 @@ func (b *builder) monitor() {
 	if c == nil {
 		return
 	}
-	t := deref(c.Telegram)
 	m := &Monitor{
-		Telegram: Telegram{
-			API:   strings.TrimSuffix(cmp.Or(t.API, DefaultTelegramAPI), "/"),
-			Token: b.secret("monitor.telegram.token", t.Token, secretTelegramToken, SecretExternal),
-			Chat:  b.secret("monitor.telegram.chat", t.Chat, secretTelegramChat, SecretExternal),
-		},
-		From:     c.From,
-		Interval: DefaultMonitorInterval,
+		Interval:           DefaultMonitorInterval,
+		Confirm:            DefaultMonitorConfirm,
+		CertificateWarning: DefaultCertificateWarning,
 	}
-	if u, err := url.Parse(m.Telegram.API); err != nil || u.Scheme != "https" || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
-		b.errorf("monitor.telegram.api: want an https:// URL, got %q", t.API)
+	for _, name := range slices.Sorted(slices.Values(c.Notify.Keys())) {
+		ch, _ := c.Notify.Get(name)
+		m.Notify = append(m.Notify, b.channel("monitor.notify."+name, name, ch))
+	}
+	if len(m.Notify) == 0 {
+		b.errorf("monitor.notify: want a channel to tell, e.g. ops: { type: telegram }")
 	}
 	if c.Interval != "" {
 		d, err := time.ParseDuration(c.Interval)
@@ -371,8 +367,23 @@ func (b *builder) monitor() {
 			m.Interval = d
 		}
 	}
-	if m.From != "" && !slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return n.HasTag(m.From) }) {
-		b.errorf("monitor.from: no node is tagged %s", m.From)
+	if c.Confirm != nil {
+		if m.Confirm = *c.Confirm; m.Confirm < 1 {
+			b.errorf("monitor.confirm: want 1 or more runs, got %d", m.Confirm)
+		}
+	}
+	if c.CertificateDays != nil {
+		if m.CertificateWarning = time.Duration(*c.CertificateDays) * 24 * time.Hour; m.CertificateWarning <= 0 {
+			b.errorf("monitor.certificate_days: want 1 or more, got %d", *c.CertificateDays)
+		}
+	}
+	for i, r := range c.Reach {
+		where := fmt.Sprintf("monitor.reach[%d]", i)
+		if r.From == "" {
+			b.errorf("%s.from: want the nodes that check: <tag>, !<tag> or all", where)
+			continue
+		}
+		m.Reach = append(m.Reach, Reach{From: b.selector(where+".from", r.From), To: b.selector(where+".to", r.To)})
 	}
 	b.f.Monitor = m
 	for _, n := range b.f.Nodes {
@@ -382,15 +393,68 @@ func (b *builder) monitor() {
 	}
 }
 
+// channel resolves the channel name of monitor.notify.
+func (b *builder) channel(where, name string, c config.Channel) Channel {
+	b.checkName(where, name)
+	out := Channel{Name: name}
+	unused := func(field string, set bool) {
+		if set {
+			b.errorf("%s.%s: a %s channel has none", where, field, c.Type)
+		}
+	}
+	switch c.Type {
+	case "telegram":
+		unused("url", c.URL != nil)
+		out.Telegram = &Telegram{
+			API:   strings.TrimSuffix(cmp.Or(c.API, DefaultTelegramAPI), "/"),
+			Token: b.filled(where+".token", c.Token, secretChannel(name, "token")),
+			Chat:  b.filled(where+".chat", c.Chat, secretChannel(name, "chat")),
+		}
+		if u, err := url.Parse(out.Telegram.API); err != nil || u.Scheme != "https" || u.Host == "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(out.Telegram.API, "#") {
+			b.errorf("%s.api: want an https:// URL, got %q", where, c.API)
+		}
+	case "webhook":
+		unused("token", c.Token != nil)
+		unused("chat", c.Chat != nil)
+		unused("api", c.API != "")
+		out.Webhook = &Webhook{URL: b.filled(where+".url", c.URL, secretChannel(name, "url"))}
+	default:
+		b.errorf("%s.type: want telegram or webhook, got %q", where, c.Type)
+	}
+	return out
+}
+
+// filled resolves a secret from outside princo that mustn't be empty.
+func (b *builder) filled(where string, ref *secrets.SecretOrPlain, convention string) string {
+	errs := len(b.errs)
+	v := b.secret(where, ref, convention, SecretExternal)
+	if v == "" && len(b.errs) == errs {
+		b.errorf("%s: is empty", where)
+	}
+	return v
+}
+
+// selector parses s, which must select a node.
+func (b *builder) selector(where, s string) Selector {
+	sel, err := parseSelector(s)
+	switch {
+	case err != nil:
+		b.errorf("%s: %v", where, err)
+	case !slices.ContainsFunc(b.f.Nodes, sel.Matches):
+		b.errorf("%s: no node matches %s", where, s)
+	}
+	return sel
+}
+
 // api turns on the API of n's engine, which where in princo.yaml needs.
 func (b *builder) api(n *Node, where string) {
 	if n.API != nil {
 		return
 	}
-	n.API = &API{Secret: b.secret(where, nil, secretStats(n.Name), SecretPassword)}
+	n.API = &API{Secret: b.secret(where, nil, secretAPI(n.Name), SecretPassword)}
 	if n.API.Secret == "" {
 		// sing-box would leave its API open to the host's every user.
-		b.errorf("%s: the secret %s is empty", where, secretStats(n.Name))
+		b.errorf("%s: the secret %s is empty", where, secretAPI(n.Name))
 	}
 }
 

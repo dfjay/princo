@@ -110,5 +110,8 @@ subscription:
   domain: subs.example.com
 
 monitor:
-  from: domestic
+  notify:
+    ops: { type: telegram }
+  reach:
+    - { from: domestic }
   interval: 5m

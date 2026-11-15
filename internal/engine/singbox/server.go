@@ -36,9 +36,9 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 		// Without a dashboard, which it would download.
 		cfg["services"] = []any{map[string]any{
 			"type":        "api",
-			"tag":         "stats",
+			"tag":         "api",
 			"listen":      "127.0.0.1",
-			"listen_port": engine.StatsPort,
+			"listen_port": engine.APIPort,
 			"secret":      n.API.Secret,
 		}}
 	}

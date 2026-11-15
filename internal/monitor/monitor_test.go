@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -39,6 +40,11 @@ type harness struct {
 	// sent are the messages Telegram got; refuse has it answer an error.
 	sent   []string
 	refuse bool
+	// hooks are the bodies the webhook got, once newHarness's caller sets
+	// one; refuseHook has it answer an error.
+	hooks      []string
+	refuseHook bool
+	url        string
 	// down has the engine's unit not run.
 	down bool
 	out  strings.Builder
@@ -48,6 +54,17 @@ type harness struct {
 func newHarness(t *testing.T, cfg *Config) *harness {
 	h := &harness{t: t, engine: &fakeEngine{}, now: t0}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/hook/s3cret" {
+			require.Equal(t, "application/json", r.Header.Get("Content-Type"))
+			if h.refuseHook {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			h.hooks = append(h.hooks, string(body))
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		require.Equal(t, "/bot123:token/sendMessage", r.URL.Path)
 		require.NoError(t, r.ParseForm())
 		require.Equal(t, "-1001", r.PostForm.Get("chat_id"))
@@ -57,11 +74,14 @@ func newHarness(t *testing.T, cfg *Config) *harness {
 			return
 		}
 		h.sent = append(h.sent, r.PostForm.Get("text"))
+		_, _ = w.Write([]byte(`{"ok":true,"result":{}}`))
 	}))
 	t.Cleanup(srv.Close)
 	cfg.Node = "us"
 	cfg.Unit = "princo.service"
-	cfg.Telegram = Telegram{API: srv.URL, Token: "123:token", Chat: "-1001"}
+	h.url = srv.URL
+	cfg.Confirm, cfg.CertificateDays = 2, 14
+	cfg.Notify = []Channel{{Name: "ops", Telegram: &Telegram{API: srv.URL, Token: "123:token", Chat: "-1001"}}}
 	h.m = &Monitor{
 		Config:    cfg,
 		StatePath: filepath.Join(t.TempDir(), "state.json"),
@@ -84,7 +104,7 @@ func newHarness(t *testing.T, cfg *Config) *harness {
 // run runs the monitor once and returns what it sent to Telegram.
 func (h *harness) run() []string {
 	h.t.Helper()
-	h.sent = nil
+	h.sent, h.hooks = nil, nil
 	require.NoError(h.t, h.m.Run(h.t.Context(), false))
 	h.now = h.now.Add(time.Minute)
 	return h.sent
@@ -164,7 +184,7 @@ func TestRun_TelegramRetries(t *testing.T) {
 	h.run()
 	h.refuse = true
 	err := h.m.Run(t.Context(), false)
-	require.EqualError(t, err, "telegram refused the message: Forbidden: bot was blocked")
+	require.EqualError(t, err, "ops: it refused the message: Forbidden: bot was blocked")
 	h.refuse = false
 	require.Len(t, h.run(), 1, "the next run tells what the failed one couldn't")
 	require.Empty(t, h.run())
@@ -188,10 +208,89 @@ func TestRun_TelegramErrorsHideTheToken(t *testing.T) {
 	h := newHarness(t, warpConfig())
 	h.engine.warpErr = errors.New("no answer")
 	h.run()
-	h.m.Config.Telegram.API = "https://127.0.0.1:1"
+	h.m.Config.Notify[0].Telegram.API = "https://127.0.0.1:1"
 	err := h.m.Run(t.Context(), false)
-	require.ErrorContains(t, err, "telegram: ")
+	require.ErrorContains(t, err, "ops: ")
 	require.NotContains(t, err.Error(), "123:token")
+}
+
+// Each channel hears of a change once, whatever the other does.
+func TestRun_Webhook(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	hook := Channel{Name: "hook", Webhook: &Webhook{URL: h.url + "/hook/s3cret"}}
+	h.m.Config.Notify = append(h.m.Config.Notify, hook)
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	h.refuseHook = true
+	err := h.m.Run(t.Context(), false)
+	require.EqualError(t, err, "hook: it answered 502 Bad Gateway")
+	require.Len(t, h.sent, 1, "Telegram heard")
+
+	h.refuseHook = false
+	require.Empty(t, h.run(), "and doesn't again")
+	require.Len(t, h.hooks, 1, "the webhook hears what it missed")
+	require.JSONEq(t, `{
+		"node": "us",
+		"text": "princo node us\n🔴 WARP is down: no answer. Traffic through the node stalls.",
+		"changes": [{
+			"check": "warp", "down": true, "detail": "no answer",
+			"text": "🔴 WARP is down: no answer. Traffic through the node stalls."
+		}]
+	}`, h.hooks[0])
+	h.run()
+	require.Empty(t, h.hooks)
+
+	// A channel pointed elsewhere hears the state anew: it is another.
+	elsewhere := hook
+	elsewhere.Webhook = &Webhook{URL: h.url + "/hook/other"}
+	require.NotEqual(t, hook.id(), elsewhere.id())
+	require.Regexp(t, `^hook:[0-9a-f]{8}$`, hook.id())
+}
+
+func TestRun_WebhookErrorsHideTheURL(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	h.m.Config.Notify = []Channel{{Name: "hook", Webhook: &Webhook{URL: "https://127.0.0.1:1/hook/s3cret"}}}
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	err := h.m.Run(t.Context(), false)
+	require.ErrorContains(t, err, "hook: ")
+	require.NotContains(t, err.Error(), "s3cret")
+}
+
+// A relay's page isn't the Bot API taking the message.
+func TestRun_TelegramWantsItsAnswer(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html>welcome</html>"))
+	}))
+	t.Cleanup(relay.Close)
+	h.m.Config.Notify[0].Telegram.API = relay.URL
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	require.EqualError(t, h.m.Run(t.Context(), false), "ops: it answered 200 OK, and not as the Bot API does")
+}
+
+// A run cut short keeps no count of what it couldn't finish.
+func TestRun_Canceled(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	h.run()
+	h.engine.warpErr = errors.New("no answer")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for range 3 {
+		require.ErrorIs(t, h.m.Run(ctx, false), context.Canceled)
+	}
+	require.Empty(t, h.run(), "the first failure it counts")
+}
+
+func TestRun_OneAtATime(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	unlock, err := lock(h.m.StatePath)
+	require.NoError(t, err)
+	require.EqualError(t, h.m.Run(t.Context(), false), "another run is under way; --dry-run checks beside it")
+	require.NoError(t, h.m.Run(t.Context(), true))
+	unlock()
+	h.run()
 }
 
 func TestRun_DryRun(t *testing.T) {

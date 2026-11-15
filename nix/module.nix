@@ -618,9 +618,9 @@ in
             };
           })
         ];
-        # The node checks itself and tells Telegram what changed.
+        # The node checks itself and reports what changed.
         systemd.services.princo-monitor = lib.mkIf (monitor != null) {
-          description = "princo node ${cfg.node}: check the node and tell Telegram what changed";
+          description = "princo node ${cfg.node}: check the node and report what changed";
           wants = [ "network-online.target" ];
           after = [
             "network-online.target"

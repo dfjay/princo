@@ -278,7 +278,7 @@ networks at once suggest a shared subscription; rotate that user's UUID with
 `princo user rotate`.
 
 sing-box's API reports the connections on `127.0.0.1:8446`, behind a secret
-at `nodes/<node>/stats`. `princo stats` reaches it over the node's `ssh:` with
+at `nodes/<node>/api`. `princo stats` reaches it over the node's `ssh:` with
 `ssh -W`, so the SSH user needs port forwarding, not root. sing-box sends
 each connection's destination along, over that SSH connection; princo skips
 it, so the report says who connected and how much, never where users went.
@@ -287,18 +287,21 @@ Only sing-box nodes report connections.
 ## Monitoring
 
 With [`monitor`](config.md#monitor) in `princo.yaml`, every node checks
-itself and tells a Telegram chat what changed. Create a bot with
-[@BotFather](https://t.me/BotFather), add it to the chat, and store its
-token and the chat's ID:
+itself and reports what changed to the channels of `monitor.notify`. For
+Telegram, create a bot with [@BotFather](https://t.me/BotFather), add it to
+the chat, and store its token and the chat's ID:
 
 ```yaml
 monitor:
-  from: domestic
+  notify:
+    ops: { type: telegram }
+  reach:
+    - from: domestic
 ```
 
 ```bash
-princo secret set telegram/token
-princo secret set telegram/chat
+princo secret set monitor/ops/token
+princo secret set monitor/ops/chat
 princo secret gen          # the engine API's secret, on nodes with WARP
 princo deploy --node nl    # and every other node
 ```
@@ -306,11 +309,11 @@ princo deploy --node nl    # and every other node
 Deploy every node: each one runs its own checks. On the host,
 `princo-monitor.timer` runs `princo host monitor` at the interval, as a
 deploy over SSH and the NixOS module both set up. The rendered
-`monitor.json` holds the bot's token, so it is root's alone. The checks'
+`monitor.json` holds the channels' secrets, so it is root's alone. The checks'
 states are in `/var/lib/princo/monitor-state.json`; removing that file
 starts them over.
 
-To see what a node finds right now, without telling Telegram:
+To see what a node finds right now, without reporting it:
 
 ```console
 # princo host monitor --dry-run
@@ -323,8 +326,8 @@ ok   reach/us
 Under the NixOS module, pass the rendered file:
 `princo host monitor --dry-run --config /run/princo/files/monitor.json`.
 `journalctl -u princo-monitor` shows the same lines for every run, and a
-run that couldn't reach Telegram fails there.
+run that couldn't reach a channel fails there.
 
 A node that can't reach `api.telegram.org`, as may happen inside the
-country you watch from, needs `monitor.telegram.api` pointed at a relay of
+country you watch from, needs its channel's `api` pointed at a relay of
 the Bot API that it can reach.

@@ -31,7 +31,7 @@ secrets: {}         # where secrets live
 #   domain: subs.example.com
 # certificates: {}  # wildcards and certificates issued elsewhere
 # rule_data: runetfreedom  # where geoip: and geosite: data comes from
-# monitor: {}       # nodes check themselves and report to Telegram
+# monitor: {}       # nodes check themselves and report what changed
 ```
 
 This is an outline; add your nodes and users before rendering. Omit optional
@@ -60,13 +60,14 @@ can be shared without exposing them.
 | `shared/hysteria2_obfs` | the Hysteria2 obfuscation password, shared by nodes with `obfs` |
 | `nodes/<node>/warp/{private_key,ipv4,ipv6}` | the node's WARP account |
 | `nodes/<node>/chain` | the UUID a chained node uses on its upstream |
-| `nodes/<node>/stats` | the secret of the engine's API, with `stats: true` or, on a node with `egress: warp`, [`monitor`](#monitor) |
-| `telegram/token`, `telegram/chat` | the bot and the chat [`monitor`](#monitor) reports to |
+| `nodes/<node>/api` | the secret of the engine's API, with `stats: true` or, on a node with `egress: warp`, [`monitor`](#monitor) |
+| `monitor/<channel>/token`, `monitor/<channel>/chat` | the bot and the chat of a Telegram channel of [`monitor`](#monitor) |
+| `monitor/<channel>/url` | the URL of a webhook channel of [`monitor`](#monitor) |
 
 `princo secret gen` generates every missing one it can: UUIDs, Reality key
 pairs (writing the public half to the node's `reality.public_key`) and the
 Hysteria2 obfuscation password. WARP credentials come from an existing account,
-and Telegram's from your bot.
+and the monitor's channels have their own.
 
 To use another path, set the field to `!secret <path>`: for example, two
 nodes can share a Reality key with `private_key: !secret shared/reality`.
@@ -94,7 +95,7 @@ Every node inherits these; a node's own value wins.
 | `dns` | — | see [DNS](#dns); a node's block replaces the default block |
 | `rules` | — | see [Rules](#rules); a node's `rules`, even empty, replace them |
 | `log` | `warn` | the engine's log level: `debug`, `info`, `warn`, `error` or `none` |
-| `stats` | `false` | report connections to [`princo stats`](deployment.md#watching-who-connects) (sing-box only); its API's secret is at `nodes/<node>/stats` |
+| `stats` | `false` | report connections to [`princo stats`](deployment.md#watching-who-connects) (sing-box only); its API's secret is at `nodes/<node>/api` |
 
 A protocol block in `defaults` only supplies values: a node serves a
 protocol when it has its own block, even an empty one (`hysteria2: {}`).
@@ -511,40 +512,107 @@ also uses what only that platform has; `princo render --user <name>
 A GUI panel watches whether it reaches its nodes. That misses what users
 notice first: an address blocked from their country, or a WARP account that
 stopped passing traffic. With `monitor`, each node checks itself on a timer
-and writes to a Telegram chat when something changes:
+and reports when something changes:
 
 ```yaml
 monitor:
-  from: domestic   # nodes with this tag check that they reach the others
+  notify:
+    ops: { type: telegram }   # the bot and the chat from the secrets
+  reach:
+    - from: domestic          # nodes with this tag check that they reach the others
   interval: 2m
 ```
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `telegram.token` | `telegram/token` | *secret*: the bot's token, from [@BotFather](https://t.me/BotFather) |
-| `telegram.chat` | `telegram/chat` | *secret*: the chat's ID, or `@channel`; the bot must be allowed to write there |
-| `telegram.api` | `https://api.telegram.org` | another Bot API address over HTTPS, such as your own relay, for nodes that can't reach Telegram |
-| `from` | — | a [tag](#nodesname): nodes that carry it also check that they reach every other node |
+| `notify` | — | required: the [channels](#notify) to report to, by a name of your choosing |
+| `reach` | — | [which nodes check that they reach which](#reach) |
 | `interval` | `2m` | how often a node runs its checks; a minute at least |
+| `confirm` | `2` | how many runs in a row must find a check changed before it is reported; `1` reports at once, a lost packet included |
+| `certificate_days` | `14` | how many days before a certificate expires to report it |
+
+### `notify`
+
+Each channel has a name and a `type`. Every channel hears of every change,
+each on its own: one that couldn't be reached gets what it missed on the
+next run, without the others hearing it twice. A channel pointed at another
+chat or URL is told the current failures anew.
+
+```yaml
+monitor:
+  notify:
+    ops: { type: telegram }
+    family: { type: telegram, chat: "@family_vpn" }
+    pager: { type: webhook }
+```
+
+`type: telegram` writes to a chat through a bot:
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `token` | `monitor/<channel>/token` | *secret*: the bot's token, from [@BotFather](https://t.me/BotFather) |
+| `chat` | `monitor/<channel>/chat` | *secret*: the chat's ID, or `@channel`; the bot must be allowed to write there |
+| `api` | `https://api.telegram.org` | another Bot API address over HTTPS, such as your own relay, for nodes that can't reach Telegram |
+
+`type: webhook` posts JSON to a URL, for anything else: a chat's incoming
+webhook that reads `text`, or a script of yours:
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `url` | `monitor/<channel>/url` | *secret*: where to post; an answer outside 2xx counts as not delivered |
+
+```json
+{
+  "node": "ru",
+  "text": "princo node ru\n🔴 Can't reach node us: connecting to 203.0.113.7:443: timed out",
+  "changes": [
+    {
+      "check": "reach/us",
+      "down": true,
+      "detail": "connecting to 203.0.113.7:443: timed out",
+      "text": "🔴 Can't reach node us: connecting to 203.0.113.7:443: timed out"
+    }
+  ]
+}
+```
+
+`text` is the whole report as a person reads it. `check` is `engine`,
+`warp`, `certificate/<name>` or `reach/<node>`.
+
+### `reach`
+
+A list of rules: the nodes `from` selects check that they reach the ones
+`to` selects, themselves aside. Both take a [tag](#nodesname), `!tag` for
+the nodes without it, or `all`; `to` is `all` when omitted.
+
+```yaml
+monitor:
+  reach:
+    - from: domestic              # every other node, from inside the country
+    - { from: eu, to: "!eu" }     # and the rest of the world from Europe
+```
+
+### Checks
 
 Every node checks:
 
 - **the engine**: that `princo.service` runs;
-- **certificates**: that each one the node serves has two weeks left or more.
-  ACME renews with a month left, so less means renewal keeps failing;
+- **certificates**: that each one the node serves has `certificate_days`
+  left or more. ACME renews with a month left, so two weeks means renewal
+  keeps failing;
 - **WARP**, with `egress: warp` on sing-box: that a request through it gets an
   answer. The check goes through the engine's API, so the node needs the
-  secret `nodes/<node>/stats`, which `princo secret gen` makes.
+  secret `nodes/<node>/api`, which `princo secret gen` makes.
 
-Nodes tagged `from` also check **reachability**: they connect to TCP 443 of
-every other node and, where it serves Reality or Naive, complete a
-TLS handshake under that name, as a client's first packets would. Put the tag
-on a node inside the country your users connect from: this is the check that
-notices a node blocked there. The message says which step failed, the
+Nodes that a [`reach`](#reach) rule selects also check **reachability**:
+they connect to TCP 443 of the rule's nodes and, where one serves Reality or
+Naive, complete a TLS handshake under that name, as a client's first packets
+would. Have a node inside the country your users connect from check the
+others: this is the check that notices a node blocked there. The message says which step failed, the
 connection or the handshake.
 
-A check changes state once two runs in a row find it so, and Telegram hears
-of each change once, including the recovery:
+A check changes state once `confirm` runs in a row find it so, and each
+channel hears of each change once, including the recovery:
 
 ```text
 princo node ru
@@ -554,7 +622,7 @@ princo node ru
 🟢 Node us is reachable again, after 2h13m
 ```
 
-A message Telegram didn't take is sent again on the next run. To see what a
+A report a channel didn't take is sent again on the next run. To see what a
 node finds now, run `princo host monitor --dry-run` on it; see
 [Monitoring](deployment.md#monitoring).
 

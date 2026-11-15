@@ -1,8 +1,8 @@
-// Package stats talks to sing-box's API service (fleet.API) over gRPC-Web.
-// It reads the connections the engine tracks: their users, sources and
-// traffic, skipping their destinations, which the API sends too. For the
-// monitor it tests an outbound (control.go).
-package stats
+// Package engineapi talks to sing-box's API service (fleet.API) over
+// gRPC-Web: it follows the connections the engine tracks, their users,
+// sources and traffic, skipping the destinations the API sends too, and
+// tests an outbound.
+package engineapi
 
 import (
 	"bufio"

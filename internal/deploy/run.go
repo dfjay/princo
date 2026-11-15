@@ -42,6 +42,8 @@ type facts struct {
 	arch, princo, node string
 	// engine and lego tell that the host has their releases.
 	engine, lego bool
+	// monitor tells that its princo has host monitor.
+	monitor bool
 	// openssl tells that it could read the certificates' domains.
 	openssl bool
 	// missing are the ACME certificates to issue.
@@ -182,6 +184,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.arch = value
 		case "princo":
 			f.princo = value
+		case "monitor":
+			f.monitor = true
 		case "engine":
 			f.engine = true
 		case "lego":
@@ -387,11 +391,11 @@ func (d *Deployer) installPrinco(ctx context.Context, f facts, monitor bool) err
 	case f.princo == "":
 		return fmt.Errorf("this princo, %s, isn't a release, so there's no .deb of it for the host; pass --princo-deb (just snapshot builds one)", d.Version)
 	default:
-		d.logf("the host runs princo %s, this is %s", f.princo, d.Version)
-		if monitor {
-			// Nothing else tells: the timer runs, and each run fails.
-			d.logf("warning: the node's checks run the host's princo, which must have host monitor; pass --princo-deb if it is older")
+		if monitor && !f.monitor {
+			// Its timer would run, and each run fail, with no one told.
+			return fmt.Errorf("the host's princo, %s, has no host monitor, which monitor: runs there; pass --princo-deb (just snapshot builds one)", f.princo)
 		}
+		d.logf("the host runs princo %s, this is %s", f.princo, d.Version)
 		return nil
 	}
 	d.logf("installing princo on the host")

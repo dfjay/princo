@@ -1,4 +1,4 @@
-package stats
+package engineapi
 
 import (
 	"bufio"
@@ -82,78 +82,6 @@ func TestDecodeEvents(t *testing.T) {
 	require.ErrorIs(t, err, errTruncated)
 }
 
-func TestTally(t *testing.T) {
-	open := Conn{ID: "1", User: "alice", Created: t0, Upload: 100, Download: 1000}
-	closed := Conn{ID: "2", User: "alice", Created: t0.Add(-time.Hour), Closed: t0, Upload: 5, Download: 50}
-	other := Conn{ID: "3", User: "bob", Created: t0, Upload: 1, Download: 1}
-	start := Events{Reset: true, Events: []Event{
-		{Type: New, ID: "1", Conn: withSource(open, "198.51.100.1")},
-		{Type: New, ID: "2", Conn: withSource(closed, "198.51.100.2")},
-		{Type: New, ID: "3", Conn: withSource(other, "198.51.100.1")},
-	}}
-	later := Events{Events: []Event{
-		{Type: Update, ID: "1", UploadDelta: 10, DownloadDelta: 20},
-		{Type: New, ID: "4", Conn: withSource(Conn{ID: "4", User: "alice", Created: t0.Add(time.Minute)}, "198.51.100.1")},
-		{Type: Update, ID: "4", UploadDelta: 3, DownloadDelta: 4},
-		{Type: Closed, ID: "3", Conn: withSource(Conn{ID: "3", User: "bob", Upload: 2, Download: 9}, "198.51.100.1"), ClosedAt: t0.Add(2 * time.Minute)},
-	}}
-
-	// What the engine remembers at the start.
-	var snap Tally
-	snap.Add(start, t0)
-	r := snap.Report()
-	require.Equal(t, 2, r.Open)
-	require.Equal(t, 1, r.Closed)
-	require.Equal(t, t0.Add(-time.Hour), r.Since, "the oldest connection it remembers")
-	require.Equal(t, []Row{
-		{User: "alice", Open: 1, Conn: 2, Upload: 105, Download: 1050, IPs: []IP{
-			{Addr: netip.MustParseAddr("198.51.100.1"), Conns: 1}, {Addr: netip.MustParseAddr("198.51.100.2"), Conns: 1},
-		}},
-		{User: "bob", Open: 1, Conn: 1, Upload: 1, Download: 1, IPs: []IP{{Addr: netip.MustParseAddr("198.51.100.1"), Conns: 1}}},
-	}, r.Rows)
-
-	// What happens over a window: no connection closed before it, no
-	// traffic from before it.
-	w := Tally{Window: true}
-	w.Add(start, t0)
-	w.Add(later, t0.Add(3*time.Minute))
-	r = w.Report()
-	require.Equal(t, t0, r.Since)
-	require.Equal(t, 2, r.Open)
-	require.Equal(t, 1, r.Closed)
-	require.Equal(t, []Row{
-		{User: "alice", Open: 2, Conn: 2, Upload: 13, Download: 24, IPs: []IP{{Addr: netip.MustParseAddr("198.51.100.1"), Conns: 2}}},
-		{User: "bob", Conn: 1, Upload: 1, Download: 8, IPs: []IP{{Addr: netip.MustParseAddr("198.51.100.1"), Conns: 1}}},
-	}, r.Rows)
-	require.Len(t, w.conns, 2, "the closed connection is folded, not kept")
-
-	// The traffic since the last update, from the totals at the end.
-	w.Settle(Events{Reset: true, Events: []Event{
-		{Type: New, ID: "1", Conn: withSource(Conn{ID: "1", User: "alice", Upload: 200, Download: 2000}, "198.51.100.1")},
-	}})
-	require.Equal(t, int64(103), w.Report().Rows[0].Upload)
-	w.Settle(Events{Reset: true, Events: []Event{
-		{Type: New, ID: "4", Conn: withSource(Conn{ID: "4", User: "alice", Closed: t0.Add(4 * time.Minute), Upload: 3, Download: 4}, "198.51.100.1")},
-	}})
-	r = w.Report()
-	require.Equal(t, 1, r.Open, "a close the window missed")
-	require.Equal(t, 2, r.Closed)
-
-	// One user's: the counts are theirs alone.
-	only := Tally{User: "bob"}
-	only.Add(start, t0)
-	r = only.Report()
-	require.Equal(t, 1, r.Open)
-	require.Zero(t, r.Closed)
-	require.Equal(t, t0, r.Since)
-	require.Len(t, r.Rows, 1)
-}
-
-func withSource(c Conn, addr string) *Conn {
-	c.Source = netip.MustParseAddr(addr)
-	return &c
-}
-
 // A server speaking gRPC-Web as sing-box's API does.
 func TestSubscribe(t *testing.T) {
 	c := Conn{ID: "a", User: "alice", Created: t0, Upload: 3, Download: 4}
@@ -214,7 +142,7 @@ func TestSubscribe_SingBox(t *testing.T) {
 		}},
 		"outbounds": []any{map[string]any{"type": "direct", "tag": "direct"}},
 		"services": []any{map[string]any{
-			"type": "api", "tag": "stats", "listen": "127.0.0.1", "listen_port": apiPort, "secret": "s3cret",
+			"type": "api", "tag": "api", "listen": "127.0.0.1", "listen_port": apiPort, "secret": "s3cret",
 		}},
 	}
 	data, err := json.Marshal(cfg)
@@ -252,25 +180,22 @@ func TestSubscribe_SingBox(t *testing.T) {
 	require.NoError(t, err)
 
 	client := &Client{HTTP: http.DefaultClient, URL: "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(apiPort)), Secret: "s3cret"}
-	var row Row
+	var alice *Conn
 	require.Eventually(t, func() bool {
-		var tally Tally
 		err := client.Subscribe(t.Context(), time.Second, func(e Events) error {
-			tally.Add(e, time.Now())
+			for _, ev := range e.Events {
+				if ev.Conn != nil && ev.Conn.User == "alice" {
+					alice = ev.Conn
+				}
+			}
 			return ErrStop
 		})
 		require.NoError(t, err)
-		for _, r := range tally.Report().Rows {
-			if r.User == "alice" {
-				row = r
-				return r.Upload >= int64(len(payload))
-			}
-		}
-		return false
+		return alice != nil && alice.Upload >= int64(len(payload))
 	}, 10*time.Second, 200*time.Millisecond)
-	require.Equal(t, 1, row.Open)
-	require.Equal(t, []IP{{Addr: netip.MustParseAddr("127.0.0.1"), Conns: 1}}, row.IPs)
-	require.GreaterOrEqual(t, row.Download, int64(len(payload)))
+	require.True(t, alice.Closed.IsZero())
+	require.Equal(t, netip.MustParseAddr("127.0.0.1"), alice.Source)
+	require.GreaterOrEqual(t, alice.Download, int64(len(payload)))
 
 	client.Secret = "wrong"
 	require.ErrorIs(t, client.Subscribe(t.Context(), time.Second, func(Events) error { return ErrStop }), ErrUnauthenticated)

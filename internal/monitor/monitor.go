@@ -17,12 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 )
-
-// certWarning is how long before a certificate expires its check fails:
-// ACME renews with a month left, so by then renewal has failed for weeks.
-const certWarning = 14 * 24 * time.Hour
 
 // stepTimeout bounds a connection attempt and a TLS handshake each.
 const stepTimeout = 8 * time.Second
@@ -48,7 +43,7 @@ type Monitor struct {
 	// Out gets each check's result, a line each.
 	Out io.Writer
 	Now func() time.Time
-	// HTTP reaches Telegram.
+	// HTTP reaches the channels.
 	HTTP *http.Client
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// Active fails unless the systemd unit runs.
@@ -63,11 +58,22 @@ type result struct {
 	detail string
 }
 
-// Run checks the node and tells Telegram which checks changed state. A
-// failed check is no error; failing to tell or keep the state is. With
-// dryRun it only prints the results.
+// Run checks the node and tells each channel which checks changed state
+// since it last heard. A failed check is no error; failing to tell or keep
+// the state is. With dryRun it only prints the results.
 func (m *Monitor) Run(ctx context.Context, dryRun bool) error {
+	if !dryRun {
+		unlock, err := lock(m.StatePath)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
 	results, skipped := m.check(ctx)
+	if err := ctx.Err(); err != nil {
+		// Cut short, the checks failed for no fault of the node's.
+		return err
+	}
 	for _, r := range results {
 		status := "ok  "
 		if !r.ok {
@@ -89,48 +95,40 @@ func (m *Monitor) Run(ctx context.Context, dryRun bool) error {
 		return err
 	}
 	now := m.Now()
-	st.update(results, skipped, now)
+	st.update(results, skipped, m.Config.Confirm, now)
 
 	var errs []error
-	for _, r := range m.reports(st) {
-		if err := m.Config.Telegram.send(ctx, m.HTTP, r.text); err != nil {
+	ids := map[string]bool{}
+	for _, ch := range m.Config.Notify {
+		id := ch.id()
+		ids[id] = true
+		var changes []change
+		var checks []*checkState
+		for _, name := range slices.Sorted(maps.Keys(st.Checks)) {
+			if c := st.Checks[name]; c.Down != c.Told[id] {
+				changes = append(changes, change{Check: name, Down: c.Down, Detail: c.Detail, Text: describe(name, c)})
+				checks = append(checks, c)
+			}
+		}
+		if len(changes) == 0 {
+			continue
+		}
+		told, err := ch.sender().send(ctx, m.HTTP, m.Config.Node, changes)
+		if err != nil {
 			// The next run tells what still differs then.
-			errs = append(errs, err)
-			break
+			errs = append(errs, fmt.Errorf("%s: %w", ch.Name, err))
 		}
-		for _, c := range r.checks {
-			c.Reported = c.Down
+		for _, c := range checks[:told] {
+			c.tell(id)
 		}
+	}
+	for _, c := range st.Checks {
+		maps.DeleteFunc(c.Told, func(id string, _ bool) bool { return !ids[id] })
 	}
 	if err := st.save(m.StatePath); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
-}
-
-type report struct {
-	text   string
-	checks []*checkState
-}
-
-// reports tells of the checks whose state Telegram hasn't heard, in as
-// many messages as its limit takes.
-func (m *Monitor) reports(st *state) []report {
-	var out []report
-	for _, id := range slices.Sorted(maps.Keys(st.Checks)) {
-		c := st.Checks[id]
-		if c.Down == c.Reported {
-			continue
-		}
-		line := "\n" + describe(id, c)
-		if n := len(out); n == 0 || utf8.RuneCountInString(out[n-1].text+line) > maxMessage {
-			out = append(out, report{text: "princo node " + m.Config.Node})
-		}
-		r := &out[len(out)-1]
-		r.text += line
-		r.checks = append(r.checks, c)
-	}
-	return out
 }
 
 // check runs every check. skipped are those it couldn't tell about, whose
@@ -196,7 +194,7 @@ func (m *Monitor) checkCert(c Certificate) result {
 	case left <= 0:
 		r.detail = "expired on " + day
 	default:
-		r.ok = left >= certWarning
+		r.ok = left >= time.Duration(m.Config.CertificateDays)*24*time.Hour
 		r.detail = fmt.Sprintf("expires in %d days, on %s", int(left.Hours()/24), day)
 	}
 	return r
@@ -242,7 +240,7 @@ func reason(err error) string {
 	return err.Error()
 }
 
-// describe is the line that tells Telegram of c's new state.
+// describe tells of c's new state in a line.
 func describe(id string, c *checkState) string {
 	after := ", after " + span(time.Duration(c.LastedSeconds)*time.Second)
 	name := id[strings.IndexByte(id, '/')+1:]

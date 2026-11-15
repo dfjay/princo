@@ -139,7 +139,7 @@ in
     assert "OnUnitActiveSec=300s" in machine.succeed("systemctl cat princo-monitor.timer")
     checks = machine.succeed("princo host monitor --dry-run --config /run/princo/files/monitor.json")
     assert "ok   engine" in checks, checks
-    assert "certificate/de.example.com" in checks, checks
+    assert "ok   certificate/de.example.com" in checks, checks
     assert "FAIL warp" in checks, checks
     machine.succeed("stat -c %a /run/princo/files/monitor.json | grep -qx 640")
 

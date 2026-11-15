@@ -191,7 +191,7 @@
       "listen": "127.0.0.1",
       "listen_port": 8446,
       "secret": "5747a75e5747a75e5747a75e5747a75e",
-      "tag": "stats",
+      "tag": "api",
       "type": "api"
     }
   ]

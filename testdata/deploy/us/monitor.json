@@ -1,10 +1,17 @@
 {
   "node": "us",
-  "telegram": {
-    "api": "https://api.telegram.org",
-    "token": "123456789:AAsynthetic-token-for-tests-only0000",
-    "chat": "-1001234567890"
-  },
+  "notify": [
+    {
+      "name": "ops",
+      "telegram": {
+        "api": "https://api.telegram.org",
+        "token": "123456789:AAsynthetic-token-for-tests-only0000",
+        "chat": "-1001234567890"
+      }
+    }
+  ],
+  "confirm": 2,
+  "certificate_days": 14,
   "unit": "princo.service",
   "certificates": [],
   "reach": []

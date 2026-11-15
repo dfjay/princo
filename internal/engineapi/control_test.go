@@ -1,4 +1,4 @@
-package stats
+package engineapi
 
 import (
 	"context"
@@ -61,7 +61,10 @@ func testServer(t *testing.T, results ...outboundTest) *Client {
 			mu.Lock()
 			if len(results) > 0 {
 				tests["warp"], results = results[0], results[1:]
-				updated <- struct{}{}
+				select {
+				case updated <- struct{}{}:
+				default:
+				}
 			}
 			mu.Unlock()
 			_, _ = w.Write(frame(0, nil))
@@ -120,7 +123,7 @@ func TestOutbounds_SingBox(t *testing.T) {
 			map[string]any{"type": "direct", "tag": "direct"},
 		},
 		"services": []any{map[string]any{
-			"type": "api", "tag": "stats", "listen": "127.0.0.1", "listen_port": apiPort, "secret": "s3cret",
+			"type": "api", "tag": "api", "listen": "127.0.0.1", "listen_port": apiPort, "secret": "s3cret",
 		}},
 		"route": map[string]any{"final": "warp"},
 	}
