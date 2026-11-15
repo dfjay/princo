@@ -1,7 +1,8 @@
 # A small fleet exercising every feature: all three protocols with WARP
-# egress and a site behind the multiplexer (de), VLESS-Reality alone on
-# 443 (us), a chain hop without IPv6 that exits through de (relay), and
-# an xray node serving XHTTP beside VLESS-Reality (fi).
+# egress, falling back to direct, and a site behind the multiplexer (de),
+# VLESS-Reality alone on 443 (us), a chain hop without IPv6 that exits
+# through de and checks that it reaches the others (relay), and an xray
+# node serving XHTTP beside VLESS-Reality (fi).
 princo: v1
 
 defaults:
@@ -107,3 +108,10 @@ client:
 subscription:
   node: de
   domain: subs.example.com
+
+monitor:
+  notify:
+    ops: { type: telegram }
+  reach:
+    - { from: domestic }
+  interval: 5m

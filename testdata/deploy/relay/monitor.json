@@ -1,0 +1,37 @@
+{
+  "node": "relay",
+  "notify": [
+    {
+      "name": "ops",
+      "telegram": {
+        "api": "https://api.telegram.org",
+        "token": "123456789:AAsynthetic-token-for-tests-only0000",
+        "chat": "-1001234567890"
+      }
+    }
+  ],
+  "confirm": 2,
+  "certificate_days": 14,
+  "unit": "princo.service",
+  "certificates": [],
+  "reach": [
+    {
+      "node": "de",
+      "address": "de.example.com",
+      "port": 443,
+      "server_name": "www.samsung.com"
+    },
+    {
+      "node": "fi",
+      "address": "fi.example.com",
+      "port": 443,
+      "server_name": "www.samsung.com"
+    },
+    {
+      "node": "us",
+      "address": "203.0.113.7",
+      "port": 443,
+      "server_name": "www.samsung.com"
+    }
+  ]
+}

@@ -12,21 +12,21 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dfjay/princo/internal/config"
 	"github.com/dfjay/princo/internal/secrets"
 )
 
 // Default secret paths, used when princo.yaml doesn't name one.
-const (
-	secretHysteria2Obfs = "shared/hysteria2_obfs"
-)
+const secretHysteria2Obfs = "shared/hysteria2_obfs"
 
-func secretUserUUID(user string) string    { return "users/" + user }
-func secretReality(node string) string     { return "nodes/" + node + "/reality" }
-func secretWarp(node, field string) string { return "nodes/" + node + "/warp/" + field }
-func secretChainUUID(node string) string   { return "nodes/" + node + "/chain" }
-func secretStats(node string) string       { return "nodes/" + node + "/stats" }
+func secretChannel(name, field string) string { return "monitor/" + name + "/" + field }
+func secretUserUUID(user string) string       { return "users/" + user }
+func secretReality(node string) string        { return "nodes/" + node + "/reality" }
+func secretWarp(node, field string) string    { return "nodes/" + node + "/warp/" + field }
+func secretChainUUID(node string) string      { return "nodes/" + node + "/chain" }
+func secretAPI(node string) string            { return "nodes/" + node + "/api" }
 
 // engineProtocols are the protocols each engine serves.
 var engineProtocols = map[string][]string{
@@ -64,6 +64,7 @@ func Build(cfg *config.Config, sec secrets.Getter) (*Fleet, error) {
 	b.users()
 	b.subscription()
 	b.certificates()
+	b.monitor()
 	b.realityNames()
 	b.ruleData()
 	b.client()
@@ -235,11 +236,8 @@ func (b *builder) nodes() {
 			if n.Engine != "sing-box" {
 				b.errorf("%s.stats: engine %s doesn't report connections; only sing-box does", where, n.Engine)
 			}
-			n.Stats = &Stats{Secret: b.secret(where+".stats", nil, secretStats(name), SecretPassword)}
-			if n.Stats.Secret == "" {
-				// sing-box would leave its API open to the host's every user.
-				b.errorf("%s.stats: the secret %s is empty", where, secretStats(name))
-			}
+			n.Stats = true
+			b.api(n, where+".stats")
 		}
 
 		b.f.Nodes = append(b.f.Nodes, n)
@@ -336,6 +334,137 @@ func (b *builder) egress() {
 			}
 			seen[m] = true
 		}
+	}
+}
+
+// monitor resolves monitor: and gives the nodes whose WARP it checks their
+// engine's API, once egress is known.
+func (b *builder) monitor() {
+	c := b.cfg.Monitor
+	if c == nil {
+		return
+	}
+	m := &Monitor{
+		Interval:        DefaultMonitorInterval,
+		Confirm:         DefaultMonitorConfirm,
+		CertificateDays: DefaultCertificateDays,
+	}
+	for _, name := range slices.Sorted(slices.Values(c.Notify.Keys())) {
+		ch, _ := c.Notify.Get(name)
+		m.Notify = append(m.Notify, b.channel("monitor.notify."+name, name, ch))
+	}
+	if len(m.Notify) == 0 {
+		b.errorf("monitor.notify: want a channel to tell, e.g. ops: { type: telegram }")
+	}
+	if c.Interval != "" {
+		d, err := time.ParseDuration(c.Interval)
+		switch {
+		case err != nil:
+			b.errorf("monitor.interval: want a duration such as 2m, got %q", c.Interval)
+		case d < MinMonitorInterval || d%time.Second != 0:
+			b.errorf("monitor.interval: want %s or longer, in whole seconds, got %s", MinMonitorInterval, c.Interval)
+		default:
+			m.Interval = d
+		}
+	}
+	if c.Confirm != nil {
+		if m.Confirm = *c.Confirm; m.Confirm < 1 {
+			b.errorf("monitor.confirm: want 1 or more runs, got %d", m.Confirm)
+		}
+	}
+	if c.CertificateDays != nil {
+		if m.CertificateDays = *c.CertificateDays; m.CertificateDays < 1 {
+			b.errorf("monitor.certificate_days: want 1 or more, got %d", m.CertificateDays)
+		}
+	}
+	for i, r := range c.Reach {
+		where := fmt.Sprintf("monitor.reach[%d]", i)
+		rule := Reach{To: b.selector(where+".to", r.To)}
+		// Empty is all for to; here it would have every node check.
+		if r.From == "" {
+			b.errorf("%s.from: want the nodes that check: <tag>, !<tag> or all", where)
+			continue
+		}
+		rule.From = b.selector(where+".from", r.From)
+		m.Reach = append(m.Reach, rule)
+	}
+	b.f.Monitor = m
+	for _, n := range b.f.Nodes {
+		if b.f.MonitorsWarp(n) {
+			b.api(n, "nodes."+n.Name+".warp")
+		}
+	}
+}
+
+// channel resolves the channel name of monitor.notify.
+func (b *builder) channel(where, name string, c config.Channel) Channel {
+	b.checkName(where, name)
+	out := Channel{Name: name}
+	unused := func(field string, set bool) {
+		if set {
+			b.errorf("%s.%s: a %s channel has none", where, field, c.Type)
+		}
+	}
+	switch c.Type {
+	case "telegram":
+		unused("url", c.URL != nil)
+		out.Telegram = &Telegram{
+			API:   strings.TrimSuffix(cmp.Or(c.API, DefaultTelegramAPI), "/"),
+			Token: b.filled(where+".token", c.Token, secretChannel(name, "token")),
+			Chat:  b.filled(where+".chat", c.Chat, secretChannel(name, "chat")),
+		}
+		if u, err := url.Parse(out.Telegram.API); err != nil || u.Scheme != "https" || u.Host == "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(out.Telegram.API, "#") {
+			b.errorf("%s.api: want an https:// URL, got %q", where, c.API)
+		}
+	case "webhook":
+		unused("token", c.Token != nil)
+		unused("chat", c.Chat != nil)
+		unused("api", c.API != "")
+		out.Webhook = &Webhook{URL: b.filled(where+".url", c.URL, secretChannel(name, "url"))}
+		// Unless it is a placeholder: princo plan has no secrets.
+		if v := out.Webhook.URL; v != "" && len(secrets.Placeholders([]byte(v))) == 0 {
+			if u, err := url.Parse(v); err != nil || u.Scheme != "http" && u.Scheme != "https" || u.Host == "" {
+				// Not quoted: it is a secret.
+				b.errorf("%s.url: want an http:// or https:// URL", where)
+			}
+		}
+	default:
+		b.errorf("%s.type: want telegram or webhook, got %q", where, c.Type)
+	}
+	return out
+}
+
+// filled resolves a secret from outside princo that mustn't be empty.
+func (b *builder) filled(where string, ref *secrets.SecretOrPlain, convention string) string {
+	errs := len(b.errs)
+	v := b.secret(where, ref, convention, SecretExternal)
+	if v == "" && len(b.errs) == errs {
+		b.errorf("%s: is empty", where)
+	}
+	return v
+}
+
+// selector parses s, which must select a node.
+func (b *builder) selector(where, s string) Selector {
+	sel, err := parseSelector(s)
+	switch {
+	case err != nil:
+		b.errorf("%s: %v", where, err)
+	case !slices.ContainsFunc(b.f.Nodes, sel.Matches):
+		b.errorf("%s: no node matches %s", where, s)
+	}
+	return sel
+}
+
+// api turns on the API of n's engine, which where in princo.yaml needs.
+func (b *builder) api(n *Node, where string) {
+	if n.API != nil {
+		return
+	}
+	n.API = &API{Secret: b.secret(where, nil, secretAPI(n.Name), SecretPassword)}
+	if n.API.Secret == "" {
+		// sing-box would leave its API open to the host's every user.
+		b.errorf("%s: the secret %s is empty", where, secretAPI(n.Name))
 	}
 }
 

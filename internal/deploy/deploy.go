@@ -28,9 +28,13 @@ const (
 	LoopbackUnitFile = "/etc/systemd/system/princo-loopback.service"
 	// Debian's nginx.conf includes modules-enabled at the top level, where
 	// a stream block must be.
-	StreamConf  = "/etc/nginx/modules-enabled/99-princo-stream.conf"
-	SiteConf    = "/etc/nginx/sites-enabled/princo.conf"
-	CertbotHook = "/etc/letsencrypt/renewal-hooks/deploy/princo"
+	StreamConf     = "/etc/nginx/modules-enabled/99-princo-stream.conf"
+	SiteConf       = "/etc/nginx/sites-enabled/princo.conf"
+	CertbotHook    = "/etc/letsencrypt/renewal-hooks/deploy/princo"
+	MonitorService = "/etc/systemd/system/princo-monitor.service"
+	MonitorTimer   = "/etc/systemd/system/princo-monitor.timer"
+	// MonitorState keeps the checks' states between runs.
+	MonitorState = bundle.StateDir + "/monitor-state.json"
 )
 
 // nginx passes through stateDir to the site and the ACME webroot.
@@ -175,7 +179,36 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 		slices.Reverse(units)
 	}
 	b.Units = append(units, retired...)
+	// Last: it checks what the units before it run.
+	if p.Monitor != nil {
+		if err := addMonitor(b, p); err != nil {
+			return nil, err
+		}
+		b.Units = append(b.Units, bundle.Unit{Name: path.Base(MonitorTimer), Files: []string{MonitorService, MonitorTimer}})
+	}
 	return b, nil
+}
+
+// addMonitor adds the timer that checks the node and its service.
+func addMonitor(b *bundle.Bundle, p *host.Plan) error {
+	service, err := execute("princo-monitor.service", map[string]any{
+		"Node":   p.Node,
+		"Unit":   host.EngineUnit,
+		"Config": path.Join(FilesDir, p.Monitor.Config),
+		"State":  MonitorState,
+	})
+	if err != nil {
+		return err
+	}
+	timer, err := execute("princo-monitor.timer", map[string]any{"Node": p.Node, "Interval": p.Monitor.IntervalSeconds})
+	if err != nil {
+		return err
+	}
+	b.Files = append(b.Files,
+		bundle.File{Path: MonitorService, Mode: 0o644, Data: service},
+		bundle.File{Path: MonitorTimer, Mode: 0o644, Data: timer},
+	)
+	return nil
 }
 
 // Bootstrap is the partial bundle that readies the host to issue the

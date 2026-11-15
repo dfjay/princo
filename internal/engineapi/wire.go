@@ -1,4 +1,4 @@
-package stats
+package engineapi
 
 import (
 	"errors"
@@ -92,6 +92,10 @@ func appendVarint(b []byte, v uint64) []byte {
 
 func appendVarintField(b []byte, num int, v uint64) []byte {
 	return appendVarint(appendVarint(b, uint64(num)<<3|wireVarint), v)
+}
+
+func appendBytesField(b []byte, num int, v []byte) []byte {
+	return append(appendVarint(appendVarint(b, uint64(num)<<3|wireBytes), uint64(len(v))), v...)
 }
 
 func decodeEvents(msg []byte) (Events, error) {

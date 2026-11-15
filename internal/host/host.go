@@ -4,17 +4,22 @@
 package host
 
 import (
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
+	"net"
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/dfjay/princo/internal/engine"
 	_ "github.com/dfjay/princo/internal/engine/singbox"
 	_ "github.com/dfjay/princo/internal/engine/xray"
 	"github.com/dfjay/princo/internal/fleet"
+	"github.com/dfjay/princo/internal/monitor"
 	"github.com/dfjay/princo/internal/secrets"
 	"github.com/dfjay/princo/internal/subscription"
 )
@@ -33,7 +38,13 @@ const (
 	// CertsDir holds the certificates' files from secrets: <name>/{fullchain,
 	// key}.pem, or <name>/dns.env with the DNS provider's credentials.
 	CertsDir = "certificates"
+	// MonitorFile is what princo host monitor checks and whom it tells
+	// (monitor.Config), on a fleet with monitor:.
+	MonitorFile = "monitor.json"
 )
+
+// EngineUnit is the systemd unit that runs the node's engine.
+const EngineUnit = "princo.service"
 
 // ConfigFile is the server config's path for an engine, e.g. sing-box.json.
 func ConfigFile(engineName string) string { return engineName + ".json" }
@@ -62,6 +73,13 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 	for _, name := range engineCerts {
 		addCertFiles(files, f.CertificateNamed(name))
 	}
+	if f.Monitor != nil {
+		data, err := json.Marshal(monitorConfig(f, n, engineCerts), jsontext.WithIndent("  "))
+		if err != nil {
+			return nil, err
+		}
+		files[MonitorFile] = append(data, '\n')
+	}
 	if !n.ServesSubscription {
 		return files, nil
 	}
@@ -83,6 +101,54 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 	}
 	files[TokensFile] = []byte(tokens.String())
 	return files, nil
+}
+
+// monitorConfig is what n checks: its engine, the certificates certs name,
+// its WARP and the nodes it is to reach.
+func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Config {
+	c := &monitor.Config{
+		Node:            n.Name,
+		Unit:            EngineUnit,
+		Confirm:         f.Monitor.Confirm,
+		CertificateDays: f.Monitor.CertificateDays,
+		Certificates:    []monitor.Certificate{},
+		Reach:           []monitor.Target{},
+	}
+	for _, ch := range f.Monitor.Notify {
+		out := monitor.Channel{Name: ch.Name}
+		if ch.Telegram != nil {
+			out.Telegram = new(monitor.Telegram(*ch.Telegram))
+		}
+		if ch.Webhook != nil {
+			out.Webhook = new(monitor.Webhook(*ch.Webhook))
+		}
+		c.Notify = append(c.Notify, out)
+	}
+	for _, name := range certs {
+		c.Certificates = append(c.Certificates, monitor.Certificate{Name: name, File: path.Join(engine.CertDir, name, "fullchain.pem")})
+	}
+	if f.MonitorsWarp(n) {
+		c.Warp = &monitor.Warp{
+			URL:      "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(engine.APIPort)),
+			Secret:   n.API.Secret,
+			Outbound: engine.WarpTag,
+		}
+	}
+	for _, m := range f.Reaches(n) {
+		t := monitor.Target{Node: m.Name, Address: m.Address, Port: 443}
+		switch {
+		case m.Reality != nil:
+			t.ServerName = m.Reality.ServerName
+		case m.Naive != nil:
+			// Where its clients connect.
+			t.ServerName, t.Address = m.Naive.Domain, m.Naive.Domain
+		}
+		// Hysteria2 alone listens on UDP, which tells a probe nothing.
+		if t.Address != "" && (m.Reality != nil || m.Mux()) {
+			c.Reach = append(c.Reach, t)
+		}
+	}
+	return c
 }
 
 // Plan is what a deploy needs to know about a node beyond its files. It
@@ -112,8 +178,17 @@ type Plan struct {
 	RuleData fleet.RuleData `json:"rule_data"`
 	// Subscription is the site the node serves; nil on other nodes.
 	Subscription *Site `json:"subscription,omitzero"`
+	// Monitor is the checks the node runs on a timer; nil without monitor:.
+	Monitor *Monitor `json:"monitor,omitzero"`
 	// Secrets are the ones rendering this node's files reads.
 	Secrets []Secret `json:"secrets"`
+}
+
+// Monitor runs princo host monitor on Config every IntervalSeconds.
+type Monitor struct {
+	// Config is its path among the rendered files.
+	Config          string `json:"config"`
+	IntervalSeconds int    `json:"interval_seconds"`
 }
 
 // Mux routes TLS connections on TCP 443 by SNI.
@@ -230,6 +305,9 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 	}
 	if n.Mux() {
 		p.Mux = newMux(f, n)
+	}
+	if f.Monitor != nil {
+		p.Monitor = &Monitor{Config: MonitorFile, IntervalSeconds: int(f.Monitor.Interval.Seconds())}
 	}
 	engineCerts, siteCert := certificates(f, n, files[ConfigFile(n.Engine)])
 	for _, name := range engineCerts {

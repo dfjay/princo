@@ -8,6 +8,13 @@ done
 if ! [ -e {{q .LegoTimer}} ]; then
 	systemctl disable --now --quiet princo-lego.timer 2>/dev/null || true
 fi
+if ! [ -e {{q .MonitorTimer}} ]; then
+	systemctl disable --now --quiet princo-monitor.timer 2>/dev/null || true
+	# A run under way would write the state again.
+	systemctl stop --quiet princo-monitor.service 2>/dev/null || true
+	# Under the lock of a run someone started by hand.
+	flock {{q .StateDir}} rm -f {{q .MonitorState}}
+fi
 if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
 	want='{{range .Ports}} {{.}}{{end}} '
 	ufw status numbered | sed -n 's|^\[ *\([0-9]*\)\] \([0-9]*/[a-z]*\) .*# princo$|\1 \2|p' | sort -rn | while read -r n r; do

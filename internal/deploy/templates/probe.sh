@@ -26,6 +26,9 @@ fi
 command -v openssl >/dev/null && echo openssl
 if command -v princo >/dev/null; then
 	echo "princo $(princo version | cut -d' ' -f2)"
+	if princo host --help 2>/dev/null | grep -q '^  monitor '; then
+		echo monitor
+	fi
 fi
 {{- range .Certificates}}
 chain={{q (print $.CertDir "/" .Name "/fullchain.pem")}} key={{q (print $.CertDir "/" .Name "/key.pem")}}

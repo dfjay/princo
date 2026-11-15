@@ -29,6 +29,9 @@ Keep credentials in encrypted age or sops files, separate from your fleet config
   and a page with QR codes.
 - **Inspect before deploying.** Render configs locally and inspect a node's
   host requirements without decrypting secrets.
+- **Hear when something breaks.** Nodes check themselves and each other, and
+  report blocks, WARP failures and expiring certificates to Telegram or a
+  webhook.
 
 ```text
 princo.yaml + encrypted secrets

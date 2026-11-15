@@ -4,13 +4,22 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/dfjay/princo/internal/bundle"
+	"github.com/dfjay/princo/internal/deploy"
+	"github.com/dfjay/princo/internal/engineapi"
+	"github.com/dfjay/princo/internal/host"
+	"github.com/dfjay/princo/internal/monitor"
 )
 
 func newHostCommand() *cobra.Command {
@@ -19,6 +28,60 @@ func newHostCommand() *cobra.Command {
 		Short: "Commands princo deploy runs on a node's host",
 	}
 	cmd.AddCommand(newHostApplyCommand())
+	cmd.AddCommand(newHostMonitorCommand())
+	return cmd
+}
+
+// monitorTimeout ends a run before the timer's shortest interval is over,
+// and leaves it its longest check and the channels' time.
+const monitorTimeout = 55 * time.Second
+
+func newHostMonitorCommand() *cobra.Command {
+	var configPath, statePath string
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "monitor",
+		Short: "Check this node and report what changed",
+		Long: `Run the checks of a fleet with monitor: on this node: that its engine
+runs, its certificates aren't about to expire, WARP passes traffic and, on
+the nodes monitor.reach selects, that other nodes answer. A check changes
+state once monitor.confirm runs in a row find it so; each channel of
+monitor.notify then hears of it, once. A deploy runs it on a timer; run it with --dry-run
+to see what the checks find now.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			data, err := os.ReadFile(configPath)
+			if err != nil {
+				return err
+			}
+			var cfg monitor.Config
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				return fmt.Errorf("%s: %w", configPath, err)
+			}
+			ctx, stop := interruptible(cmd.Context())
+			defer stop()
+			ctx, cancel := context.WithTimeout(ctx, monitorTimeout)
+			defer cancel()
+			m := &monitor.Monitor{
+				Config:    &cfg,
+				StatePath: statePath,
+				Out:       cmd.OutOrStdout(),
+				Now:       time.Now,
+				HTTP:      &http.Client{Timeout: 15 * time.Second},
+				Dial:      (&net.Dialer{}).DialContext,
+				Active: func(ctx context.Context, unit string) error {
+					return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", unit).Run()
+				},
+			}
+			if cfg.Warp != nil {
+				m.Engine = &engineapi.Client{HTTP: &http.Client{}, URL: cfg.Warp.URL, Secret: cfg.Warp.Secret}
+			}
+			return m.Run(ctx, dryRun)
+		},
+	}
+	cmd.Flags().StringVar(&configPath, "config", path.Join(deploy.FilesDir, host.MonitorFile), "The node's rendered "+host.MonitorFile)
+	cmd.Flags().StringVar(&statePath, "state", deploy.MonitorState, "File that keeps the checks' states between runs")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print what the checks find; tell no one, keep no state")
 	return cmd
 }
 

@@ -1,7 +1,8 @@
-// Package stats reads the connections sing-box's API service tracks
-// (fleet.Stats) over gRPC-Web: their users, sources and traffic. It skips
-// their destinations, which the API sends too.
-package stats
+// Package engineapi talks to sing-box's API service (fleet.API) over
+// gRPC-Web: it follows the connections the engine tracks, their users,
+// sources and traffic, skipping the destinations the API sends too, and
+// tests an outbound.
+package engineapi
 
 import (
 	"bufio"
@@ -65,7 +66,7 @@ type Client struct {
 }
 
 var (
-	ErrUnauthenticated = errors.New("the engine refused the stats secret; deploy the node again")
+	ErrUnauthenticated = errors.New("the engine refused the API secret; deploy the node again")
 	// ErrStop, from Subscribe's callback, ends it without an error.
 	ErrStop = errors.New("stop")
 )
@@ -73,8 +74,20 @@ var (
 // Subscribe calls fn with each message, every interval at most, until ctx
 // ends, fn fails or the engine stops.
 func (c *Client) Subscribe(ctx context.Context, interval time.Duration, fn func(Events) error) error {
-	body := frame(0, appendVarintField(nil, 1, uint64(interval.Nanoseconds())))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(c.URL, "/")+"/daemon.StartedService/SubscribeConnections", bytes.NewReader(body))
+	return c.call(ctx, "SubscribeConnections", appendVarintField(nil, 1, uint64(interval.Nanoseconds())), func(payload []byte) error {
+		events, err := decodeEvents(payload)
+		if err != nil {
+			return fmt.Errorf("reading the engine's API: %w", err)
+		}
+		return fn(events)
+	})
+}
+
+// call calls method of daemon.StartedService with msg and passes fn each
+// message of the answer, until ctx ends, fn fails or returns ErrStop, or
+// the engine ends the call.
+func (c *Client) call(ctx context.Context, method string, msg []byte, fn func(payload []byte) error) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(c.URL, "/")+"/daemon.StartedService/"+method, bytes.NewReader(frame(0, msg)))
 	if err != nil {
 		return err
 	}
@@ -83,11 +96,11 @@ func (c *Client) Subscribe(ctx context.Context, interval time.Duration, fn func(
 	req.Header.Set("Authorization", "Bearer "+c.Secret)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("reaching the engine's stats: %w", err)
+		return fmt.Errorf("reaching the engine's API: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("the engine's stats answered %s; does the node run sing-box 1.14 or newer with stats: true?", resp.Status)
+		return fmt.Errorf("the engine's API answered %s; does the node run sing-box 1.14 or newer with its API on?", resp.Status)
 	}
 	// A call that fails at once answers with headers alone.
 	if err := grpcStatus(resp.Header.Get("Grpc-Status"), resp.Header.Get("Grpc-Message")); err != nil {
@@ -100,7 +113,7 @@ func (c *Client) Subscribe(ctx context.Context, interval time.Duration, fn func(
 			if ctx.Err() != nil {
 				return nil
 			}
-			return fmt.Errorf("reading the engine's stats: %w", err)
+			return fmt.Errorf("reading the engine's API: %w", err)
 		}
 		if flag&0x80 != 0 { // the trailers, with the call's status
 			var code, message string
@@ -114,15 +127,11 @@ func (c *Client) Subscribe(ctx context.Context, interval time.Duration, fn func(
 				}
 			}
 			if code == "" {
-				return errors.New("the engine's stats ended without a status")
+				return errors.New("the engine's API ended without a status")
 			}
 			return grpcStatus(code, message)
 		}
-		events, err := decodeEvents(payload)
-		if err != nil {
-			return fmt.Errorf("reading the engine's stats: %w", err)
-		}
-		if err := fn(events); err != nil {
+		if err := fn(payload); err != nil {
 			if errors.Is(err, ErrStop) {
 				return nil
 			}
@@ -142,7 +151,7 @@ func grpcStatus(code, message string) error {
 	if m, err := url.PathUnescape(message); err == nil {
 		message = m
 	}
-	return fmt.Errorf("the engine's stats failed: gRPC status %s: %s", code, message)
+	return fmt.Errorf("the engine's API failed: gRPC status %s: %s", code, message)
 }
 
 // frame is a gRPC frame: a flag byte, the length, the message.

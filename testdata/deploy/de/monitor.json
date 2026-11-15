@@ -1,0 +1,36 @@
+{
+  "node": "de",
+  "notify": [
+    {
+      "name": "ops",
+      "telegram": {
+        "api": "https://api.telegram.org",
+        "token": "123456789:AAsynthetic-token-for-tests-only0000",
+        "chat": "-1001234567890"
+      }
+    }
+  ],
+  "confirm": 2,
+  "certificate_days": 14,
+  "unit": "princo.service",
+  "certificates": [
+    {
+      "name": "de.example.com",
+      "file": "/var/lib/princo/certs/de.example.com/fullchain.pem"
+    },
+    {
+      "name": "naive-de.example.com",
+      "file": "/var/lib/princo/certs/naive-de.example.com/fullchain.pem"
+    },
+    {
+      "name": "subs.example.com",
+      "file": "/var/lib/princo/certs/subs.example.com/fullchain.pem"
+    }
+  ],
+  "warp": {
+    "url": "http://127.0.0.1:8446",
+    "secret": "5747a75e5747a75e5747a75e5747a75e",
+    "outbound": "warp"
+  },
+  "reach": []
+}

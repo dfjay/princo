@@ -108,11 +108,11 @@ func TestDeploy_FreshHost(t *testing.T) {
 	}, r.steps)
 	require.Equal(t, "deb 0.2.0 arm64", string(r.deb))
 	require.True(t, r.bundles[0].Partial, "the engine waits for the certificates")
-	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(r.bundles[1]))
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service", "princo-monitor.timer"}, unitNames(r.bundles[1]))
 }
 
 func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nopenssl\nlinked de.example.com\nlinked subs.example.com\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\nopenssl\nlinked de.example.com\nlinked subs.example.com\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "de")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
@@ -124,7 +124,7 @@ func TestDeploy_CopiesLinkedCertificates(t *testing.T) {
 }
 
 func TestDeploy_UpToDate(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
@@ -147,7 +147,18 @@ func TestDeploy_DevBuild(t *testing.T) {
 	d, _ := newDeployer(r, "0.2.0+abc1234")
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "pass --princo-deb")
 
+	// A princo of this version that can't run the fixture's monitor: is
+	// no reason to keep it.
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0+abc1234\n"}
+	d, _ = newDeployer(r, "0.2.0+abc1234")
+	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "the host's princo, 0.2.0+abc1234, has no host monitor")
+
+	// The fixture has monitor:, which an older princo can't run.
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.1.1\n"}
+	d, _ = newDeployer(r, "0.2.0+abc1234")
+	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "the host's princo, 0.1.1, has no host monitor")
+
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.1.1\nmonitor\n"}
 	d, log := newDeployer(r, "0.2.0+abc1234")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps)
@@ -161,33 +172,33 @@ func TestDeploy_DevBuild(t *testing.T) {
 }
 
 func TestDeploy_OtherNode(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "de")
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "this host runs node us, not de")
 	require.Equal(t, []string{"probe"}, r.steps, "nothing changes on the host")
 
-	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nnode de\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nnode de\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 }
 
 func TestDeploy_MuxRemoved(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nstream\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nnode us\nstream\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
-	require.Equal(t, []string{"nginx.service", "princo.service"}, unitNames(r.bundles[0]))
+	require.Equal(t, []string{"nginx.service", "princo.service", "princo-monitor.timer"}, unitNames(r.bundles[0]))
 }
 
 func TestCheck(t *testing.T) {
 	p, files, ruleSets := plan(t, "de")
 
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmissing subs.example.com\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\nmissing subs.example.com\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	require.NoError(t, d.Check(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "check"}, r.steps)
-	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(r.bundles[0]), "the node as it will be")
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service", "princo-monitor.timer"}, unitNames(r.bundles[0]), "the node as it will be")
 
 	r = &fakeRemote{t: t, probe: "arch amd64\nengine\n"}
 	d, _ = newDeployer(r, "0.2.0")
@@ -234,12 +245,20 @@ func TestCleanup(t *testing.T) {
 	for _, dir := range []string{"sing-box-1.0.0", "sing-box-1.1.0"} {
 		require.NoError(t, os.Mkdir(filepath.Join(root, dir), 0o755))
 	}
-	// The timer stays: its unit file is there.
-	require.NoError(t, os.WriteFile(filepath.Join(root, "princo-lego.timer"), nil, 0o644))
+	// The timer stays: its unit file is there. The monitor's is gone, and
+	// its state goes with it.
+	units := t.TempDir()
+	state := filepath.Join(units, "monitor-state.json")
+	require.NoError(t, os.WriteFile(filepath.Join(units, "princo-lego.timer"), nil, 0o644))
+	require.NoError(t, os.WriteFile(state, []byte("{}"), 0o600))
+	systemctl := filepath.Join(units, "systemctl.log")
+	t.Setenv("SYSTEMCTL_LOG", systemctl)
 	p, _, _ := plan(t, "us")
 	script, err := execute("cleanup.sh", map[string]any{
 		"Root": root, "Keep": filepath.Join(root, "sing-box-1.1.0"),
-		"LegoRoot": filepath.Join(root, "lego"), "KeepLego": "", "LegoTimer": filepath.Join(root, "princo-lego.timer"),
+		"LegoRoot": filepath.Join(root, "lego"), "KeepLego": "",
+		"LegoTimer":    filepath.Join(units, "princo-lego.timer"),
+		"MonitorTimer": filepath.Join(units, "princo-monitor.timer"), "MonitorState": state, "StateDir": units,
 		"Ports": ports(p),
 	})
 	require.NoError(t, err)
@@ -256,6 +275,10 @@ func TestCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	require.Equal(t, "sing-box-1.1.0", entries[0].Name())
+	require.NoFileExists(t, state)
+	calls, err := os.ReadFile(systemctl)
+	require.NoError(t, err)
+	require.Equal(t, "disable --now --quiet princo-monitor.timer\nstop --quiet princo-monitor.service\n", string(calls))
 }
 
 // runUFW runs script against an active ufw with rules, and returns the
@@ -267,7 +290,10 @@ func runUFW(t *testing.T, script, rules string) []string {
 	fake := map[string]string{
 		"dpkg-query": "echo 'install ok installed'",
 		"getent":     "exit 0",
-		"ufw":        `if [ "$1" = status ]; then printf 'Status: active\n\n%s' "$RULES"; else echo "$*" >>"$LOG"; fi`,
+		"flock":      `shift; "$@"`,
+		// Never the machine's own units.
+		"systemctl": `echo "$*" >>"${SYSTEMCTL_LOG:-/dev/null}"`,
+		"ufw":       `if [ "$1" = status ]; then printf 'Status: active\n\n%s' "$RULES"; else echo "$*" >>"$LOG"; fi`,
 	}
 	for name, body := range fake {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755))
@@ -329,7 +355,7 @@ func TestDeploy_InstallsEngine(t *testing.T) {
 	withRelease(t, "xray", "https://example.com/xray.zip", zipped)
 
 	p, files, ruleSets := plan(t, "fi")
-	r := &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\nmonitor\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	var fetched []string
 	d.Fetch = func(_ context.Context, url string) ([]byte, error) {
@@ -341,16 +367,16 @@ func TestDeploy_InstallsEngine(t *testing.T) {
 	require.Equal(t, []string{"https://example.com/xray.zip"}, fetched)
 	require.Equal(t, map[string]string{"xray": "xray"}, untar(t, r.release), "only the files the engine needs")
 
-	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
 	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps, "the host has this release")
 
-	r = &fakeRemote{t: t, probe: "arch arm64\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch arm64\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "there's no xray 26.10.21 for arm64")
 
-	r = &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\n"}
+	r = &fakeRemote{t: t, probe: "arch amd64\nprinco 0.2.0\nmonitor\n"}
 	d, _ = newDeployer(r, "0.2.0")
 	d.Fetch = func(context.Context, string) ([]byte, error) { return []byte("tampered"), nil }
 	require.ErrorContains(t, d.Deploy(t.Context(), p, files, ruleSets), "doesn't match its pinned SHA-256")
@@ -393,9 +419,9 @@ func (f remoteFunc) Run(_ context.Context, script string, _ io.Reader, _ io.Writ
 }
 
 func TestDeploy_SitesRemoved(t *testing.T) {
-	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nsite\n"}
+	r := &fakeRemote{t: t, probe: "arch amd64\nengine\nprinco 0.2.0\nmonitor\nsite\n"}
 	d, _ := newDeployer(r, "0.2.0")
 	p, files, ruleSets := plan(t, "us")
 	require.NoError(t, d.Deploy(t.Context(), p, files, ruleSets))
-	require.Equal(t, []string{"princo.service", "nginx.service"}, unitNames(r.bundles[0]), "the probe told of an earlier site config")
+	require.Equal(t, []string{"princo.service", "nginx.service", "princo-monitor.timer"}, unitNames(r.bundles[0]), "the probe told of an earlier site config")
 }

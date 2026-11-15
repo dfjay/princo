@@ -1,0 +1,28 @@
+# Written by princo deploy; changes here are overwritten.
+[Unit]
+Description=princo node {{.Node}}: check the node and report what changed
+Wants=network-online.target
+After=network-online.target {{.Unit}}
+
+[Service]
+Type=oneshot
+# By name: systemd finds princo where its package or the admin put it.
+ExecStart=princo host monitor --config {{.Config}} --state {{.State}}
+TimeoutStartSec=90s
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/princo
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK AF_UNIX
+SystemCallArchitectures=native

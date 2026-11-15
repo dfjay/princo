@@ -23,6 +23,7 @@ type Config struct {
 	Subscription *Subscription        `yaml:"subscription"`
 	Certificates Ordered[Certificate] `yaml:"certificates"`
 	RuleData     *RuleData            `yaml:"rule_data"`
+	Monitor      *Monitor             `yaml:"monitor"`
 	Secrets      Ordered[string]      `yaml:"secrets"`
 
 	// The index of the file Merge took each secrets: pattern from.
@@ -227,6 +228,40 @@ func (r *RuleData) UnmarshalYAML(node *yaml.Node) error {
 	}
 	type plain RuleData
 	return decodeStrict(node, (*plain)(r))
+}
+
+// Monitor has every node check itself on a timer and tell the channels of
+// Notify what changed.
+type Monitor struct {
+	Notify Ordered[Channel] `yaml:"notify"`
+	// Interval between checks, e.g. 2m.
+	Interval string `yaml:"interval"`
+	// Confirm is how many runs in a row change a check's state.
+	Confirm *int `yaml:"confirm"`
+	// CertificateDays is how long before a certificate expires to tell.
+	CertificateDays *int    `yaml:"certificate_days"`
+	Reach           []Reach `yaml:"reach"`
+}
+
+// Channel is where reports go. Its Type says which fields it has.
+type Channel struct {
+	Type string `yaml:"type"`
+
+	// A Telegram bot's token and the chat it writes to. API replaces
+	// https://api.telegram.org, for nodes that can't reach it.
+	Token *secrets.SecretOrPlain `yaml:"token"`
+	Chat  *secrets.SecretOrPlain `yaml:"chat"`
+	API   string                 `yaml:"api"`
+
+	// A webhook's URL, which takes the reports as JSON.
+	URL *secrets.SecretOrPlain `yaml:"url"`
+}
+
+// Reach has the nodes From selects check that they reach the ones To
+// does: a tag, !tag or all, as a client group's nodes.
+type Reach struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
 }
 
 // Parse decodes a princo.yaml document strictly: unknown fields anywhere

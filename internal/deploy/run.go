@@ -42,6 +42,8 @@ type facts struct {
 	arch, princo, node string
 	// engine and lego tell that the host has their releases.
 	engine, lego bool
+	// monitor tells that its princo has host monitor.
+	monitor bool
 	// openssl tells that it could read the certificates' domains.
 	openssl bool
 	// missing are the ACME certificates to issue.
@@ -83,7 +85,7 @@ func (d *Deployer) Deploy(ctx context.Context, p *host.Plan, files, ruleSets map
 			return err
 		}
 	}
-	if err := d.installPrinco(ctx, f); err != nil {
+	if err := d.installPrinco(ctx, f, p.Monitor != nil); err != nil {
 		return err
 	}
 	if err := d.copyLinked(ctx, p, f.linked); err != nil {
@@ -182,6 +184,8 @@ func (d *Deployer) probe(ctx context.Context, p *host.Plan) (facts, error) {
 			f.arch = value
 		case "princo":
 			f.princo = value
+		case "monitor":
+			f.monitor = true
 		case "engine":
 			f.engine = true
 		case "lego":
@@ -299,12 +303,15 @@ func (d *Deployer) cleanup(ctx context.Context, p *host.Plan, e engineSpec) erro
 		keepLego = legoDir()
 	}
 	script, err := execute("cleanup.sh", map[string]any{
-		"Root":      engineRoot,
-		"Keep":      e.dir(),
-		"LegoRoot":  legoRoot,
-		"KeepLego":  keepLego,
-		"LegoTimer": LegoTimer,
-		"Ports":     ports(p),
+		"Root":         engineRoot,
+		"Keep":         e.dir(),
+		"LegoRoot":     legoRoot,
+		"KeepLego":     keepLego,
+		"LegoTimer":    LegoTimer,
+		"MonitorTimer": MonitorTimer,
+		"MonitorState": MonitorState,
+		"StateDir":     bundle.StateDir,
+		"Ports":        ports(p),
 	})
 	if err != nil {
 		return err
@@ -370,12 +377,14 @@ dpkg -i "$f" >/dev/null
 
 // installPrinco puts this princo's release or Deb on the host. A build
 // between releases has no .deb; it makes do with the host's princo, as the
-// bundle format refuses one too old.
-func (d *Deployer) installPrinco(ctx context.Context, f facts) error {
+// bundle format refuses one too old, unless that can't run the monitor.
+func (d *Deployer) installPrinco(ctx context.Context, f facts, monitor bool) error {
 	deb := d.Deb
+	// The timer would run, and each run fail, with no one told.
+	unable := monitor && !f.monitor
 	switch {
 	case deb != nil:
-	case f.princo == d.Version:
+	case f.princo == d.Version && !unable:
 		return nil
 	case !strings.Contains(d.Version, "+"):
 		var err error
@@ -384,6 +393,8 @@ func (d *Deployer) installPrinco(ctx context.Context, f facts) error {
 		}
 	case f.princo == "":
 		return fmt.Errorf("this princo, %s, isn't a release, so there's no .deb of it for the host; pass --princo-deb (just snapshot builds one)", d.Version)
+	case unable:
+		return fmt.Errorf("the host's princo, %s, has no host monitor, which monitor: runs there; pass --princo-deb (just snapshot builds one)", f.princo)
 	default:
 		d.logf("the host runs princo %s, this is %s", f.princo, d.Version)
 		return nil

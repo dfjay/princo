@@ -25,8 +25,12 @@ const (
 	// LoopbackInterface binds the engine's listeners behind the
 	// multiplexer, on :: for both 127.0.0.1 and ::1.
 	LoopbackInterface = "lo"
-	StatsPort         = fleet.StatsPort
+	APIPort           = fleet.APIPort
 )
+
+// WarpTag is the WARP outbound, or endpoint, of a server config, which the
+// monitor names to the engine's API.
+const WarpTag = "warp"
 
 // WarpPeerPublicKey is Cloudflare WARP's WireGuard peer key.
 const WarpPeerPublicKey = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="

@@ -19,14 +19,27 @@ import (
 // PEM.
 func SelfSigned(t *testing.T, names ...string) (chain, key string) {
 	t.Helper()
+	return selfSigned(t, time.Now().Add(24*time.Hour), names)
+}
+
+// Expiring returns a self-signed certificate for names that expires at
+// notAfter, as PEM.
+func Expiring(t *testing.T, notAfter time.Time, names ...string) []byte {
+	t.Helper()
+	chain, _ := selfSigned(t, notAfter, names)
+	return []byte(chain)
+}
+
+func selfSigned(t *testing.T, notAfter time.Time, names []string) (chain, key string) {
+	t.Helper()
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject:      pkix.Name{CommonName: names[0]},
 		DNSNames:     names,
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
+		NotBefore:    notAfter.Add(-90 * 24 * time.Hour),
+		NotAfter:     notAfter,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &k.PublicKey, k)
 	require.NoError(t, err)

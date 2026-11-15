@@ -1,0 +1,11 @@
+# Written by princo deploy; changes here are overwritten.
+[Unit]
+Description=Check princo node us every 300 seconds
+
+[Timer]
+OnActiveSec=30s
+OnUnitActiveSec=300s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
