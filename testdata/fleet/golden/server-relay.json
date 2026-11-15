@@ -103,7 +103,7 @@
       "flow": "xtls-rprx-vision",
       "server": "de.example.com",
       "server_port": 443,
-      "tag": "monitor-de",
+      "tag": "monitor:de",
       "tls": {
         "enabled": true,
         "reality": {
@@ -124,7 +124,7 @@
       "flow": "xtls-rprx-vision",
       "server": "fi.example.com",
       "server_port": 443,
-      "tag": "monitor-fi",
+      "tag": "monitor:fi",
       "tls": {
         "enabled": true,
         "reality": {
@@ -145,7 +145,7 @@
       "flow": "xtls-rprx-vision",
       "server": "203.0.113.7",
       "server_port": 443,
-      "tag": "monitor-us",
+      "tag": "monitor:us",
       "tls": {
         "enabled": true,
         "reality": {
@@ -194,7 +194,7 @@
         "inbound": [
           "monitor-in"
         ],
-        "outbound": "monitor-de"
+        "outbound": "monitor:de"
       },
       {
         "action": "route",
@@ -204,7 +204,7 @@
         "inbound": [
           "monitor-in"
         ],
-        "outbound": "monitor-fi"
+        "outbound": "monitor:fi"
       },
       {
         "action": "route",
@@ -214,7 +214,7 @@
         "inbound": [
           "monitor-in"
         ],
-        "outbound": "monitor-us"
+        "outbound": "monitor:us"
       },
       {
         "action": "reject",

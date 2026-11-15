@@ -394,7 +394,12 @@ func (b *builder) monitor() {
 		if b.f.MonitorsWarp(n) {
 			b.api(n, "nodes."+n.Name+".warp")
 		}
-		if len(b.f.MonitorsVia(n)) > 0 {
+		for _, up := range b.f.Nodes {
+			if slices.ContainsFunc(m.Notify, func(ch Channel) bool { return slices.Contains(b.f.Via(n, ch), up) }) {
+				n.MonitorVia = append(n.MonitorVia, up)
+			}
+		}
+		if len(n.MonitorVia) > 0 {
 			n.MonitorUUID = b.secret("monitor.notify", nil, secretMonitorUUID(n.Name), SecretUUID)
 			if n.MonitorUUID == "" {
 				// The engine would leave its proxy open to the host's every user.
@@ -444,7 +449,9 @@ func (b *builder) channel(where, name string, c config.Channel) Channel {
 		switch {
 		case err != nil:
 			b.errorf("%s.via: %v", where, err)
-		case !slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return sel.Matches(n) && n.Reality != nil }):
+		case slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return !sel.Matches(n) }) &&
+			!slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return sel.Matches(n) && n.Reality != nil }):
+			// The nodes it leaves out have no one to report through.
 			b.errorf("%s.via: no node with reality matches %s", where, c.Via)
 		}
 		out.Via = &sel

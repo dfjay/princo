@@ -105,12 +105,12 @@ func TestMonitorVia(t *testing.T) {
 		},
 	}, inbounds[len(inbounds)-1], "on loopback, and behind a password")
 	rules := relay["route"].(map[string]any)["rules"].([]any)
-	require.Equal(t, map[string]any{"inbound": []any{"monitor-in"}, "auth_user": []any{"de"}, "action": "route", "outbound": "monitor-de"}, rules[0],
+	require.Equal(t, map[string]any{"inbound": []any{"monitor-in"}, "auth_user": []any{"de"}, "action": "route", "outbound": "monitor:de"}, rules[0],
 		"before anything resolves or redirects it")
 	require.Equal(t, map[string]any{"inbound": []any{"monitor-in"}, "action": "reject"}, rules[3], "and nowhere else")
 	var hop map[string]any
 	for _, o := range relay["outbounds"].([]any) {
-		if o := o.(map[string]any); o["tag"] == "monitor-de" {
+		if o := o.(map[string]any); o["tag"] == "monitor:de" {
 			hop = o
 		}
 	}
@@ -131,6 +131,16 @@ func TestMonitorVia(t *testing.T) {
 			require.NotEqual(t, "monitor-in", in.(map[string]any)["tag"], name+" reaches the channel itself")
 		}
 	}
+
+	// A node named as an outbound's tag takes none.
+	deNode, _ := f.Node("de")
+	deNode.Name = "monitor-us"
+	var tags []any
+	for _, o := range renderJSON(t, e.RenderServer, f, "relay")["outbounds"].([]any) {
+		tags = append(tags, o.(map[string]any)["tag"])
+	}
+	require.Equal(t, []any{"monitor-us-reality", "monitor:monitor-us", "monitor:fi", "monitor:us", "direct"}, tags)
+	deNode.Name = "de"
 
 	// A chained node resolves the reports' domains itself to send them direct.
 	us, _ := f.Node("us")

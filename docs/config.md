@@ -579,9 +579,9 @@ A node `via` selects reports on its own. Every other node reports through
 the selected ones that serve `reality`, over the tunnel a
 [chain](#egress) uses but with its own UUID, the *secret*
 `nodes/<node>/monitor`; there the reports leave directly, whatever the
-node's `egress`. A run tries up to three of them, those it can still
-[reach](#reach) first, so the report that one is blocked leaves through
-another.
+node's `egress`. A run tries up to three of them, so the report that one
+is blocked leaves through another: first those it can still
+[reach](#reach), and of them those no report has failed to leave through.
 
 The reports enter the tunnel through a proxy of the node's engine on
 `127.0.0.1:8447`, behind that UUID as its password.

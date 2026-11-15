@@ -13,6 +13,9 @@ import (
 // state is what the last runs found, kept between them.
 type state struct {
 	Checks map[string]*checkState `json:"checks"`
+	// ViaFailed is when a report last failed to leave through a node, for
+	// those none has left through since.
+	ViaFailed map[string]time.Time `json:"via_failed,omitzero"`
 }
 
 type checkState struct {

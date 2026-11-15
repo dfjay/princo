@@ -162,8 +162,9 @@ func TestRenderServer_Edges(t *testing.T) {
 func TestRenderServer_MonitorVia(t *testing.T) {
 	f := fleettest.Load(t, fixture)
 	fi, _ := f.Node("fi")
-	fi.Tags = []string{"domestic"}
-	fi.MonitorUUID = "11111111-2222-4333-8444-555555555555"
+	de, _ := f.Node("de")
+	us, _ := f.Node("us")
+	fi.MonitorVia, fi.MonitorUUID = []*fleet.Node{de, us}, "11111111-2222-4333-8444-555555555555"
 	data, err := New().RenderServer(f, "fi")
 	require.NoError(t, err)
 	var cfg map[string]any
@@ -179,14 +180,14 @@ func TestRenderServer_MonitorVia(t *testing.T) {
 	}, inbounds[len(inbounds)-1])
 	rules := cfg["routing"].(map[string]any)["rules"].([]any)
 	require.Equal(t, []any{
-		map[string]any{"inboundTag": []any{"monitor-in"}, "user": []any{"de"}, "outboundTag": "monitor-de"},
-		map[string]any{"inboundTag": []any{"monitor-in"}, "user": []any{"us"}, "outboundTag": "monitor-us"},
+		map[string]any{"inboundTag": []any{"monitor-in"}, "user": []any{"de"}, "outboundTag": "monitor:de"},
+		map[string]any{"inboundTag": []any{"monitor-in"}, "user": []any{"us"}, "outboundTag": "monitor:us"},
 		map[string]any{"inboundTag": []any{"monitor-in"}, "outboundTag": "block"},
 	}, rules[:3])
 	outbounds := cfg["outbounds"].([]any)
 	require.Equal(t, "warp", outbounds[0].(map[string]any)["tag"], "what no rule matches still leaves by the egress")
 	hop := outbounds[len(outbounds)-1].(map[string]any)
-	require.Equal(t, "monitor-us", hop["tag"])
+	require.Equal(t, "monitor:us", hop["tag"])
 	require.Equal(t, "11111111-2222-4333-8444-555555555555", hop["settings"].(map[string]any)["id"])
 	xrayCheck(t, data)
 

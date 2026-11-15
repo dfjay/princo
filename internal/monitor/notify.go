@@ -136,7 +136,10 @@ func (t *Telegram) message(ctx context.Context, client *http.Client, text string
 		OK          bool   `json:"ok"`
 		Description string `json:"description"`
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil {
+		return &unreachable{err}
+	}
 	switch err := json.Unmarshal(body, &answer); {
 	case err == nil && answer.OK:
 		return nil

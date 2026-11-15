@@ -52,7 +52,7 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	private := map[string]any{"ip_is_private": true, "action": "reject"}
 	// The monitor's reports come first, their domains unresolved: this
 	// node's DNS may lie about a channel it can't reach.
-	rules := monitorRoutes(f, n)
+	rules := monitorRoutes(n)
 	// Other nodes' reports leave directly: a stalled WARP, or a chain back
 	// to their node, would keep them in.
 	reporters := engine.MonitorAccounts(f, n)
@@ -158,7 +158,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 		behindMux(in, engine.MuxNaivePort)
 		out = append(out, in)
 	}
-	if via := f.MonitorsVia(n); len(via) > 0 {
+	if via := n.MonitorVia; len(via) > 0 {
 		accounts := make([]any, 0, len(via))
 		for _, up := range via {
 			accounts = append(accounts, map[string]any{"username": up.Name, "password": n.MonitorUUID})
@@ -176,9 +176,9 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 
 // monitorRoutes sends each user of the monitor's proxy through their node,
 // and nothing else from it anywhere.
-func monitorRoutes(f *fleet.Fleet, n *fleet.Node) []any {
+func monitorRoutes(n *fleet.Node) []any {
 	var rules []any
-	for _, up := range f.MonitorsVia(n) {
+	for _, up := range n.MonitorVia {
 		rules = append(rules, map[string]any{
 			"inbound":   []any{engine.MonitorInbound},
 			"auth_user": []any{up.Name},
@@ -214,7 +214,7 @@ func serverOutbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	if up := n.Egress.Node; up != nil {
 		out = append(out, realityOutbound(up, n.ChainUUID))
 	}
-	for _, up := range f.MonitorsVia(n) {
+	for _, up := range n.MonitorVia {
 		o := realityOutbound(up, n.MonitorUUID)
 		o["tag"] = engine.MonitorTag(up)
 		out = append(out, o)

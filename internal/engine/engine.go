@@ -37,8 +37,9 @@ const WarpTag = "warp"
 // sends its reports through; its user names the node they leave by.
 const MonitorInbound = "monitor-in"
 
-// MonitorTag is the outbound those reports leave through up with.
-func MonitorTag(up *fleet.Node) string { return "monitor-" + up.Name }
+// MonitorTag is the outbound those reports leave through up with; no
+// node's name has a colon to make another outbound's tag of it.
+func MonitorTag(up *fleet.Node) string { return "monitor:" + up.Name }
 
 // MonitorAccounts names the nodes that send their reports through n, as
 // they log in there.

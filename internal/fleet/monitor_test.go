@@ -132,7 +132,7 @@ monitor:
 	require.Empty(t, f.Via(a, ops), "a is selected: it reaches the channel")
 	require.Empty(t, f.Via(c, ops))
 	require.Empty(t, f.Via(b, hook), "a channel without via is told directly")
-	require.Equal(t, []*Node{a}, f.MonitorsVia(b))
+	require.Equal(t, []*Node{a}, b.MonitorVia)
 	require.Equal(t, []*Node{b}, f.MonitorsInto(a))
 	require.Empty(t, f.MonitorsInto(b))
 	require.Equal(t, "uuid-monitor-b", b.MonitorUUID)
@@ -144,6 +144,24 @@ monitor:
 
 	_, err = build(t, src, monitorSecrets())
 	require.ErrorContains(t, err, "monitor.notify: resolve !secret nodes/b/monitor")
+}
+
+// Where every node reaches the channel, none has to serve Reality.
+func TestBuild_MonitorViaAll(t *testing.T) {
+	f, err := build(t, `
+nodes:
+  c:
+    address: c.example.com
+    hysteria2: { masquerade: https://example.com }
+users:
+  u: {}
+monitor:
+  notify:
+    ops: { type: telegram, via: all }
+`, monitorSecrets())
+	require.NoError(t, err)
+	c, _ := f.Node("c")
+	require.Empty(t, c.MonitorVia)
 }
 
 func TestBuild_MonitorErrors(t *testing.T) {
@@ -164,6 +182,7 @@ func TestBuild_MonitorErrors(t *testing.T) {
 		"unknown type":       {"monitor: { notify: { ops: { type: pager } } }", `monitor.notify.ops.type: want telegram or webhook, got "pager"`},
 		"another's field":    {"monitor: { notify: { hook: { type: webhook, chat: x } } }", "monitor.notify.hook.chat: a webhook channel has none"},
 		"via no one":         {"monitor: { notify: { ops: { type: telegram, via: abroad } } }", "monitor.notify.ops.via: no node with reality matches abroad"},
+		"via malformed":      {`monitor: { notify: { ops: { type: telegram, via: "!" } } }`, "monitor.notify.ops.via: want <tag>, !<tag> or all"},
 		"empty value":        {`monitor: { notify: { ops: { type: telegram, chat: "" } } }`, "monitor.notify.ops.chat: is empty"},
 	} {
 		t.Run(name, func(t *testing.T) {

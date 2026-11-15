@@ -79,8 +79,10 @@ type Node struct {
 	Warp *Warp
 	// ChainUUID is this node's identity on its upstream when Egress.Node is set.
 	ChainUUID string
-	// MonitorUUID is this node's identity on the nodes it sends its
-	// reports through, and the password of its own proxy to them.
+	// MonitorVia are the nodes this one sends its monitor's reports
+	// through, to any channel, sorted by name. MonitorUUID is its identity
+	// there, and the password of its own proxy to them.
+	MonitorVia  []*Node
 	MonitorUUID string
 
 	DNS         *DNS
@@ -231,27 +233,12 @@ func (f *Fleet) Via(n *Node, ch Channel) []*Node {
 	return out
 }
 
-// MonitorsVia lists the nodes n sends reports through, to any channel,
-// sorted by name.
-func (f *Fleet) MonitorsVia(n *Node) []*Node {
-	if f.Monitor == nil {
-		return nil
-	}
-	var out []*Node
-	for _, m := range f.Nodes {
-		if slices.ContainsFunc(f.Monitor.Notify, func(ch Channel) bool { return slices.Contains(f.Via(n, ch), m) }) {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
 // MonitorsInto lists the nodes that send their reports through n, sorted
 // by name.
 func (f *Fleet) MonitorsInto(n *Node) []*Node {
 	var out []*Node
 	for _, m := range f.Nodes {
-		if slices.Contains(f.MonitorsVia(m), n) {
+		if slices.Contains(m.MonitorVia, n) {
 			out = append(out, m)
 		}
 	}

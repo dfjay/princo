@@ -31,7 +31,7 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	// Each user of the monitor's proxy leaves through their node, and
 	// nothing else from it anywhere.
 	var rules []any
-	for _, up := range f.MonitorsVia(n) {
+	for _, up := range n.MonitorVia {
 		rules = append(rules, map[string]any{"inboundTag": []any{engine.MonitorInbound}, "user": []any{up.Name}, "outboundTag": engine.MonitorTag(up)})
 	}
 	if len(rules) > 0 {
@@ -156,7 +156,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 		}
 		out = append(out, in)
 	}
-	if via := f.MonitorsVia(n); len(via) > 0 {
+	if via := n.MonitorVia; len(via) > 0 {
 		accounts := make([]any, 0, len(via))
 		for _, up := range via {
 			accounts = append(accounts, map[string]any{"user": up.Name, "pass": n.MonitorUUID})
@@ -176,7 +176,7 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 // to the first outbound. The monitor's outbounds come last.
 func serverOutbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	out := egressOutbounds(n)
-	for _, up := range f.MonitorsVia(n) {
+	for _, up := range n.MonitorVia {
 		o := realityOutbound(up, n.MonitorUUID)
 		o["tag"] = engine.MonitorTag(up)
 		out = append(out, o)

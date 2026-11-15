@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 	"unicode/utf8"
 
@@ -471,6 +472,44 @@ func TestRun_ViaGivesUp(t *testing.T) {
 	require.EqualError(t, err, "ops: through a: connection reset\nthrough b: connection reset\nthrough c: connection reset")
 	require.Equal(t, []string{"a", "b", "c"}, *tried)
 	require.Empty(t, h.sent)
+}
+
+// The next run starts with the nodes the last one didn't try, and comes
+// back to a node once a report has left through it.
+func TestRun_ViaRotates(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	tried := h.via([]string{"a", "b", "c", "d"}, map[string]int{"a": 0, "b": 0, "c": 0})
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	require.Error(t, h.m.Run(t.Context(), false))
+	h.now = h.now.Add(time.Minute)
+	*tried = nil
+	require.Len(t, h.run(), 1)
+	require.Equal(t, []string{"d"}, *tried)
+
+	h.engine.warpErr = nil
+	h.run()
+	*tried = nil
+	require.Len(t, h.run(), 1)
+	require.Equal(t, []string{"d"}, *tried, "the others failed since")
+}
+
+// A node that answers and then goes quiet didn't carry the report.
+func TestRun_ViaCutShort(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	h.m.Config.Notify[0].Via = []string{"de", "fi"}
+	direct := h.m.HTTP.Transport
+	h.m.Via = func(node string) *http.Client {
+		return &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			if node == "de" {
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(iotest.ErrReader(errors.New("connection reset")))}, nil
+			}
+			return direct.RoundTrip(r)
+		})}
+	}
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	require.Len(t, h.run(), 1)
 }
 
 // A channel that answers and refuses would refuse through any node.
