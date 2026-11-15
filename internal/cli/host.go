@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -67,11 +68,16 @@ to see what the checks find now.`,
 				StatePath: statePath,
 				Out:       cmd.OutOrStdout(),
 				Now:       time.Now,
-				HTTP:      &http.Client{Timeout: 15 * time.Second},
+				HTTP:      &http.Client{Timeout: 15 * time.Second, Transport: transport(nil)},
 				Dial:      (&net.Dialer{}).DialContext,
 				Active: func(ctx context.Context, unit string) error {
 					return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", unit).Run()
 				},
+			}
+			if p := cfg.Proxy; p != nil {
+				m.Via = func(node string) *http.Client {
+					return &http.Client{Transport: transport(p.URL(node))}
+				}
 			}
 			if cfg.Warp != nil {
 				m.Engine = &engineapi.Client{HTTP: &http.Client{}, URL: cfg.Warp.URL, Secret: cfg.Warp.Secret}
@@ -83,6 +89,15 @@ to see what the checks find now.`,
 	cmd.Flags().StringVar(&statePath, "state", deploy.MonitorState, "File that keeps the checks' states between runs")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Print what the checks find; tell no one, keep no state")
 	return cmd
+}
+
+// transport reaches a channel through proxy, or directly when it is nil,
+// whatever proxy the environment names. A run is too short to keep
+// connections for.
+func transport(proxy *url.URL) *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy, t.DisableKeepAlives = http.ProxyURL(proxy), true
+	return t
 }
 
 func newHostApplyCommand() *cobra.Command {

@@ -255,6 +255,10 @@ type Channel struct {
 
 	// A webhook's URL, which takes the reports as JSON.
 	URL *secrets.SecretOrPlain `yaml:"url"`
+
+	// Via selects the nodes that can reach the channel, as a client
+	// group's nodes; the others send their reports through them.
+	Via string `yaml:"via"`
 }
 
 // Reach has the nodes From selects check that they reach the ones To

@@ -413,3 +413,108 @@ func TestSpan(t *testing.T) {
 		require.Equal(t, want, span(d))
 	}
 }
+
+// via has the harness's channel told through nodes, and returns the nodes
+// tried, in order. A node in carries stops answering after that many
+// requests.
+func (h *harness) via(nodes []string, carries map[string]int) *[]string {
+	var tried []string
+	h.m.Config.Notify[0].Via = nodes
+	direct := h.m.HTTP.Transport
+	h.m.Via = func(node string) *http.Client {
+		return &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			tried = append(tried, node)
+			if left, ok := carries[node]; ok && left == 0 {
+				return nil, errors.New("connection reset")
+			}
+			carries[node]--
+			return direct.RoundTrip(r)
+		})}
+	}
+	return &tried
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestRun_Via(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	tried := h.via([]string{"de", "fi", "us"}, map[string]int{"de": 0})
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	require.Len(t, h.run(), 1, "fi tells what de couldn't")
+	require.Equal(t, []string{"de", "fi"}, *tried)
+}
+
+// The nodes this one can't reach come last: the report of it mustn't wait
+// for them.
+func TestRun_ViaSkipsUnreachable(t *testing.T) {
+	h := newHarness(t, &Config{Reach: []Target{{Node: "de", Address: "192.0.2.1", Port: 443}}})
+	tried := h.via([]string{"de", "fi"}, map[string]int{"de": 0})
+	h.m.Dial = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("connection refused")
+	}
+	h.run()
+	require.Equal(t, []string{"princo node us\n🔴 Can't reach node de: connecting to 192.0.2.1:443: connection refused"}, h.run())
+	require.Equal(t, []string{"fi"}, *tried)
+}
+
+// A run tries so many nodes, and never on its own: the node can't reach
+// the channel.
+func TestRun_ViaGivesUp(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	tried := h.via([]string{"a", "b", "c", "d"}, map[string]int{"a": 0, "b": 0, "c": 0, "d": 0})
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	err := h.m.Run(t.Context(), false)
+	require.EqualError(t, err, "ops: through a: connection reset\nthrough b: connection reset\nthrough c: connection reset")
+	require.Equal(t, []string{"a", "b", "c"}, *tried)
+	require.Empty(t, h.sent)
+}
+
+// A channel that answers and refuses would refuse through any node.
+func TestRun_ViaRefused(t *testing.T) {
+	h := newHarness(t, warpConfig())
+	tried := h.via([]string{"de", "fi"}, map[string]int{})
+	h.engine.warpErr = errors.New("no answer")
+	h.run()
+	h.refuse = true
+	err := h.m.Run(t.Context(), false)
+	require.EqualError(t, err, "ops: through de: it refused the message: Forbidden: bot was blocked")
+	require.Equal(t, []string{"de"}, *tried)
+}
+
+// A node that fails midway leaves the rest to the next: nothing is told
+// twice.
+func TestRun_ViaGoesOn(t *testing.T) {
+	cfg := &Config{}
+	for i := range 150 {
+		cfg.Reach = append(cfg.Reach, Target{Node: fmt.Sprintf("node%03d", i), Address: "192.0.2.1", Port: 443})
+	}
+	h := newHarness(t, cfg)
+	h.via([]string{"de", "fi"}, map[string]int{"de": 1})
+	h.m.Dial = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("connection refused")
+	}
+	h.run()
+	lines := 0
+	for _, text := range h.run() {
+		lines += strings.Count(text, "\n")
+	}
+	require.Equal(t, 150, lines)
+	require.Empty(t, h.run())
+}
+
+// Which nodes carry the reports is no part of where they go.
+func TestChannelID_Via(t *testing.T) {
+	ch := Channel{Name: "ops", Telegram: &Telegram{API: "https://api.telegram.org", Token: "t", Chat: "c"}}
+	id := ch.id()
+	ch.Via = []string{"de"}
+	require.Equal(t, id, ch.id())
+}
+
+func TestProxyURL(t *testing.T) {
+	p := &Proxy{Address: "127.0.0.1:8447", Password: "p w"}
+	require.Equal(t, "socks5h://de:p%20w@127.0.0.1:8447", p.URL("de").String())
+}

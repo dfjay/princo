@@ -51,6 +51,26 @@
           "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
         }
       ]
+    },
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 8447,
+      "tag": "monitor-in",
+      "type": "socks",
+      "users": [
+        {
+          "password": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61",
+          "username": "de"
+        },
+        {
+          "password": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61",
+          "username": "fi"
+        },
+        {
+          "password": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61",
+          "username": "us"
+        }
+      ]
     }
   ],
   "log": {
@@ -80,6 +100,69 @@
       "uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd"
     },
     {
+      "flow": "xtls-rprx-vision",
+      "server": "de.example.com",
+      "server_port": 443,
+      "tag": "monitor-de",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "rTfvDnYUF2iyaHAreWAuNEJ2MipD-PGBiDysUvNJHjM",
+          "short_id": "1a3287df"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "fi.example.com",
+      "server_port": 443,
+      "tag": "monitor-fi",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc",
+          "short_id": "3c5409f1"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "203.0.113.7",
+      "server_port": 443,
+      "tag": "monitor-us",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk",
+          "short_id": "2b4398e0"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
+    },
+    {
       "domain_resolver": "quad9",
       "tag": "direct",
       "type": "direct"
@@ -103,6 +186,42 @@
       }
     ],
     "rules": [
+      {
+        "action": "route",
+        "auth_user": [
+          "de"
+        ],
+        "inbound": [
+          "monitor-in"
+        ],
+        "outbound": "monitor-de"
+      },
+      {
+        "action": "route",
+        "auth_user": [
+          "fi"
+        ],
+        "inbound": [
+          "monitor-in"
+        ],
+        "outbound": "monitor-fi"
+      },
+      {
+        "action": "route",
+        "auth_user": [
+          "us"
+        ],
+        "inbound": [
+          "monitor-in"
+        ],
+        "outbound": "monitor-us"
+      },
+      {
+        "action": "reject",
+        "inbound": [
+          "monitor-in"
+        ]
+      },
       {
         "action": "reject",
         "ip_is_private": true

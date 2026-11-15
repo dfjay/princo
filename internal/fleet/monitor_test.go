@@ -97,6 +97,55 @@ monitor:
 	require.Equal(t, []*Node{a}, f.Reaches(b))
 }
 
+// b can't reach the channel, and tells it through a; a tells it itself.
+func TestBuild_MonitorVia(t *testing.T) {
+	values := monitorSecrets()
+	values["nodes"].(map[string]any)["b"].(map[string]any)["monitor"] = "uuid-monitor-b"
+	src := `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    egress: warp
+  b:
+    address: b.example.com
+    tags: [home]
+    reality: { server_name: s, short_id: "2", public_key: p }
+  c:
+    address: c.example.com
+    hysteria2: { masquerade: https://example.com }
+users:
+  u: {}
+monitor:
+  notify:
+    ops: { type: telegram, via: "!home" }
+    hook: { type: webhook }
+`
+	f, err := build(t, src, values)
+	require.NoError(t, err)
+	a, _ := f.Node("a")
+	b, _ := f.Node("b")
+	c, _ := f.Node("c")
+	hook, ops := f.Monitor.Notify[0], f.Monitor.Notify[1]
+	require.Equal(t, &Selector{Tag: "home", Negate: true}, ops.Via)
+	require.Equal(t, []*Node{a}, f.Via(b, ops), "c has no Reality to connect to")
+	require.Empty(t, f.Via(a, ops), "a is selected: it reaches the channel")
+	require.Empty(t, f.Via(c, ops))
+	require.Empty(t, f.Via(b, hook), "a channel without via is told directly")
+	require.Equal(t, []*Node{a}, f.MonitorsVia(b))
+	require.Equal(t, []*Node{b}, f.MonitorsInto(a))
+	require.Empty(t, f.MonitorsInto(b))
+	require.Equal(t, "uuid-monitor-b", b.MonitorUUID)
+	require.Empty(t, a.MonitorUUID, "a node that sends on its own needs none")
+
+	cfg, err := config.Parse([]byte("princo: v1\n" + src))
+	require.NoError(t, err)
+	require.Contains(t, Secrets(cfg), SecretUse{Path: "nodes/b/monitor", Field: "monitor.notify", Kind: SecretUUID}, "princo secret gen makes it")
+
+	_, err = build(t, src, monitorSecrets())
+	require.ErrorContains(t, err, "monitor.notify: resolve !secret nodes/b/monitor")
+}
+
 func TestBuild_MonitorErrors(t *testing.T) {
 	for name, tc := range map[string]struct{ rest, want string }{
 		"interval too short": {"monitor: { " + ops + ", interval: 10s }", "monitor.interval: want 1m0s or longer"},
@@ -114,6 +163,7 @@ func TestBuild_MonitorErrors(t *testing.T) {
 		"no channel":         {"monitor: {}", "monitor.notify: want a channel to tell"},
 		"unknown type":       {"monitor: { notify: { ops: { type: pager } } }", `monitor.notify.ops.type: want telegram or webhook, got "pager"`},
 		"another's field":    {"monitor: { notify: { hook: { type: webhook, chat: x } } }", "monitor.notify.hook.chat: a webhook channel has none"},
+		"via no one":         {"monitor: { notify: { ops: { type: telegram, via: abroad } } }", "monitor.notify.ops.via: no node with reality matches abroad"},
 		"empty value":        {`monitor: { notify: { ops: { type: telegram, chat: "" } } }`, "monitor.notify.ops.chat: is empty"},
 	} {
 		t.Run(name, func(t *testing.T) {

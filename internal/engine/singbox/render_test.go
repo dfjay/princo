@@ -72,7 +72,7 @@ func TestChain(t *testing.T) {
 
 	relay := renderJSON(t, e.RenderServer, f, "relay")
 	route := relay["route"].(map[string]any)
-	require.Equal(t, map[string]any{"ip_is_private": true, "action": "reject"}, route["rules"].([]any)[0],
+	require.Equal(t, map[string]any{"ip_is_private": true, "action": "reject"}, route["rules"].([]any)[4],
 		"no resolve: domains go to de as they are")
 	require.Equal(t, "de-reality", route["final"], "relay exits through de")
 	upstream := relay["outbounds"].([]any)[0].(map[string]any)
@@ -86,6 +86,58 @@ func TestChain(t *testing.T) {
 		"uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd",
 		"flow": "xtls-rprx-vision",
 	}, "de accepts the relay hop")
+}
+
+// relay can't reach the monitor's channel, and reports through the nodes
+// that can.
+func TestMonitorVia(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	e := New()
+
+	relay := renderJSON(t, e.RenderServer, f, "relay")
+	inbounds := relay["inbounds"].([]any)
+	require.Equal(t, map[string]any{
+		"type": "socks", "tag": "monitor-in", "listen": "127.0.0.1", "listen_port": 8447.0,
+		"users": []any{
+			map[string]any{"username": "de", "password": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"},
+			map[string]any{"username": "fi", "password": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"},
+			map[string]any{"username": "us", "password": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"},
+		},
+	}, inbounds[len(inbounds)-1], "on loopback, and behind a password")
+	rules := relay["route"].(map[string]any)["rules"].([]any)
+	require.Equal(t, map[string]any{"inbound": []any{"monitor-in"}, "auth_user": []any{"de"}, "action": "route", "outbound": "monitor-de"}, rules[0],
+		"before anything resolves or redirects it")
+	require.Equal(t, map[string]any{"inbound": []any{"monitor-in"}, "action": "reject"}, rules[3], "and nowhere else")
+	var hop map[string]any
+	for _, o := range relay["outbounds"].([]any) {
+		if o := o.(map[string]any); o["tag"] == "monitor-de" {
+			hop = o
+		}
+	}
+	require.Equal(t, "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61", hop["uuid"], "not as the chain hop, whose traffic is the users'")
+
+	for _, name := range []string{"de", "us"} {
+		up := renderJSON(t, e.RenderServer, f, name)
+		require.Contains(t, up["inbounds"].([]any)[0].(map[string]any)["users"], map[string]any{
+			"name": "monitor:relay", "uuid": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61", "flow": "xtls-rprx-vision",
+		})
+		rules := up["route"].(map[string]any)["rules"].([]any)
+		require.Equal(t, []any{
+			map[string]any{"action": "resolve"},
+			map[string]any{"ip_is_private": true, "action": "reject"},
+			map[string]any{"auth_user": []any{"monitor:relay"}, "action": "route", "outbound": "direct"},
+		}, rules[:3], name+": past WARP, but not into its own network")
+		for _, in := range up["inbounds"].([]any) {
+			require.NotEqual(t, "monitor-in", in.(map[string]any)["tag"], name+" reaches the channel itself")
+		}
+	}
+
+	// A chained node resolves the reports' domains itself to send them direct.
+	us, _ := f.Node("us")
+	de, _ := f.Node("de")
+	us.Egress = fleet.Egress{Kind: fleet.EgressNode, Node: de}
+	rules = renderJSON(t, e.RenderServer, f, "us")["route"].(map[string]any)["rules"].([]any)
+	require.Equal(t, map[string]any{"auth_user": []any{"monitor:relay"}, "action": "resolve"}, rules[0])
 }
 
 func TestMux(t *testing.T) {

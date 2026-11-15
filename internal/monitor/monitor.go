@@ -48,6 +48,8 @@ type Monitor struct {
 	Now func() time.Time
 	// HTTP reaches the channels.
 	HTTP *http.Client
+	// Via reaches them through the node named, by Config.Proxy.
+	Via  func(node string) *http.Client
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// Active fails unless the systemd unit runs.
 	Active func(ctx context.Context, unit string) error
@@ -114,6 +116,7 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 		id      string
 		changes []change
 		checks  []*checkState
+		routes  []route
 		told    int
 		err     error
 	}
@@ -129,6 +132,7 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 			}
 		}
 		if len(d.changes) > 0 {
+			d.routes = m.routes(ch, st)
 			deliveries = append(deliveries, d)
 		}
 	}
@@ -137,7 +141,7 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 		wg.Go(func() {
 			ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 			defer cancel()
-			d.told, d.err = d.channel.sender().send(ctx, m.HTTP, m.Config.Node, d.changes)
+			d.told, d.err = m.send(ctx, d.channel, d.routes, d.changes)
 		})
 	}
 	wg.Wait()
@@ -155,6 +159,63 @@ func (m *Monitor) notify(ctx context.Context, st *state) []error {
 		maps.DeleteFunc(c.Told, func(id string, _ bool) bool { return !ids[id] })
 	}
 	return errs
+}
+
+// maxVia is how many nodes a run tries a channel through, each with its
+// share of sendTimeout.
+const maxVia = 3
+
+// route is a way to a channel: through the node via, or directly.
+type route struct {
+	via    string
+	client *http.Client
+}
+
+// routes lists the ways to try ch in turn: directly, or through its nodes,
+// those the latest run reached first.
+func (m *Monitor) routes(ch Channel, st *state) []route {
+	if len(ch.Via) == 0 {
+		return []route{{client: m.HTTP}}
+	}
+	var up, down []string
+	for _, node := range ch.Via {
+		if c := st.Checks[checkReach+node]; c != nil && c.Down != (c.Streak > 0) {
+			down = append(down, node)
+		} else {
+			up = append(up, node)
+		}
+	}
+	var out []route
+	for _, node := range append(up, down...)[:min(len(ch.Via), maxVia)] {
+		out = append(out, route{node, m.Via(node)})
+	}
+	return out
+}
+
+// send tells ch of changes by the first of routes that reaches it, each
+// with an equal share of the time left, and returns how many it told. A
+// route goes on where the one before it stopped.
+func (m *Monitor) send(ctx context.Context, ch Channel, routes []route, changes []change) (int, error) {
+	deadline, _ := ctx.Deadline()
+	told := 0
+	var errs []error
+	for i, r := range routes {
+		tryCtx, cancel := context.WithTimeout(ctx, time.Until(deadline)/time.Duration(len(routes)-i))
+		n, err := ch.sender().send(tryCtx, r.client, m.Config.Node, changes[told:])
+		cancel()
+		told += n
+		if err == nil {
+			return told, nil
+		}
+		if r.via != "" {
+			err = fmt.Errorf("through %s: %w", r.via, err)
+		}
+		errs = append(errs, err)
+		if _, ok := errors.AsType[*unreachable](err); !ok {
+			break
+		}
+	}
+	return told, errors.Join(errs...)
 }
 
 // check runs every check. skipped are those it couldn't tell about, whose

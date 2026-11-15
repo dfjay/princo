@@ -78,6 +78,11 @@
           "flow": "xtls-rprx-vision",
           "name": "chain:relay",
           "uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd"
+        },
+        {
+          "flow": "xtls-rprx-vision",
+          "name": "monitor:relay",
+          "uuid": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
         }
       ]
     },
@@ -159,6 +164,13 @@
       {
         "action": "reject",
         "ip_is_private": true
+      },
+      {
+        "action": "route",
+        "auth_user": [
+          "monitor:relay"
+        ],
+        "outbound": "direct"
       },
       {
         "action": "reject",

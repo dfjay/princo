@@ -27,6 +27,7 @@ func secretReality(node string) string        { return "nodes/" + node + "/reali
 func secretWarp(node, field string) string    { return "nodes/" + node + "/warp/" + field }
 func secretChainUUID(node string) string      { return "nodes/" + node + "/chain" }
 func secretAPI(node string) string            { return "nodes/" + node + "/api" }
+func secretMonitorUUID(node string) string    { return "nodes/" + node + "/monitor" }
 
 // engineProtocols are the protocols each engine serves.
 var engineProtocols = map[string][]string{
@@ -393,6 +394,13 @@ func (b *builder) monitor() {
 		if b.f.MonitorsWarp(n) {
 			b.api(n, "nodes."+n.Name+".warp")
 		}
+		if len(b.f.MonitorsVia(n)) > 0 {
+			n.MonitorUUID = b.secret("monitor.notify", nil, secretMonitorUUID(n.Name), SecretUUID)
+			if n.MonitorUUID == "" {
+				// The engine would leave its proxy open to the host's every user.
+				b.errorf("monitor.notify: the secret %s is empty", secretMonitorUUID(n.Name))
+			}
+		}
 	}
 }
 
@@ -430,6 +438,16 @@ func (b *builder) channel(where, name string, c config.Channel) Channel {
 		}
 	default:
 		b.errorf("%s.type: want telegram or webhook, got %q", where, c.Type)
+	}
+	if c.Via != "" {
+		sel, err := parseSelector(c.Via)
+		switch {
+		case err != nil:
+			b.errorf("%s.via: %v", where, err)
+		case !slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return sel.Matches(n) && n.Reality != nil }):
+			b.errorf("%s.via: no node with reality matches %s", where, c.Via)
+		}
+		out.Via = &sel
 	}
 	return out
 }

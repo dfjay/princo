@@ -20,11 +20,15 @@ type Channel struct {
 	Name     string    `json:"name"`
 	Telegram *Telegram `json:"telegram,omitzero"`
 	Webhook  *Webhook  `json:"webhook,omitzero"`
+	// Via are the nodes to tell it through, by Config.Proxy; directly
+	// when empty.
+	Via []string `json:"via,omitzero"`
 }
 
 // id names the channel and where it leads, so that one pointed elsewhere
-// hears the checks' states anew.
+// hears the checks' states anew. How the reports get there is no part of it.
 func (c Channel) id() string {
+	c.Via = nil
 	data, _ := json.Marshal(c, json.Deterministic(true))
 	sum := sha256.Sum256(data)
 	return c.Name + ":" + hex.EncodeToString(sum[:4])
@@ -48,9 +52,17 @@ type change struct {
 // sender takes reports. Its errors never hold its secrets.
 type sender interface {
 	// send tells of node's changes in their order, and returns how many
-	// it told before it failed.
+	// it told before it failed. The error is an *unreachable when the
+	// channel never answered.
 	send(ctx context.Context, client *http.Client, node string, changes []change) (int, error)
 }
+
+// unreachable is a channel that didn't answer, which another way to it
+// may yet reach; one that answered and refused would refuse there too.
+type unreachable struct{ err error }
+
+func (e *unreachable) Error() string { return e.err.Error() }
+func (e *unreachable) Unwrap() error { return e.err }
 
 func header(node string) string { return "princo node " + node }
 
@@ -66,11 +78,14 @@ func post(ctx context.Context, client *http.Client, to, contentType string, body
 	c := *client
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := c.Do(req)
+	if err == nil {
+		return resp, nil
+	}
 	if ue, ok := errors.AsType[*url.Error](err); ok {
 		// It quotes the URL.
 		err = ue.Err
 	}
-	return resp, err
+	return nil, &unreachable{err}
 }
 
 type Telegram struct {

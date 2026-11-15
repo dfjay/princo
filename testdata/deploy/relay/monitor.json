@@ -7,7 +7,12 @@
         "api": "https://api.telegram.org",
         "token": "123456789:AAsynthetic-token-for-tests-only0000",
         "chat": "-1001234567890"
-      }
+      },
+      "via": [
+        "de",
+        "fi",
+        "us"
+      ]
     }
   ],
   "confirm": 2,
@@ -33,5 +38,9 @@
       "port": 443,
       "server_name": "www.samsung.com"
     }
-  ]
+  ],
+  "proxy": {
+    "address": "127.0.0.1:8447",
+    "password": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
+  }
 }
