@@ -33,7 +33,7 @@ nodes:
     naive: { domain: shop.example.com }
 users:
   u: {}
-subscription: { node: a, domain: subs.example.com }
+subscription: { node: a, domains: [subs.example.com] }
 certificates:
   wild:
     domains: [example.com, "*.example.com"]

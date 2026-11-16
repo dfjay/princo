@@ -116,12 +116,14 @@ in
     assert "qr-sub.svg" in machine.succeed(curl + "/qr")
     assert "<svg" in machine.succeed(curl + "/qr-sub.svg")
     machine.fail("curl -sfk --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/tokens.txt")
-    # An alias serves the same site under its own certificate and name.
-    alias = "curl -sfk --resolve subs.example.org:443:127.0.0.1 https://subs.example.org/" + token
-    assert machine.succeed(alias + "/ | base64 -d") == links
-    headers = machine.succeed(alias + "/ -D - -o /dev/null")
+    # Its other domain serves the same users under its own name.
+    other = "curl -sfk --resolve subs.example.org:443:127.0.0.1 https://subs.example.org/" + token
+    assert machine.succeed(other + "/ | base64 -d") == links
+    headers = machine.succeed(other + "/ -D - -o /dev/null")
     assert "profile-web-page-url: https://subs.example.org/" + token + "/qr" in headers, headers
-    assert machine.succeed(alias + "/sing-box") == profile
+    profile = machine.succeed(other + "/sing-box")
+    assert "https://subs.example.org/rules/geoip-ru.srs" in profile, profile
+    assert "subs.example.com" not in profile + machine.succeed(other + "/qr"), profile
     machine.fail(curl + "/missing.svg")
     # Subscription URLs grant access.
     assert token not in machine.succeed("cat /var/log/nginx/*.log && journalctl -u nginx --no-pager")

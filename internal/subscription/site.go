@@ -41,28 +41,24 @@ func (l Links) Profile(format string, p engine.Platform) string {
 	return l.Universal + path.Join(format, string(p))
 }
 
-// UserLinks returns the user's links, or false when the fleet has no
-// subscription.
-func UserLinks(f *fleet.Fleet, u *fleet.User) (Links, bool) {
-	if f.Subscription == nil {
-		return Links{}, false
-	}
-	l := Links{Universal: "https://" + f.Subscription.Domain + "/" + Token(u) + "/"}
+// UserLinks returns the user's links to the site at domain.
+func UserLinks(domain string, u *fleet.User) Links {
+	l := Links{Universal: "https://" + domain + "/" + Token(u) + "/"}
 	l.QR = l.Universal + "qr"
 	// https://sing-box.sagernet.org/clients/general/#remote-profile
 	l.SingBox = "sing-box://import-remote-profile?url=" + url.QueryEscape(l.Profile("sing-box", engine.AnyPlatform)) +
 		"#" + (&url.URL{Fragment: u.Name}).EscapedFragment()
-	return l, true
+	return l
 }
 
 // Site renders the subscription site as files relative to its root, for
-// every user of the fleet:
+// every domain and every user of the fleet. Each domain's files name it:
 //
-//	<token>/base64                     share links, one per line, base64-encoded
-//	<token>/sing-box/config            the sing-box profile for the apps
-//	<token>/sing-box/<platform>/config the profile for each of client's platforms
-//	<token>/index.html                 both subscription links with QR codes
-//	<token>/qr-*.svg                   the QR codes
+//	<domain>/<token>/base64                     share links, one per line, base64-encoded
+//	<domain>/<token>/sing-box/config            the sing-box profile for the apps
+//	<domain>/<token>/sing-box/<platform>/config the profile for each of client's platforms
+//	<domain>/<token>/index.html                 both subscription links with QR codes
+//	<domain>/<token>/qr-*.svg                   the QR codes
 //
 // The web server maps https://<domain>/<token>/ to base64 (or to the
 // profile for sing-box apps), /<token>/base64 to base64 and
@@ -72,41 +68,50 @@ func Site(f *fleet.Fleet, client engine.Engine) (map[string][]byte, error) {
 		return nil, fmt.Errorf("the fleet has no subscription")
 	}
 	files := map[string][]byte{}
-	for _, u := range f.Users {
-		token := Token(u)
-		for _, p := range append([]engine.Platform{engine.AnyPlatform}, client.ClientPlatforms()...) {
-			profile, err := client.RenderClient(f, u.Name, p)
-			if err != nil {
-				return nil, fmt.Errorf("profile of %s: %w", u.Name, err)
+	for _, domain := range f.Subscription.Domains {
+		for _, u := range f.Users {
+			if err := userFiles(files, f, client, domain, u); err != nil {
+				return nil, err
 			}
-			files[path.Join(token, client.Name(), string(p), "config")] = profile
 		}
-		links, _ := UserLinks(f, u)
-		subQR, err := qrSVG(links.Universal)
-		if err != nil {
-			return nil, err
-		}
-		singBoxQR, err := qrSVG(links.SingBox)
-		if err != nil {
-			return nil, err
-		}
-		var page bytes.Buffer
-		if err := pageTemplate.Execute(&page, map[string]any{
-			"User":      u.Name,
-			"Universal": links.Universal,
-			// html/template blanks hrefs with schemes it doesn't know.
-			"SingBox": template.URL(links.SingBox),
-		}); err != nil {
-			return nil, err
-		}
-
-		uris := strings.Join(URIs(u), "\n")
-		files[token+"/base64"] = []byte(base64.StdEncoding.EncodeToString([]byte(uris)))
-		files[token+"/index.html"] = page.Bytes()
-		files[token+"/qr-sub.svg"] = subQR
-		files[token+"/qr-singbox.svg"] = singBoxQR
 	}
 	return files, nil
+}
+
+// userFiles adds u's files of the site at domain to files.
+func userFiles(files map[string][]byte, f *fleet.Fleet, client engine.Engine, domain string, u *fleet.User) error {
+	dir := path.Join(domain, Token(u))
+	for _, p := range append([]engine.Platform{engine.AnyPlatform}, client.ClientPlatforms()...) {
+		profile, err := client.RenderClient(f, u.Name, p, domain)
+		if err != nil {
+			return fmt.Errorf("profile of %s: %w", u.Name, err)
+		}
+		files[path.Join(dir, client.Name(), string(p), "config")] = profile
+	}
+	links := UserLinks(domain, u)
+	subQR, err := qrSVG(links.Universal)
+	if err != nil {
+		return err
+	}
+	singBoxQR, err := qrSVG(links.SingBox)
+	if err != nil {
+		return err
+	}
+	var page bytes.Buffer
+	if err := pageTemplate.Execute(&page, map[string]any{
+		"User":      u.Name,
+		"Universal": links.Universal,
+		// html/template blanks hrefs with schemes it doesn't know.
+		"SingBox": template.URL(links.SingBox),
+	}); err != nil {
+		return err
+	}
+	uris := strings.Join(URIs(u), "\n")
+	files[dir+"/base64"] = []byte(base64.StdEncoding.EncodeToString([]byte(uris)))
+	files[dir+"/index.html"] = page.Bytes()
+	files[dir+"/qr-sub.svg"] = subQR
+	files[dir+"/qr-singbox.svg"] = singBoxQR
+	return nil
 }
 
 // qrSVG draws text as a QR code with the standard 4-module quiet zone.

@@ -27,7 +27,7 @@ func (e *Engine) Name() string { return "xray" }
 func (e *Engine) MinVersion() string { return minVersion }
 
 // RenderClient fails: users' apps get sing-box profiles and share links.
-func (e *Engine) RenderClient(*fleet.Fleet, string, engine.Platform) ([]byte, error) {
+func (e *Engine) RenderClient(*fleet.Fleet, string, engine.Platform, string) ([]byte, error) {
 	return nil, errors.New("xray renders no client profiles")
 }
 

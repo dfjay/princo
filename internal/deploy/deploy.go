@@ -292,13 +292,13 @@ func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engi
 }
 
 // addSite adds nginx's sites and the ACME webroot. The subscription site's
-// hosts whose certificates are missing wait for them on plain HTTP.
+// domains whose certificates are missing wait for them on plain HTTP.
 func addSite(b *bundle.Bundle, p *host.Plan, missing []string) error {
-	var siteTLS []host.SiteHost
+	var siteTLS []host.SiteDomain
 	if p.Subscription != nil {
-		for _, h := range p.Subscription.Hosts {
-			if !slices.Contains(missing, h.Certificate) {
-				siteTLS = append(siteTLS, h)
+		for _, d := range p.Subscription.Domains {
+			if !slices.Contains(missing, d.Certificate) {
+				siteTLS = append(siteTLS, d)
 			}
 		}
 	}

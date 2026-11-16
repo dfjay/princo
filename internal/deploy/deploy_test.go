@@ -126,8 +126,8 @@ func TestBootstrap(t *testing.T) {
 	require.Contains(t, site(b), "listen 127.0.0.1:8443 ssl;", "the site has its certificate")
 }
 
-// A host of the site waits for its own certificate alone.
-func TestBootstrap_SiteAlias(t *testing.T) {
+// A domain of the site waits for its own certificate alone.
+func TestBootstrap_SiteDomains(t *testing.T) {
 	p, files, _ := plan(t, "de")
 	site := func(b *bundle.Bundle) string { return string(file(t, b, SiteConf)) }
 
@@ -258,7 +258,7 @@ func TestCertbotHook_SiteKeyStaysRoots(t *testing.T) {
 			{Name: "subs.example.com", Source: fleet.CertHTTP, Site: true},
 			{Name: "own", Source: fleet.CertFile},
 		},
-		Subscription: &host.Site{Hosts: []host.SiteHost{{Domains: []string{"subs.example.com"}, Certificate: "subs.example.com"}}},
+		Subscription: &host.Site{Domains: []host.SiteDomain{{Name: "subs.example.com", Certificate: "subs.example.com"}}},
 	})
 	require.NoError(t, err)
 	require.Contains(t, string(hook), "'subs.example.com') unit=nginx.service group=root ;;")

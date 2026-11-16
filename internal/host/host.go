@@ -67,8 +67,8 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 	}
 	files := map[string][]byte{ConfigFile(n.Engine): append(cfg, '\n')}
 	certs := engineCertificates(cfg)
-	for _, h := range siteHosts(f, n) {
-		certs = append(certs, h.Certificate)
+	for _, d := range siteDomains(f, n) {
+		certs = append(certs, d.Certificate)
 	}
 	certs = sortedUnique(certs)
 	for _, name := range certs {
@@ -247,19 +247,17 @@ type Certificate struct {
 }
 
 type Site struct {
-	// Hosts serve the site under its domains, one per certificate: the
-	// subscription domain's first.
-	Hosts []SiteHost `json:"hosts"`
+	// Domains each serve the site, from their own directory under Root.
+	Domains []SiteDomain `json:"domains"`
 	// Root is the site's directory among the rendered files.
 	Root string `json:"root"`
 	// Listen is where the web server serves it over HTTPS.
 	Listen string `json:"listen"`
 }
 
-// SiteHost is the site's server for the domains one certificate covers.
-type SiteHost struct {
-	Domains []string `json:"domains"`
-	// Certificate names the host's in Plan.Certificates.
+type SiteDomain struct {
+	Name string `json:"name"`
+	// Certificate names the domain's in Plan.Certificates.
 	Certificate string `json:"certificate"`
 }
 
@@ -330,13 +328,17 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 	for _, name := range engineCerts {
 		p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(name), false))
 	}
-	if hosts := siteHosts(f, n); hosts != nil {
-		p.Subscription = &Site{Hosts: hosts, Root: SiteDir, Listen: SiteAddr}
-		for _, h := range hosts {
-			if slices.Contains(engineCerts, h.Certificate) {
-				return nil, fmt.Errorf("subscription: %s: node %s's engine has certificate %s too, which it can't share with the web server; give the site a certificate of its own", strings.Join(h.Domains, ", "), node, h.Certificate)
+	if domains := siteDomains(f, n); domains != nil {
+		p.Subscription = &Site{Domains: domains, Root: SiteDir, Listen: SiteAddr}
+		var siteCerts []string
+		for _, d := range domains {
+			if slices.Contains(engineCerts, d.Certificate) {
+				return nil, fmt.Errorf("subscription.domains: %s: node %s's engine has certificate %s too, which it can't share with the web server; give the site a certificate of its own", d.Name, node, d.Certificate)
 			}
-			p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(h.Certificate), true))
+			siteCerts = append(siteCerts, d.Certificate)
+		}
+		for _, name := range sortedUnique(siteCerts) {
+			p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(name), true))
 		}
 	}
 	slices.SortFunc(p.Certificates, func(a, b Certificate) int { return strings.Compare(a.Name, b.Name) })
@@ -375,23 +377,17 @@ func engineCertificates(cfg []byte) []string {
 	return sortedUnique(names)
 }
 
-// siteHosts groups the domains of the subscription site by certificate, in
-// their order; nil unless n serves it.
-func siteHosts(f *fleet.Fleet, n *fleet.Node) []SiteHost {
+// siteDomains are the domains of the subscription site with their
+// certificates; nil unless n serves it.
+func siteDomains(f *fleet.Fleet, n *fleet.Node) []SiteDomain {
 	if !n.ServesSubscription {
 		return nil
 	}
-	var hosts []SiteHost
-	for _, d := range f.Subscription.Domains() {
-		name := f.Certificate(d).Name
-		i := slices.IndexFunc(hosts, func(h SiteHost) bool { return h.Certificate == name })
-		if i < 0 {
-			hosts = append(hosts, SiteHost{Certificate: name})
-			i = len(hosts) - 1
-		}
-		hosts[i].Domains = append(hosts[i].Domains, d)
+	var domains []SiteDomain
+	for _, d := range f.Subscription.Domains {
+		domains = append(domains, SiteDomain{Name: d, Certificate: f.Certificate(d).Name})
 	}
-	return hosts
+	return domains
 }
 
 // addCertFiles adds what certificate c needs from secrets to files.
@@ -422,7 +418,7 @@ func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {
 		m.Routes = append(m.Routes, Route{SNI: pt.Host, Target: pt.Target})
 	}
 	if n.ServesSubscription {
-		for _, d := range f.Subscription.Domains() {
+		for _, d := range f.Subscription.Domains {
 			m.Routes = append(m.Routes, Route{SNI: d, Target: SiteAddr})
 		}
 	}

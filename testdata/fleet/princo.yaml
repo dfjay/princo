@@ -107,9 +107,7 @@ client:
 
 subscription:
   node: de
-  domain: subs.example.com
-  # Old links keep working; new ones and the profiles name the domain.
-  aliases: [subs.example.org]
+  domains: [subs.example.com, subs.example.org]
 
 monitor:
   notify:

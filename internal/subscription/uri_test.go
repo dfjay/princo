@@ -44,8 +44,7 @@ func TestURIs_EscapesName(t *testing.T) {
 	uris := URIs(&u)
 	require.Equal(t, "naive+https://ops%23team:dbc5aca6-f0dd-416d-b30f-813754d72f99@naive-de.example.com:443#ops%23team-de-naive", uris[2])
 
-	links, ok := UserLinks(f, &u)
-	require.True(t, ok)
+	links := UserLinks(f.Subscription.Domain(), &u)
 	require.Equal(t, "sing-box://import-remote-profile?url=https%3A%2F%2Fsubs.example.com%2Ff8cb68efcef124689abd331ff3fa5241%2Fsing-box#ops%23team", links.SingBox)
 }
 

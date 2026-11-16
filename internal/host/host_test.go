@@ -68,9 +68,9 @@ func TestPlan_Mux(t *testing.T) {
 	}, p.Certificates)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
 	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
-	require.Equal(t, &Site{Hosts: []SiteHost{
-		{Domains: []string{"subs.example.com"}, Certificate: "subs.example.com"},
-		{Domains: []string{"subs.example.org"}, Certificate: "subs.example.org"},
+	require.Equal(t, &Site{Domains: []SiteDomain{
+		{Name: "subs.example.com", Certificate: "subs.example.com"},
+		{Name: "subs.example.org", Certificate: "subs.example.org"},
 	}, Root: "subscription", Listen: SiteAddr}, p.Subscription)
 	// Its own keys, the chain hop exiting here, the monitor's chat, and
 	// every user for the site.
@@ -102,9 +102,9 @@ func TestPlan_MuxWithoutEngine(t *testing.T) {
 
 func TestPlan_SiteSharesEngineCertificate(t *testing.T) {
 	f := placeholderFleet(t)
-	f.Subscription.Domain = "de.example.com"
+	f.Subscription.Domains = []string{"de.example.com"}
 	_, err := NewPlan(f, "de", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
-	require.ErrorContains(t, err, "subscription: de.example.com: node de's engine has certificate de.example.com too, which it can't share with the web server")
+	require.ErrorContains(t, err, "subscription.domains: de.example.com: node de's engine has certificate de.example.com too, which it can't share with the web server")
 }
 
 func TestPlan_RealityOnly(t *testing.T) {
@@ -131,15 +131,23 @@ func TestFiles_Subscription(t *testing.T) {
 	require.Len(t, token, 32)
 	require.Contains(t, string(files[TokensFile]), "alice "+token+"\n")
 
-	links, err := base64.StdEncoding.DecodeString(string(files["subscription/"+token+"/base64"]))
+	site := "subscription/subs.example.com/" + token
+	links, err := base64.StdEncoding.DecodeString(string(files[site+"/base64"]))
 	require.NoError(t, err)
 	require.Equal(t, strings.Join(subscription.URIs(alice), "\n"), string(links))
-	require.Contains(t, string(files["subscription/"+token+"/sing-box/config"]), alice.UUID)
-	require.Contains(t, string(files["subscription/"+token+"/sing-box/linux/config"]), `"auto_redirect": true`)
-	require.NotContains(t, string(files["subscription/"+token+"/sing-box/config"]), "auto_redirect")
-	page := string(files["subscription/"+token+"/index.html"])
-	require.Contains(t, page, `href="sing-box://import-remote-profile?url=https%3A%2F%2Fsubs.example.com%2F`+token+`%2Fsing-box#alice"`)
-	require.Contains(t, string(files["subscription/"+token+"/qr-sub.svg"]), "<svg")
+	require.Contains(t, string(files[site+"/sing-box/config"]), alice.UUID)
+	require.Contains(t, string(files[site+"/sing-box/linux/config"]), `"auto_redirect": true`)
+	require.NotContains(t, string(files[site+"/sing-box/config"]), "auto_redirect")
+	require.Contains(t, string(files[site+"/index.html"]), `href="sing-box://import-remote-profile?url=https%3A%2F%2Fsubs.example.com%2F`+token+`%2Fsing-box#alice"`)
+	require.Contains(t, string(files[site+"/qr-sub.svg"]), "<svg")
+
+	// Each domain serves files that name it alone.
+	other := "subscription/subs.example.org/" + token
+	require.Equal(t, files[site+"/base64"], files[other+"/base64"])
+	require.Contains(t, string(files[other+"/index.html"]), `href="https://subs.example.org/`+token+`/"`)
+	require.Contains(t, string(files[other+"/sing-box/config"]), "https://subs.example.org/rules/geoip-ru.srs")
+	require.NotContains(t, string(files[other+"/sing-box/config"])+string(files[other+"/index.html"]), "subs.example.com")
+	require.NotEqual(t, files[site+"/qr-sub.svg"], files[other+"/qr-sub.svg"])
 
 	us, err := Files(f, "us")
 	require.NoError(t, err)
@@ -190,7 +198,7 @@ nodes:
     naive: { domain: shop.example.com }
 users:
   u: {}
-subscription: { node: a, domain: subs.example.com }
+subscription: { node: a, domains: [subs.example.com] }
 certificates:
   wild:
     domains: ["*.example.com"]
@@ -224,43 +232,13 @@ certificates:
 		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Site: true},
 		{Name: "wild", Domains: []string{"*.example.com"}, Source: fleet.CertDNS, DNS: "cloudflare"},
 	}, p.Certificates)
-	require.Equal(t, []SiteHost{{Domains: []string{"subs.example.com"}, Certificate: "site"}}, p.Subscription.Hosts)
+	require.Equal(t, []SiteDomain{{Name: "subs.example.com", Certificate: "site"}}, p.Subscription.Domains)
 	require.Subset(t, secretPaths(p), []string{"cf", "certificates/site/fullchain", "certificates/site/key"})
 
-	// An alias under the engine's wildcard can't share it either.
-	cfg.Subscription.Aliases = []string{"old.example.org", "subs2.example.com", "old2.example.org"}
+	// A domain under the engine's wildcard can't share it.
+	cfg.Subscription.Domains = []string{"subs.example.com", "subs2.example.com"}
 	placeholders, err = fleet.Build(cfg, secrets.AllPlaceholders{})
 	require.NoError(t, err)
 	_, err = NewPlan(placeholders, "a", func(path string) (string, int) { return "", 0 })
-	require.ErrorContains(t, err, "subscription: subs2.example.com: node a's engine has certificate wild too")
-
-	// Aliases with certificates of their own: a host and a route each.
-	cfg.Subscription.Aliases = []string{"old.example.org", "old2.example.org"}
-	placeholders, err = fleet.Build(cfg, secrets.AllPlaceholders{})
-	require.NoError(t, err)
-	p, err = NewPlan(placeholders, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
-	require.NoError(t, err)
-	require.Equal(t, []SiteHost{
-		{Domains: []string{"subs.example.com"}, Certificate: "site"},
-		{Domains: []string{"old.example.org"}, Certificate: "old.example.org"},
-		{Domains: []string{"old2.example.org"}, Certificate: "old2.example.org"},
-	}, p.Subscription.Hosts)
-	require.Equal(t, []Certificate{
-		{Name: "old.example.org", Domains: []string{"old.example.org"}, Source: fleet.CertHTTP, Site: true},
-		{Name: "old2.example.org", Domains: []string{"old2.example.org"}, Source: fleet.CertHTTP, Site: true},
-		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Site: true},
-		{Name: "wild", Domains: []string{"*.example.com"}, Source: fleet.CertDNS, DNS: "cloudflare"},
-	}, p.Certificates)
-	require.Subset(t, p.Mux.Routes, []Route{
-		{SNI: "subs.example.com", Target: SiteAddr},
-		{SNI: "old.example.org", Target: SiteAddr},
-		{SNI: "old2.example.org", Target: SiteAddr},
-	})
-	cfg.Subscription.Aliases = nil
-
-	cfg.Subscription.Domain = "subs2.example.com" // under the wildcard too
-	placeholders, err = fleet.Build(cfg, secrets.AllPlaceholders{})
-	require.NoError(t, err)
-	_, err = NewPlan(placeholders, "a", func(path string) (string, int) { return "", 0 })
-	require.ErrorContains(t, err, "subscription: subs2.example.com: node a's engine has certificate wild too")
+	require.ErrorContains(t, err, "subscription.domains: subs2.example.com: node a's engine has certificate wild too")
 }

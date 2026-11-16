@@ -28,7 +28,7 @@ type dummyEngine struct{ name string }
 func (d *dummyEngine) Name() string                                      { return d.name }
 func (d *dummyEngine) MinVersion() string                                { return "1.0.0" }
 func (d *dummyEngine) RenderServer(*fleet.Fleet, string) ([]byte, error) { return nil, nil }
-func (d *dummyEngine) RenderClient(*fleet.Fleet, string, Platform) ([]byte, error) {
+func (d *dummyEngine) RenderClient(*fleet.Fleet, string, Platform, string) ([]byte, error) {
 	return nil, nil
 }
 func (d *dummyEngine) ClientPlatforms() []Platform { return nil }

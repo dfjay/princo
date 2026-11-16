@@ -414,13 +414,16 @@ func (s Selector) Matches(n *Node) bool {
 
 type Subscription struct {
 	Node *Node
-	// Domain is the site's name in links, QR pages and client profiles.
-	Domain string
-	// Aliases serve the same site under other names.
-	Aliases []string
+	// Domains each serve the site under their own name: its links, QR pages
+	// and profiles name the domain they are served from. Lowercase.
+	Domains []string
 }
 
-// Domains are the site's names, Domain first.
-func (s *Subscription) Domains() []string {
-	return append([]string{s.Domain}, s.Aliases...)
+// Domain is the one princo prints links for, the first; empty without a
+// subscription.
+func (s *Subscription) Domain() string {
+	if s == nil {
+		return ""
+	}
+	return s.Domains[0]
 }

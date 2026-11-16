@@ -114,7 +114,7 @@ client:
 
 subscription:
   node: nl
-  domain: subs.example.com
+  domains: [subs.example.com]
 ```
 
 Set your domains and ACME email in `princo.yaml`. The `reality.server_name`

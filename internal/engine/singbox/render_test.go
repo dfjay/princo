@@ -47,7 +47,7 @@ func TestGolden(t *testing.T) {
 	}
 	for _, u := range f.Users {
 		t.Run("client-"+u.Name, func(t *testing.T) {
-			got, err := e.RenderClient(f, u.Name, engine.AnyPlatform)
+			got, err := e.RenderClient(f, u.Name, engine.AnyPlatform, f.Subscription.Domain())
 			require.NoError(t, err)
 			golden(t, "client-"+u.Name+".json", got)
 		})
@@ -259,7 +259,9 @@ func TestSingBoxCheck(t *testing.T) {
 
 // client renders profiles for p, in renderJSON's shape.
 func client(e *Engine, p engine.Platform) func(*fleet.Fleet, string) ([]byte, error) {
-	return func(f *fleet.Fleet, user string) ([]byte, error) { return e.RenderClient(f, user, p) }
+	return func(f *fleet.Fleet, user string) ([]byte, error) {
+		return e.RenderClient(f, user, p, f.Subscription.Domain())
+	}
 }
 
 func TestClientOverride(t *testing.T) {
@@ -370,7 +372,7 @@ func TestClientPlatforms(t *testing.T) {
 	tun := func(cfg map[string]any) map[string]any { return cfg["inbounds"].([]any)[0].(map[string]any) }
 	require.Equal(t, true, tun(renderJSON(t, client(e, engine.Linux), f, "bob"))["auto_redirect"])
 	require.NotContains(t, tun(renderJSON(t, client(e, engine.AnyPlatform), f, "bob")), "auto_redirect")
-	_, err := e.RenderClient(f, "bob", "macos")
+	_, err := e.RenderClient(f, "bob", "macos", "")
 	require.ErrorContains(t, err, "sing-box has no profiles for macos")
 }
 

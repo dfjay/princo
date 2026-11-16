@@ -28,7 +28,7 @@ client: {}          # the profile users' apps get
 secrets: {}         # where secrets live
 # subscription:    # optional site users import profiles from
 #   node: nl
-#   domain: subs.example.com
+#   domains: [subs.example.com]
 # certificates: {}  # wildcards and certificates issued elsewhere
 # rule_data: runetfreedom  # where geoip: and geosite: data comes from
 # monitor: {}       # nodes check themselves and report what changed
@@ -228,7 +228,7 @@ addresses: `"[2606:4700:d0::a29f:c001]:4500"`.
 ### `passthrough`
 
 The node multiplexes 443 by TLS server name: Naive's domain and the
-subscription domain go to their servers, the rest to Reality. Other HTTPS
+subscription domains go to their servers, the rest to Reality. Other HTTPS
 sites on the same host join through `passthrough`:
 
 ```yaml
@@ -478,14 +478,13 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domain` | its domain; needs a DNS record pointing at that node, and a [certificate](#certificates) of its own: not one the node's engine uses too |
-| `aliases` | other domains serving the same site, each needing the same as `domain` |
+| `domains` | its domains; each needs a DNS record pointing at that node, and a [certificate](#certificates) the node's engine doesn't use too |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
 a QR page at `/qr`. Apps that read subscription headers name the profile
-after the domain they reached, link to the QR page and refresh it daily.
-`princo render --user <name> --links` prints them.
+after the domain, link to the QR page and refresh it daily.
+`princo render --user <name> --links` prints them for the first domain.
 Under the token:
 
 | Path | Serves |
@@ -499,18 +498,21 @@ Under the token:
 Tokens stay stable across renders; changing a user's UUID changes their
 subscription URL.
 
-An alias serves each user the same URLs under its own name. Links, QR
-pages and the rule set URLs in the profiles use `domain`, so moving the
-site to a new domain keeps the old one's links working:
+Every domain serves each user the same paths, and what it serves names
+that domain alone: its links, QR pages and the rule set URLs in its
+profiles. A user who reached the site through one domain never needs
+another, so a second domain keeps the site working where the first is
+blocked, and an old domain's links keep working after a new one is added:
 
 ```yaml
 subscription:
   node: nl
-  domain: static.example.net    # new links and the profiles' rule sets
-  aliases: [subs.example.com]   # links users already have
+  domains:
+    - static.example.net    # the links princo prints
+    - subs.example.com      # links users already have
 ```
 
-Any of the names can point at another host that passes its connections on,
+Any of the domains can point at another host that passes its connections on,
 as a node's [`passthrough`](#passthrough) does: a node in the users'
 country forwarding `static.example.net` to the subscription node's IP on
 443 makes the site reachable where that node's address is blocked, without
@@ -691,9 +693,9 @@ What it doesn't see:
 
 ## `certificates`
 
-Hysteria2's `address`, Naive's `domain` and the subscription domain with its
-aliases need certificates. By default each node gets one per domain from
-Let's Encrypt over HTTP-01, which needs TCP 80 open. Every certificate is published in
+Hysteria2's `address`, Naive's `domain` and the subscription domains need
+certificates. By default each node gets one per domain from Let's Encrypt
+over HTTP-01, which needs TCP 80 open. Every certificate is published in
 [Certificate Transparency](https://certificate.transparency.dev/) logs,
 such as crt.sh, so each such domain is public the day it is issued.
 `certificates` covers domains otherwise: a wildcard over DNS-01 keeps the

@@ -45,7 +45,7 @@ client:
 
 subscription:
   node: nl
-  domain: subs.example.com
+  domains: [subs.example.com]
 `
 
 func newInitCommand(global *globalFlags) *cobra.Command {

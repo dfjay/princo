@@ -167,8 +167,8 @@ done`)
 		require.Contains(t, e.sh(t, curl+" -A 'SFA (sing-box 1.14)'"), `"outbounds"`)
 		require.Contains(t, e.sh(t, curl+"/sing-box/linux"), `"auto_redirect": true`)
 		require.Contains(t, e.sh(t, curl+"/base64 | base64 -d"), "vless://")
-		alias := "curl -sfk --resolve subs.example.org:443:127.0.0.1 https://subs.example.org/" + token
-		require.Contains(t, e.sh(t, alias+"/ -D - -o /dev/null"), "profile-web-page-url: https://subs.example.org/"+token+"/qr", "the alias, under its own name")
+		other := "curl -sfk --resolve subs.example.org:443:127.0.0.1 https://subs.example.org/" + token
+		require.Contains(t, e.sh(t, other+"/sing-box"), "https://subs.example.org/rules/", "each domain serves profiles that name it")
 		require.Contains(t, e.sh(t, "echo | openssl s_client -connect 127.0.0.1:443 -servername naive-de.example.com 2>/dev/null | grep ^subject"),
 			"naive-de.example.com", "naive behind the multiplexer")
 		require.Equal(t, "403", e.sh(t, "curl -sk -o /dev/null -w '%{http_code}' --resolve subs.example.com:443:127.0.0.1 https://subs.example.com/"))

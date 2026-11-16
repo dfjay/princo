@@ -520,33 +520,34 @@ func (b *builder) subscription() {
 	if c == nil {
 		return
 	}
-	s := &Subscription{Domain: c.Domain, Aliases: c.Aliases}
 	// The multiplexer routes each name once, whatever its case.
 	taken := map[string]string{}
-	if n, ok := b.f.nodes[c.Node]; ok {
-		n.ServesSubscription = true
-		s.Node = n
-		b.f.Subscription = s
+	n, ok := b.f.nodes[c.Node]
+	if !ok {
+		b.errorf("subscription.node: unknown node %q", c.Node)
+	} else {
 		for _, pt := range n.Passthrough {
 			taken[strings.ToLower(pt.Host)] = fmt.Sprintf("nodes.%s.passthrough sends it to %s", n.Name, pt.Target)
 		}
-	} else {
-		b.errorf("subscription.node: unknown node %q", c.Node)
 	}
-	for i, d := range s.Domains() {
-		where := "subscription.domain"
-		if i > 0 {
-			where = fmt.Sprintf("subscription.aliases[%d]", i-1)
-		}
-		key := strings.ToLower(d)
-		if why, ok := taken[key]; ok {
-			b.errorf("%s: %s: %s", where, d, why)
-		} else if d == "" && i == 0 {
-			b.errorf("%s: required", where)
+	if len(c.Domains) == 0 {
+		b.errorf("subscription.domains: required")
+		return
+	}
+	s := &Subscription{Node: n}
+	for i, d := range c.Domains {
+		d = strings.ToLower(d)
+		if why, ok := taken[d]; ok {
+			b.errorf("subscription.domains[%d]: %s: %s", i, d, why)
 		} else if _, err := netip.ParseAddr(d); err == nil || !hostnameRe.MatchString(d) || len(d) > 253 {
-			b.errorf("%s: %q isn't a domain", where, d)
+			b.errorf("subscription.domains[%d]: %q isn't a domain", i, d)
 		}
-		taken[key] = "the site has it already"
+		taken[d] = "the site has it already"
+		s.Domains = append(s.Domains, d)
+	}
+	if n != nil {
+		n.ServesSubscription = true
+		b.f.Subscription = s
 	}
 }
 
@@ -570,8 +571,8 @@ func (b *builder) realityNames() {
 			taken[strings.ToLower(pt.Host)] = "passthrough; drop that entry and set reality.target to " + pt.Target
 		}
 		if n.ServesSubscription {
-			for _, d := range b.f.Subscription.Domains() {
-				taken[strings.ToLower(d)] = "the subscription site; give one of them another name"
+			for _, d := range b.f.Subscription.Domains {
+				taken[d] = "the subscription site; give one of them another name"
 			}
 		}
 		if n.Naive != nil {

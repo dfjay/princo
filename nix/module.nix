@@ -105,12 +105,12 @@ let
   # The engine's HTTP-01 certificates, whose challenges nginx answers.
   engineHTTPCerts = lib.filter (c: !(c.site or false)) (bySource "http");
   certNamed = name: lib.findFirst (c: c.name == name) null certs;
-  # The site's servers, one per certificate: the subscription domain's first.
-  siteHosts = if site == null then [ ] else site.hosts;
-  siteDomains = lib.concatMap (h: h.domains) siteHosts;
-  siteCerts = map (h: certNamed h.certificate) siteHosts;
-  # What every server of the site serves.
-  siteServer = {
+  # The site's domains: each a server of its own, with its own files.
+  siteDomains = if site == null then [ ] else site.domains;
+  siteNames = map (d: d.name) siteDomains;
+  siteCerts = map (d: certNamed d.certificate) siteDomains;
+  # What the site's server for domain serves.
+  siteServer = domain: {
     # Subscription URLs grant access: no log records their requests.
     extraConfig = ''
       access_log off;
@@ -146,9 +146,8 @@ let
       # add_header here drops the server's.
       add_header X-Robots-Tag "noindex, nofollow" always;
       add_header profile-update-interval "24";
-      # The name the app reached; links and profiles still name the domain.
-      add_header profile-title "$host";
-      add_header profile-web-page-url "https://$host/$token/qr";
+      add_header profile-title "${domain}";
+      add_header profile-web-page-url "https://${domain}/$token/qr";
       try_files /$token/base64 =404;
     '';
     # The share links, whatever the app.
@@ -156,8 +155,8 @@ let
       default_type text/plain;
       add_header X-Robots-Tag "noindex, nofollow" always;
       add_header profile-update-interval "24";
-      add_header profile-title "$host";
-      add_header profile-web-page-url "https://$host/$token/qr";
+      add_header profile-title "${domain}";
+      add_header profile-web-page-url "https://${domain}/$token/qr";
       try_files /$token/base64 =404;
     '';
   };
@@ -575,17 +574,16 @@ in
               locations."/".return = lib.mkDefault "404";
             })
             // lib.listToAttrs (
-              map (h: {
-                name = lib.head h.domains;
+              map (d: {
+                inherit (d) name;
                 value =
                   let
-                    cert = certNamed h.certificate;
+                    cert = certNamed d.certificate;
                   in
                   {
-                    serverAliases = lib.tail h.domains;
                     onlySSL = true;
                     listen = [ ((parseAddr site.listen) // { ssl = true; }) ];
-                    root = siteRoot;
+                    root = "${siteRoot}/${d.name}";
                   }
                   // (
                     if cert.source == "file" then
@@ -596,14 +594,14 @@ in
                     else
                       { useACMEHost = cert.name; }
                   )
-                  // siteServer;
-              }) siteHosts
+                  // siteServer d.name;
+              }) siteDomains
             )
             // lib.optionalAttrs (site != null) {
               # Its plain HTTP side, which forceSSL would generate with logging on.
-              "${lib.head siteDomains}-http" = {
-                serverName = lib.head siteDomains;
-                serverAliases = lib.tail siteDomains;
+              "${lib.head siteNames}-http" = {
+                serverName = lib.head siteNames;
+                serverAliases = lib.tail siteNames;
                 listen = http;
                 locations."^~ /.well-known/acme-challenge/" = lib.mkIf (lib.any (c: c.source == "http") siteCerts) {
                   root = acmeWebroot;
