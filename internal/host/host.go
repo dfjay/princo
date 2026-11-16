@@ -66,15 +66,16 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 		return nil, err
 	}
 	files := map[string][]byte{ConfigFile(n.Engine): append(cfg, '\n')}
-	engineCerts, siteCert := certificates(f, n, cfg)
-	if siteCert != "" {
-		engineCerts = append(engineCerts, siteCert)
+	certs := engineCertificates(cfg)
+	for _, h := range siteHosts(f, n) {
+		certs = append(certs, h.Certificate)
 	}
-	for _, name := range engineCerts {
+	certs = sortedUnique(certs)
+	for _, name := range certs {
 		addCertFiles(files, f.CertificateNamed(name))
 	}
 	if f.Monitor != nil {
-		data, err := json.Marshal(monitorConfig(f, n, engineCerts), jsontext.WithIndent("  "))
+		data, err := json.Marshal(monitorConfig(f, n, certs), jsontext.WithIndent("  "))
 		if err != nil {
 			return nil, err
 		}
@@ -246,13 +247,20 @@ type Certificate struct {
 }
 
 type Site struct {
-	Domain string `json:"domain"`
-	// Certificate names the site's in Plan.Certificates.
-	Certificate string `json:"certificate"`
+	// Hosts serve the site under its domains, one per certificate: the
+	// subscription domain's first.
+	Hosts []SiteHost `json:"hosts"`
 	// Root is the site's directory among the rendered files.
 	Root string `json:"root"`
 	// Listen is where the web server serves it over HTTPS.
 	Listen string `json:"listen"`
+}
+
+// SiteHost is the site's server for the domains one certificate covers.
+type SiteHost struct {
+	Domains []string `json:"domains"`
+	// Certificate names the host's in Plan.Certificates.
+	Certificate string `json:"certificate"`
 }
 
 // Secret is one secret the node needs: its logical path, the file it is
@@ -318,16 +326,18 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 	if f.Monitor != nil {
 		p.Monitor = &Monitor{Config: MonitorFile, IntervalSeconds: int(f.Monitor.Interval.Seconds())}
 	}
-	engineCerts, siteCert := certificates(f, n, files[ConfigFile(n.Engine)])
+	engineCerts := engineCertificates(files[ConfigFile(n.Engine)])
 	for _, name := range engineCerts {
-		if name == siteCert {
-			return nil, fmt.Errorf("subscription.domain: node %s's engine has certificate %s too, which it can't share with the web server; give the site a certificate of its own", node, name)
-		}
 		p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(name), false))
 	}
-	if n.ServesSubscription {
-		p.Subscription = &Site{Domain: f.Subscription.Domain, Certificate: siteCert, Root: SiteDir, Listen: SiteAddr}
-		p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(siteCert), true))
+	if hosts := siteHosts(f, n); hosts != nil {
+		p.Subscription = &Site{Hosts: hosts, Root: SiteDir, Listen: SiteAddr}
+		for _, h := range hosts {
+			if slices.Contains(engineCerts, h.Certificate) {
+				return nil, fmt.Errorf("subscription: %s: node %s's engine has certificate %s too, which it can't share with the web server; give the site a certificate of its own", strings.Join(h.Domains, ", "), node, h.Certificate)
+			}
+			p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(h.Certificate), true))
+		}
 	}
 	slices.SortFunc(p.Certificates, func(a, b Certificate) int { return strings.Compare(a.Name, b.Name) })
 
@@ -356,16 +366,32 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 	return p, nil
 }
 
-// certificates names the certificates n's engine config cfg reads, and
-// the subscription site's if n serves it.
-func certificates(f *fleet.Fleet, n *fleet.Node, cfg []byte) (engineCerts []string, site string) {
+// engineCertificates names the certificates the engine config cfg reads.
+func engineCertificates(cfg []byte) []string {
+	var names []string
 	for _, m := range certRe.FindAllSubmatch(cfg, -1) {
-		engineCerts = append(engineCerts, string(m[1]))
+		names = append(names, string(m[1]))
 	}
-	if n.ServesSubscription {
-		site = f.Certificate(f.Subscription.Domain).Name
+	return sortedUnique(names)
+}
+
+// siteHosts groups the domains of the subscription site by certificate, in
+// their order; nil unless n serves it.
+func siteHosts(f *fleet.Fleet, n *fleet.Node) []SiteHost {
+	if !n.ServesSubscription {
+		return nil
 	}
-	return sortedUnique(engineCerts), site
+	var hosts []SiteHost
+	for _, d := range f.Subscription.Domains() {
+		name := f.Certificate(d).Name
+		i := slices.IndexFunc(hosts, func(h SiteHost) bool { return h.Certificate == name })
+		if i < 0 {
+			hosts = append(hosts, SiteHost{Certificate: name})
+			i = len(hosts) - 1
+		}
+		hosts[i].Domains = append(hosts[i].Domains, d)
+	}
+	return hosts
 }
 
 // addCertFiles adds what certificate c needs from secrets to files.
@@ -396,7 +422,9 @@ func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {
 		m.Routes = append(m.Routes, Route{SNI: pt.Host, Target: pt.Target})
 	}
 	if n.ServesSubscription {
-		m.Routes = append(m.Routes, Route{SNI: f.Subscription.Domain, Target: SiteAddr})
+		for _, d := range f.Subscription.Domains() {
+			m.Routes = append(m.Routes, Route{SNI: d, Target: SiteAddr})
+		}
 	}
 	if n.Naive != nil {
 		m.Routes = append(m.Routes, Route{SNI: n.Naive.Domain, EnginePort: engine.MuxNaivePort})

@@ -525,11 +525,28 @@ func (b *builder) subscription() {
 		b.errorf("subscription.node: unknown node %q", c.Node)
 		return
 	}
-	if c.Domain == "" {
-		b.errorf("subscription.domain: required")
-	}
 	n.ServesSubscription = true
-	b.f.Subscription = &Subscription{Node: n, Domain: c.Domain}
+	b.f.Subscription = &Subscription{Node: n, Domain: c.Domain, Aliases: c.Aliases}
+	// The multiplexer routes each name once, whatever its case.
+	taken := map[string]string{}
+	for _, pt := range n.Passthrough {
+		taken[strings.ToLower(pt.Host)] = fmt.Sprintf("nodes.%s.passthrough sends it to %s", n.Name, pt.Target)
+	}
+	for i, d := range b.f.Subscription.Domains() {
+		where := "subscription.domain"
+		if i > 0 {
+			where = fmt.Sprintf("subscription.aliases[%d]", i-1)
+		}
+		key := strings.ToLower(d)
+		if why, ok := taken[key]; ok {
+			b.errorf("%s: %s: %s", where, d, why)
+		} else if d == "" && i == 0 {
+			b.errorf("%s: required", where)
+		} else if !hostnameRe.MatchString(d) || len(d) > 253 {
+			b.errorf("%s: %q isn't a domain", where, d)
+		}
+		taken[key] = "the site has it already"
+	}
 }
 
 // realityNames checks that the multiplexer leaves each node's Reality
@@ -552,7 +569,9 @@ func (b *builder) realityNames() {
 			taken[strings.ToLower(pt.Host)] = "passthrough; drop that entry and set reality.target to " + pt.Target
 		}
 		if n.ServesSubscription {
-			taken[strings.ToLower(b.f.Subscription.Domain)] = "the subscription site; give one of them another name"
+			for _, d := range b.f.Subscription.Domains() {
+				taken[strings.ToLower(d)] = "the subscription site; give one of them another name"
+			}
 		}
 		if n.Naive != nil {
 			taken[strings.ToLower(n.Naive.Domain)] = "naive; give one of them another name"

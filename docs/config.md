@@ -234,11 +234,13 @@ sites on the same host join through `passthrough`:
 ```yaml
 passthrough:
   example.com: 127.0.0.1:8443   # the site listens there, not on 443
+  static.example.net: 203.0.113.7:443   # or another host, by its IP
 ```
 
 The multiplexer passes connections on as they are, and Reality and Naive
-still see each client's address: nginx connects to them from it. Hysteria2
-is UDP and bypasses it.
+still see each client's address: nginx connects to them from it. Targets
+see nginx's own address; give another host by IP, as nginx resolves no
+names there. Hysteria2 is UDP and bypasses it.
 See [Sharing port 443](deployment.md#sharing-port-443) for host setup.
 
 ## `users.<name>`
@@ -477,11 +479,12 @@ Users' apps get the same subscription whatever engine the nodes run.
 | --- | --- |
 | `node` | the node that serves the site |
 | `domain` | its domain; needs a DNS record pointing at that node, and a [certificate](#certificates) of its own: not one the node's engine uses too |
+| `aliases` | other domains serving the same site, each needing the same as `domain` |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
 a QR page at `/qr`. Apps that read subscription headers name the profile
-after the domain, link to the QR page and refresh it daily.
+after the domain they reached, link to the QR page and refresh it daily.
 `princo render --user <name> --links` prints them.
 Under the token:
 
@@ -495,6 +498,25 @@ Under the token:
 
 Tokens stay stable across renders; changing a user's UUID changes their
 subscription URL.
+
+An alias serves each user the same URLs under its own name. Links, QR
+pages and the rule set URLs in the profiles use `domain`, so moving the
+site to a new domain keeps the old one's links working:
+
+```yaml
+subscription:
+  node: nl
+  domain: static.example.net    # new links and the profiles' rule sets
+  aliases: [subs.example.com]   # links users already have
+```
+
+Any of the names can point at another host that passes its connections on,
+as a node's [`passthrough`](#passthrough) does: a node in the users'
+country forwarding `static.example.net` to the subscription node's IP on
+443 makes the site reachable where that node's address is blocked, without
+its files or keys leaving the subscription node. The forwarding host can't
+answer HTTP-01 for the name, so cover it with a DNS-01
+[certificate](#certificates).
 Deploy the subscription node after changing users or their access so its
 published profiles are updated.
 
@@ -669,9 +691,9 @@ What it doesn't see:
 
 ## `certificates`
 
-Hysteria2's `address`, Naive's `domain` and the subscription domain need
-certificates. By default each node gets one per domain from Let's Encrypt
-over HTTP-01, which needs TCP 80 open. Every certificate is published in
+Hysteria2's `address`, Naive's `domain` and the subscription domain with its
+aliases need certificates. By default each node gets one per domain from
+Let's Encrypt over HTTP-01, which needs TCP 80 open. Every certificate is published in
 [Certificate Transparency](https://certificate.transparency.dev/) logs,
 such as crt.sh, so each such domain is public the day it is issued.
 `certificates` covers domains otherwise: a wildcard over DNS-01 keeps the

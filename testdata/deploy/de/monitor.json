@@ -25,6 +25,10 @@
     {
       "name": "subs.example.com",
       "file": "/var/lib/princo/certs/subs.example.com/fullchain.pem"
+    },
+    {
+      "name": "subs.example.org",
+      "file": "/var/lib/princo/certs/subs.example.org/fullchain.pem"
     }
   ],
   "warp": {

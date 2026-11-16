@@ -154,7 +154,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 		nginxFiles = append(nginxFiles, StreamConf)
 	}
 	if needsSite(p) || earlier.Site {
-		if err := addSite(b, p, true); err != nil {
+		if err := addSite(b, p, nil); err != nil {
 			return nil, err
 		}
 		nginxFiles = append(nginxFiles, SiteConf)
@@ -222,8 +222,7 @@ func Bootstrap(p *host.Plan, files map[string][]byte, missing []string) (*bundle
 		b.Files = append(b.Files, bundle.File{Path: path.Join(FilesDir, f), Mode: 0o600, Data: files[f]})
 	}
 	if needsSite(p) {
-		siteTLS := p.Subscription != nil && !slices.Contains(missing, p.Subscription.Certificate)
-		if err := addSite(b, p, siteTLS); err != nil {
+		if err := addSite(b, p, missing); err != nil {
 			return nil, err
 		}
 		b.Units = append(b.Units, nginxUnit(append(siteFiles, SiteConf)))
@@ -292,9 +291,17 @@ func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engi
 	return engineFiles, siteFiles
 }
 
-// addSite adds nginx's sites and the ACME webroot; siteTLS serves the
-// subscription site, which needs its certificate.
-func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
+// addSite adds nginx's sites and the ACME webroot. The subscription site's
+// hosts whose certificates are missing wait for them on plain HTTP.
+func addSite(b *bundle.Bundle, p *host.Plan, missing []string) error {
+	var siteTLS []host.SiteHost
+	if p.Subscription != nil {
+		for _, h := range p.Subscription.Hosts {
+			if !slices.Contains(missing, h.Certificate) {
+				siteTLS = append(siteTLS, h)
+			}
+		}
+	}
 	data := map[string]any{
 		"Node":          p.Node,
 		"EngineDomains": engineDomains(p),

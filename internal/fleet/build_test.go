@@ -578,6 +578,36 @@ nodes:
 	require.NoError(t, err, "self-steal: the node's own name, its site behind")
 }
 
+func TestBuild_SubscriptionAliases(t *testing.T) {
+	const node = "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n"
+	f, err := build(t, node+"subscription: { node: a, domain: new.example.com, aliases: [old.example.org] }\n", conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, []string{"new.example.com", "old.example.org"}, f.Subscription.Domains())
+
+	_, err = build(t, node+"subscription: { node: a, domain: new.example.com, aliases: [S.example.com] }\n", conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.reality.server_name: the multiplexer sends s.example.com to the subscription site", "an alias takes its name in the multiplexer too")
+
+	_, err = build(t, node+"subscription: { node: a, domain: new.example.com, aliases: [New.example.com, old.example.org, old.example.org, \"bad name\"] }\n", conventionalSecrets())
+	for _, want := range []string{
+		"subscription.aliases[0]: New.example.com: the site has it already",
+		"subscription.aliases[2]: old.example.org: the site has it already",
+		`subscription.aliases[3]: "bad name" isn't a domain`,
+	} {
+		require.ErrorContains(t, err, want)
+	}
+
+	// The multiplexer can't send a name to the site and to passthrough.
+	const through = "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n" +
+		"    passthrough: { Old.example.org: 127.0.0.1:9443, new.example.com: 127.0.0.1:9444 }\n"
+	_, err = build(t, through+"subscription: { node: a, domain: new.example.com, aliases: [old.example.org] }\n", conventionalSecrets())
+	for _, want := range []string{
+		"subscription.aliases[0]: old.example.org: nodes.a.passthrough sends it to 127.0.0.1:9443",
+		"subscription.domain: new.example.com: nodes.a.passthrough sends it to 127.0.0.1:9444",
+	} {
+		require.ErrorContains(t, err, want)
+	}
+}
+
 func TestBuild_Stats(t *testing.T) {
 	values := conventionalSecrets()
 	values["nodes"].(map[string]any)["a"].(map[string]any)["api"] = "stats-a"

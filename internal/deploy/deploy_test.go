@@ -112,11 +112,11 @@ func TestBootstrap(t *testing.T) {
 	p, files, _ := plan(t, "de")
 	site := func(b *bundle.Bundle) string { return string(file(t, b, SiteConf)) }
 
-	b, err := Bootstrap(p, files, []string{"subs.example.com"})
+	b, err := Bootstrap(p, files, []string{"subs.example.com", "subs.example.org"})
 	require.NoError(t, err)
 	require.True(t, b.Partial, "the rest of the node stays as it is")
-	require.NotContains(t, site(b), "ssl", "the site waits for its certificate")
-	require.Contains(t, site(b), "server_name subs.example.com;", "but its challenges are served")
+	require.NotContains(t, site(b), "ssl", "the site waits for its certificates")
+	require.Contains(t, site(b), "server_name subs.example.com subs.example.org;", "but its challenges are served")
 	require.Equal(t, []string{"nginx.service"}, unitNames(b))
 	require.Equal(t, []string{SiteConf}, b.Units[0].Files)
 	require.NotNil(t, file(t, b, CertbotHook))
@@ -124,6 +124,23 @@ func TestBootstrap(t *testing.T) {
 	b, err = Bootstrap(p, files, []string{"naive-de.example.com"})
 	require.NoError(t, err)
 	require.Contains(t, site(b), "listen 127.0.0.1:8443 ssl;", "the site has its certificate")
+}
+
+// A host of the site waits for its own certificate alone.
+func TestBootstrap_SiteAlias(t *testing.T) {
+	p, files, _ := plan(t, "de")
+	site := func(b *bundle.Bundle) string { return string(file(t, b, SiteConf)) }
+
+	b, err := Bootstrap(p, files, []string{"subs.example.org"})
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(site(b), "listen 127.0.0.1:8443 ssl;"))
+	require.Contains(t, site(b), "server_name subs.example.com;\n\tssl_certificate /var/lib/princo/certs/subs.example.com/fullchain.pem;")
+	require.NotContains(t, site(b), "certs/subs.example.org/")
+
+	b, err = Bootstrap(p, files, nil)
+	require.NoError(t, err)
+	require.Equal(t, 2, strings.Count(site(b), "listen 127.0.0.1:8443 ssl;"))
+	require.Contains(t, site(b), "server_name subs.example.org;\n\tssl_certificate /var/lib/princo/certs/subs.example.org/fullchain.pem;")
 }
 
 func file(t *testing.T, b *bundle.Bundle, path string) []byte {
@@ -241,7 +258,7 @@ func TestCertbotHook_SiteKeyStaysRoots(t *testing.T) {
 			{Name: "subs.example.com", Source: fleet.CertHTTP, Site: true},
 			{Name: "own", Source: fleet.CertFile},
 		},
-		Subscription: &host.Site{Domain: "subs.example.com", Certificate: "subs.example.com"},
+		Subscription: &host.Site{Hosts: []host.SiteHost{{Domains: []string{"subs.example.com"}, Certificate: "subs.example.com"}}},
 	})
 	require.NoError(t, err)
 	require.Contains(t, string(hook), "'subs.example.com') unit=nginx.service group=root ;;")
