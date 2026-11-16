@@ -25,8 +25,9 @@
   },
   "inbounds": [
     {
+      "bind_interface": "lo",
       "listen": "::",
-      "listen_port": 443,
+      "listen_port": 8444,
       "tag": "vless-reality-in",
       "tls": {
         "enabled": true,

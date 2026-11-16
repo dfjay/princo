@@ -188,8 +188,26 @@ type Group struct {
 }
 
 type Subscription struct {
-	Node    string   `yaml:"node"`
-	Domains []string `yaml:"domains"`
+	Node    string               `yaml:"node"`
+	Domains []SubscriptionDomain `yaml:"domains"`
+}
+
+// SubscriptionDomain is a name of the subscription site. RuleSets says
+// how profiles served under it fetch their rule sets: "direct" or "proxy";
+// unset, princo infers it from the nodes' passthrough. A plain string is
+// Name alone.
+type SubscriptionDomain struct {
+	Name     string `yaml:"name"`
+	RuleSets string `yaml:"rule_sets"`
+}
+
+func (d *SubscriptionDomain) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		d.Name = node.Value
+		return nil
+	}
+	type plain SubscriptionDomain
+	return decodeStrict(node, (*plain)(d))
 }
 
 // Certificate covers Domains, wildcards among them, from ACME or File.

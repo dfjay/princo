@@ -478,7 +478,7 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domains` | its domains; each needs a DNS record pointing at that node, and a [certificate](#certificates) |
+| `domains` | its domains; each needs a DNS record pointing at that node or a host forwarding to it, and a [certificate](#certificates). An entry is a name or `{ name, rule_sets }`; see [Rule sets in profiles](#rule-sets-in-profiles) |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
@@ -521,6 +521,49 @@ answer HTTP-01 for the name, so cover it with a DNS-01
 [certificate](#certificates).
 Deploy the subscription node after changing users or their access so its
 published profiles are updated.
+
+### Rule sets in profiles
+
+A profile fetches its rule sets from the domain it was served from, through
+the proxy by default. A domain another node forwards to the site, as `ru`
+does below, is there to be reached directly, and the nodes behind the proxy
+may refuse its address, as one in a country they keep traffic out of; its
+profiles fetch their rule sets directly, without the proxy:
+
+```yaml
+nodes:
+  ru:
+    passthrough:
+      static.example.net: 203.0.113.10:443   # nl's IP
+subscription:
+  node: nl
+  domains: [static.example.net, subs.example.com]
+```
+
+princo can't resolve names, so it trusts a passthrough of a subscription
+domain to reach the subscription node, except one that can't: to a
+loopback address, which is the forwarding node itself, or to an IP other
+than the subscription node's `address`, when that is an IP. Those are
+errors. `princo plan --node <subscription node>` shows the choice for each
+domain as `rule_sets`, and the node it found as `relay`.
+
+Set `rule_sets` to decide yourself: `direct` for a domain a host outside
+the fleet forwards, `proxy` to keep the proxy, or either for a passthrough
+princo rejects that reaches the site all the same, through NAT or another
+hop:
+
+```yaml
+subscription:
+  node: nl
+  domains:
+    - { name: static.example.net, rule_sets: direct }
+    - subs.example.com
+```
+
+A direct fetch has no fallback: a domain blocked where a user is fails their
+first start, though rule sets fetched before stay cached. Fetching directly
+also shows the domain's name on the user's network on every refresh, as
+fetching the profile does.
 
 ### Platforms
 
