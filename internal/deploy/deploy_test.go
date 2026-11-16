@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -124,6 +125,14 @@ func TestBootstrap(t *testing.T) {
 	b, err = Bootstrap(p, files, []string{"naive-de.example.com"})
 	require.NoError(t, err)
 	require.Contains(t, site(b), "listen 127.0.0.1:8443 ssl;", "the site has its certificate")
+	// The config comes with the files it serves, as the full bundle has them.
+	full, err := Build(p, files, map[string][]byte{"geoip-ru.srs": nil, "geosite-category-ru.srs": nil}, Earlier{})
+	require.NoError(t, err)
+	inSite := func(f bundle.File) bool { return strings.HasPrefix(f.Path, "/var/lib/princo/files/subscription/") }
+	served := slices.DeleteFunc(slices.Clone(b.Files), func(f bundle.File) bool { return !inSite(f) })
+	require.NotEmpty(t, served)
+	require.Equal(t, slices.DeleteFunc(slices.Clone(full.Files), func(f bundle.File) bool { return !inSite(f) }), served)
+	require.Subset(t, b.Dirs, full.Dirs[1:3], "in directories the web server reads")
 }
 
 // A domain of the site waits for its own certificate alone.
