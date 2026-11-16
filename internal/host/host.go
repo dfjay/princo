@@ -271,6 +271,12 @@ type SiteDomain struct {
 	Name string `json:"name"`
 	// Certificate names the domain's in Plan.Certificates.
 	Certificate string `json:"certificate"`
+	// RuleSets is how profiles served under the domain fetch their rule
+	// sets: "direct" or "proxy".
+	RuleSets string `json:"rule_sets"`
+	// Relay names the node found forwarding the domain to the site, which
+	// made RuleSets direct.
+	Relay string `json:"relay,omitzero"`
 }
 
 // Secret is one secret the node needs: its logical path, the file it is
@@ -382,7 +388,15 @@ func siteDomains(f *fleet.Fleet, n *fleet.Node) []SiteDomain {
 	}
 	var domains []SiteDomain
 	for _, d := range f.Subscription.Domains {
-		domains = append(domains, SiteDomain{Name: d, Certificate: f.Certificate(d).Name})
+		sd := SiteDomain{Name: d, Certificate: f.Certificate(d).Name, RuleSets: "proxy"}
+		rs := f.Subscription.RuleSets[d]
+		if rs.Direct {
+			sd.RuleSets = "direct"
+		}
+		if rs.Relay != nil {
+			sd.Relay = rs.Relay.Name
+		}
+		domains = append(domains, sd)
 	}
 	return domains
 }

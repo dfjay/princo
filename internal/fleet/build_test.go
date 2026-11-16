@@ -613,6 +613,59 @@ func TestBuild_SubscriptionDomains(t *testing.T) {
 	require.ErrorContains(t, err, "subscription.domains[0]: shop.example.com: nodes.a.naive.domain takes it to Naive; give one of them another name")
 }
 
+// Profiles fetch their rule sets directly from a domain another node
+// forwards to the site's node, through the proxy from the rest, unless
+// subscription.domains says otherwise.
+func TestBuild_SubscriptionRuleSets(t *testing.T) {
+	nodes := func(siteAddress, target string) string {
+		return "nodes:\n" +
+			"  a:\n    address: " + siteAddress + "\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n" +
+			"  b:\n    address: b.example.ru\n    reality: { server_name: r.example.ru, short_id: \"2\", public_key: p }\n" +
+			"    passthrough: { Relayed.example.com: \"" + target + "\" }\n"
+	}
+	const domains = "subscription: { node: a, domains: [own.example.com, relayed.example.com] }\n"
+
+	f, err := build(t, nodes("a.example.com", "192.0.2.1:443")+domains, conventionalSecrets())
+	require.NoError(t, err, "a named site node can't be checked against the target")
+	b := f.nodes["b"]
+	require.Equal(t, map[string]RuleSetFetch{
+		"own.example.com":     {},
+		"relayed.example.com": {Direct: true, Relay: b},
+	}, f.Subscription.RuleSets)
+	require.True(t, f.Subscription.RuleSetsDirect("Relayed.example.com"))
+	require.False(t, f.Subscription.RuleSetsDirect("own.example.com"))
+	require.False(t, f.Subscription.RuleSetsDirect("other.example.com"))
+	require.False(t, (*Subscription)(nil).RuleSetsDirect("relayed.example.com"))
+
+	_, err = build(t, nodes("192.0.2.1", "192.0.2.1:8443")+domains, conventionalSecrets())
+	require.NoError(t, err, "the site's IP, on a port forwarded on the way")
+
+	for target, why := range map[string]string{
+		"192.0.2.99:443": "it sends it to 192.0.2.99:443",
+		"127.0.0.1:443":  "it sends it to the node itself",
+		"[::1]:443":      "it sends it to the node itself",
+	} {
+		_, err = build(t, nodes("192.0.2.1", target)+domains, conventionalSecrets())
+		require.ErrorContains(t, err, "nodes.b.passthrough.Relayed.example.com: "+why+", not to node a, which serves the subscription site; if it reaches the site all the same, set subscription.domains[1].rule_sets to direct or proxy", target)
+	}
+
+	// Set, rule_sets is taken as it is, and the passthrough isn't checked.
+	f, err = build(t, nodes("192.0.2.1", "127.0.0.1:443")+
+		"subscription:\n  node: a\n  domains:\n    - { name: own.example.com, rule_sets: direct }\n    - { name: Relayed.example.com, rule_sets: proxy }\n", conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, map[string]RuleSetFetch{
+		"own.example.com":     {Direct: true, Set: true},
+		"relayed.example.com": {Set: true},
+	}, f.Subscription.RuleSets)
+
+	_, err = build(t, nodes("a.example.com", "192.0.2.1:443")+
+		"subscription: { node: a, domains: [{ name: own.example.com, rule_sets: relay }] }\n", conventionalSecrets())
+	require.ErrorContains(t, err, `subscription.domains[0].rule_sets: "relay": want direct or proxy`)
+
+	_, err = config.Parse([]byte("princo: v1\nsubscription: { node: a, domains: [{ name: own.example.com, via: b }] }\n"))
+	require.ErrorContains(t, err, "via", "a domain's fields are decoded strictly")
+}
+
 func TestBuild_Stats(t *testing.T) {
 	values := conventionalSecrets()
 	values["nodes"].(map[string]any)["a"].(map[string]any)["api"] = "stats-a"

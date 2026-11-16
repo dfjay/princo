@@ -218,25 +218,6 @@ func (f *Fleet) Reaches(n *Node) []*Node {
 	return out
 }
 
-// Relay is the node that forwards host, a domain of the subscription
-// site, to the site's node by passthrough, or nil when the site's node
-// serves host itself. A relay is there to be reached directly where the
-// site's node isn't.
-func (f *Fleet) Relay(host string) *Node {
-	if f.Subscription == nil {
-		return nil
-	}
-	for _, n := range f.Nodes {
-		if n == f.Subscription.Node {
-			continue
-		}
-		if slices.ContainsFunc(n.Passthrough, func(pt Passthrough) bool { return strings.EqualFold(pt.Host, host) }) {
-			return n
-		}
-	}
-	return nil
-}
-
 // Via lists the nodes n sends its reports to ch through, sorted by name:
 // those ch.Via selects that serve Reality. None when n is one of them, and
 // sends on its own.
@@ -437,6 +418,28 @@ type Subscription struct {
 	// Domains each serve the site under their own name: its links, QR pages
 	// and profiles name the domain they are served from. Lowercase.
 	Domains []string
+	// RuleSets says, by domain, how profiles served under it fetch their
+	// rule sets.
+	RuleSets map[string]RuleSetFetch
+}
+
+// RuleSetFetch is how a profile fetches its rule sets from the site.
+type RuleSetFetch struct {
+	// Direct fetches them without the proxy, as from where the domain is
+	// reached directly; otherwise through the profile's final outbound.
+	Direct bool
+	// Relay is the node found forwarding the domain to the site's node by
+	// passthrough, which made Direct; nil when none or when Set.
+	Relay *Node
+	// Set is when subscription.domains gave rule_sets rather than princo
+	// inferring it.
+	Set bool
+}
+
+// RuleSetsDirect reports whether profiles served under domain fetch their
+// rule sets directly; false without a subscription or for another domain.
+func (s *Subscription) RuleSetsDirect(domain string) bool {
+	return s != nil && s.RuleSets[strings.ToLower(domain)].Direct
 }
 
 // Domain is the one princo prints links for, the first; empty without a

@@ -2,7 +2,8 @@
 # egress, falling back to direct, and a site behind the multiplexer (de),
 # VLESS-Reality alone on 443 (us), a chain hop without IPv6 that exits
 # through de, checks that it reaches the others and reports it through
-# them (relay), and an xray node serving XHTTP beside VLESS-Reality (fi).
+# them, and forwards a subscription domain to de (relay), and an xray node
+# serving XHTTP beside VLESS-Reality (fi).
 princo: v1
 
 defaults:
@@ -70,6 +71,9 @@ nodes:
       short_id: f0447be7
       public_key: TueZqbh5xK2pH6ajdlAB8E-weA_Z8SUOL_PekPXsrBw
     egress: de
+    # Where de's address is blocked; profiles from it fetch rule sets directly.
+    passthrough:
+      subs.example.org: 198.51.100.10:443
     rules:
       - { action: sniff }
       - { match: [geosite:category-ru, geoip:ru], action: direct }

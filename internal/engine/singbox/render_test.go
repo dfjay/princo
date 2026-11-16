@@ -245,6 +245,11 @@ func TestSingBoxCheck(t *testing.T) {
 	for _, u := range f.Users {
 		t.Run("client-"+u.Name, func(t *testing.T) { check(t, renderJSON(t, client(e, engine.AnyPlatform), f, u.Name)) })
 	}
+	t.Run("client-relayed", func(t *testing.T) {
+		check(t, renderJSON(t, func(f *fleet.Fleet, user string) ([]byte, error) {
+			return e.RenderClient(f, user, engine.AnyPlatform, "subs.example.org")
+		}, f, "alice"))
+	})
 	if runtime.GOOS == "linux" {
 		t.Run("client-linux", func(t *testing.T) { check(t, renderJSON(t, client(e, engine.Linux), f, "bob")) })
 	}
@@ -483,9 +488,6 @@ func TestRealityTarget(t *testing.T) {
 func TestRuleSetDetour(t *testing.T) {
 	e := New()
 	f := fleettest.Load(t, fixture)
-	relay := f.Nodes[slices.IndexFunc(f.Nodes, func(n *fleet.Node) bool { return n != f.Subscription.Node })]
-	relay.Passthrough = append(relay.Passthrough, fleet.Passthrough{Host: "Subs.Example.org", Target: "192.0.2.1:443"})
-
 	detour := func(domain string) any {
 		out, err := e.RenderClient(f, "alice", engine.AnyPlatform, domain)
 		require.NoError(t, err)
@@ -495,5 +497,7 @@ func TestRuleSetDetour(t *testing.T) {
 		return cfg["http_clients"].([]any)[0].(map[string]any)["detour"]
 	}
 	require.Equal(t, "select", detour("subs.example.com"), "served by the site's node")
-	require.Equal(t, "direct", detour("subs.example.org"), "served through a relay")
+	// sing-box refuses a detour to an empty direct outbound.
+	require.Nil(t, detour("subs.example.org"), "served through a relay")
+	require.Equal(t, "select", detour(""), "from SagerNet's rule sets")
 }

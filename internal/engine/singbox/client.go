@@ -108,11 +108,15 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		// nftables redirect TCP in the kernel, the LAN's on a router too.
 		tun["auto_redirect"] = true
 	}
+	rulesHTTP := map[string]any{"tag": "rules-http"}
+	if detour := detourOf(ruleSetDetour(f, domain, final)); detour != "" {
+		rulesHTTP["detour"] = detour
+	}
 	cfg := map[string]any{
 		// Above warn, the apps' logs list where the user went.
 		"log":          renderLog(u.Client.Log),
 		"experimental": map[string]any{"cache_file": map[string]any{"enabled": true, "store_dns": true}},
-		"http_clients": []any{map[string]any{"tag": "rules-http", "detour": ruleSetDetour(f, domain, final)}},
+		"http_clients": []any{rulesHTTP},
 		"inbounds":     []any{tun},
 		"outbounds":    c.outbounds(),
 	}
@@ -145,18 +149,19 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 }
 
 // ruleSetDetour is the outbound that fetches the rule sets from the
-// subscription site at domain: through the proxy, final; directly when a
-// relay serves domain, as it is there to be reached directly, and the
-// nodes behind final may refuse its address, as one in a country they
-// keep traffic out of.
+// subscription site at domain: through the proxy, final, unless the fleet
+// has profiles served under domain fetch them directly (see
+// fleet.RuleSetFetch).
 func ruleSetDetour(f *fleet.Fleet, domain, final string) string {
-	if domain != "" && f.Relay(domain) != nil {
+	if f.Subscription.RuleSetsDirect(domain) {
 		return "direct"
 	}
 	return final
 }
 
-// detourOf turns an outbound into a DNS detour; "direct" means none.
+// detourOf turns an outbound into a detour of a DNS server or HTTP client;
+// "direct" means none, as sing-box refuses a detour to an empty direct
+// outbound.
 func detourOf(outbound string) string {
 	if outbound == "direct" {
 		return ""
