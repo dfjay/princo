@@ -264,8 +264,8 @@ func TestCertbotHook_SiteKeyStaysRoots(t *testing.T) {
 	hook, err := certbotHook(&host.Plan{
 		Certificates: []host.Certificate{
 			{Name: "de.example.com", Source: fleet.CertHTTP, Consumers: []string{host.ConsumerEngine}},
-			{Name: "subs.example.com", Source: fleet.CertHTTP, Consumers: []string{host.ConsumerSite}},
-			{Name: "wild", Source: fleet.CertDNS, Consumers: []string{host.ConsumerEngine, host.ConsumerSite}},
+			{Name: "subs.example.com", Source: fleet.CertHTTP, Consumers: []string{host.ConsumerWeb}},
+			{Name: "wild", Source: fleet.CertDNS, Consumers: []string{host.ConsumerEngine, host.ConsumerWeb}},
 			{Name: "own", Source: fleet.CertFile, Consumers: []string{host.ConsumerEngine}},
 		},
 		Subscription: &host.Site{Domains: []host.SiteDomain{{Name: "subs.example.com", Certificate: "subs.example.com"}}},

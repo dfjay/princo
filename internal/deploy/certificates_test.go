@@ -321,3 +321,35 @@ if [ -f "$dir/key.pem" ]; then
 fi`)
 	require.NotContains(t, script, "certs/a.example.com")
 }
+
+// A unit that fails to reload keeps the others from no new certificate.
+func TestCertbotHook_ReloadsEveryUnit(t *testing.T) {
+	root := t.TempDir()
+	hook, err := execute("certbot-hook", map[string]any{
+		"Certificates": []acmeCert{{Name: "wild", Group: "$(id -gn)", Units: "princo.service nginx.service"}},
+		"CertDir":      filepath.Join(root, "certs"),
+		"Group":        "$(id -gn)",
+	})
+	require.NoError(t, err)
+	bin := filepath.Join(root, "bin")
+	require.NoError(t, os.MkdirAll(bin, 0o755))
+	// The engine's reload fails.
+	systemctl := "#!/bin/sh\n[ \"$1\" = -q ] && exit 0\necho \"$2\" >> " + shellQuote(filepath.Join(root, "reloaded")) + "\n[ \"$2\" != princo.service ]\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "systemctl"), []byte(systemctl), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wild.crt"), []byte("crt"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wild.key"), []byte("key"), 0o600))
+
+	cmd := exec.Command("sh", "-c", string(hook))
+	cmd.Env = append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"LEGO_HOOK_CERT_NAME=wild",
+		"LEGO_HOOK_CERT_PATH="+filepath.Join(root, "wild.crt"),
+		"LEGO_HOOK_CERT_KEY_PATH="+filepath.Join(root, "wild.key"),
+	)
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "the failure is told: %s", out)
+	reloaded, err := os.ReadFile(filepath.Join(root, "reloaded"))
+	require.NoError(t, err, string(out))
+	require.Equal(t, "princo.service\nnginx.service\n", string(reloaded))
+	require.FileExists(t, filepath.Join(root, "certs", "wild", "key.pem"))
+}

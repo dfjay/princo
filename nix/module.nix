@@ -105,7 +105,7 @@ let
   certNamed = name: lib.findFirst (c: c.name == name) null certs;
   # Who serves a certificate reads it and loads it anew when it changes.
   serves = consumer: c: lib.elem consumer c.consumers;
-  shared = c: serves "engine" c && serves "site" c;
+  shared = c: serves "engine" c && serves "web" c;
   # Whoever serves a certificate both do is in sharedGroup; neither gets
   # the other's own files with it.
   sharedGroup = "princo-certs";
@@ -113,13 +113,13 @@ let
     c:
     if shared c then
       sharedGroup
-    else if serves "site" c then
+    else if serves "web" c then
       config.services.nginx.group
     else
       "princo-engine";
   certServices =
     c:
-    lib.optional (serves "engine" c) "princo.service" ++ lib.optional (serves "site" c) "nginx.service";
+    lib.optional (serves "engine" c) "princo.service" ++ lib.optional (serves "web" c) "nginx.service";
   anyShared = lib.any shared certs;
   # The site's domains: each a server of its own, with its own files.
   siteDomains = if site == null then [ ] else site.domains;
@@ -733,7 +733,7 @@ in
           # nginx answers the challenges of the HTTP-01 certificates; those
           # the site serves wait for it already.
           lib.genAttrs
-            (map (c: "acme-order-renew-${c.name}") (lib.filter (c: !(serves "site" c)) (bySource "http")))
+            (map (c: "acme-order-renew-${c.name}") (lib.filter (c: !(serves "web" c)) (bySource "http")))
             (_: {
               wants = [ "nginx.service" ];
               after = [ "nginx.service" ];

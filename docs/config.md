@@ -631,7 +631,7 @@ The body a webhook gets:
 ```
 
 `text` is the whole report as a person reads it. `check` is `engine`,
-`warp`, `certificate/<name>` or `reach/<node>`.
+`warp`, `certificate/<name>`, `served/<server name>` or `reach/<node>`.
 
 ### `reach`
 
@@ -652,10 +652,12 @@ Every node checks:
 
 - **the engine**: that `princo.service` runs;
 - **certificates**: that each one the node serves has `certificate_days`
-  left or more, and that Naive and the subscription site present the one
-  on disk. ACME renews with a month left, so two weeks means renewal keeps
-  failing; a server presenting another certificate missed a renewal and
-  goes on with the old one;
+  left or more. ACME renews with a month left, so two weeks means renewal
+  keeps failing;
+- **served certificates**: that Naive and the subscription site present
+  the certificate on disk, asked on the node itself. One presenting another
+  missed a renewal and goes on with the old certificate. Hysteria2, on UDP,
+  isn't asked;
 - **WARP**, with `egress: warp` on sing-box: that a request through it gets an
   answer. The check goes through the engine's API, so the node needs the
   secret `nodes/<node>/api`, which `princo secret gen` makes.

@@ -24,9 +24,12 @@ install -m 0640 -g "$group" "$chain" "$dir/.fullchain.pem"
 install -m 0640 -g "$group" "$key" "$dir/.key.pem"
 mv -f "$dir/.fullchain.pem" "$dir/fullchain.pem"
 mv -f "$dir/.key.pem" "$dir/key.pem"
-# Whoever serves it loads it anew; not yet there on the first deploy.
+# Whoever serves it loads it anew; not yet there on the first deploy. One
+# that fails keeps none of the others from it.
+status=0
 for unit in $units; do
 	if systemctl -q is-active "$unit"; then
-		systemctl reload-or-restart "$unit"
+		systemctl reload-or-restart "$unit" || status=1
 	fi
 done
+exit $status

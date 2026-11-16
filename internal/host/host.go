@@ -243,8 +243,8 @@ const LoopbackTable = 4430
 const (
 	// ConsumerEngine is the node's engine.
 	ConsumerEngine = "engine"
-	// ConsumerSite is the web server, for the subscription site.
-	ConsumerSite = "site"
+	// ConsumerWeb is the web server, which serves the subscription site.
+	ConsumerWeb = "web"
 )
 
 // Certificate is one the node serves; see fleet.Certificate.
@@ -253,7 +253,7 @@ type Certificate struct {
 	Domains []string `json:"domains"`
 	Source  string   `json:"source"`
 	DNS     string   `json:"dns,omitempty"`
-	// Consumers are who serves it, sorted: ConsumerEngine, ConsumerSite or
+	// Consumers are who serves it, sorted: ConsumerEngine, ConsumerWeb or
 	// both. They read the same files.
 	Consumers []string `json:"consumers"`
 }
@@ -415,8 +415,8 @@ func certificates(f *fleet.Fleet, n *fleet.Node, cfg []byte) []Certificate {
 		consumers[name] = append(consumers[name], ConsumerEngine)
 	}
 	for _, d := range siteDomains(f, n) {
-		if !slices.Contains(consumers[d.Certificate], ConsumerSite) {
-			consumers[d.Certificate] = append(consumers[d.Certificate], ConsumerSite)
+		if !slices.Contains(consumers[d.Certificate], ConsumerWeb) {
+			consumers[d.Certificate] = append(consumers[d.Certificate], ConsumerWeb)
 		}
 	}
 	certs := []Certificate{}

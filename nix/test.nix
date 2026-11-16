@@ -148,6 +148,9 @@ in
     checks = machine.succeed("princo host monitor --dry-run --config /run/princo/files/monitor.json")
     assert "ok   engine" in checks, checks
     assert "ok   certificate/de.example.com" in checks, checks
+    # Naive and nginx present the certificates on disk.
+    assert "ok   served/naive-de.example.com: princo.service presents" in checks, checks
+    assert "ok   served/subs.example.com: nginx.service presents" in checks, checks
     assert "FAIL warp" in checks, checks
     machine.succeed("stat -c %a /run/princo/files/monitor.json | grep -qx 640")
 

@@ -62,7 +62,7 @@ func certUnits(c host.Certificate) []string {
 	if c.Serves(host.ConsumerEngine) {
 		units = append(units, host.EngineUnit)
 	}
-	if c.Serves(host.ConsumerSite) {
+	if c.Serves(host.ConsumerWeb) {
 		units = append(units, host.SiteUnit)
 	}
 	return units
@@ -326,7 +326,7 @@ func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engi
 			if c.Serves(host.ConsumerEngine) {
 				engineFiles = append(engineFiles, f)
 			}
-			if c.Serves(host.ConsumerSite) {
+			if c.Serves(host.ConsumerWeb) {
 				siteFiles = append(siteFiles, f)
 			}
 		}
@@ -350,7 +350,7 @@ func addSite(b *bundle.Bundle, p *host.Plan, missing []string) error {
 		"EngineDomains": engineDomains(p),
 		"Site":          p.Subscription,
 		"SiteTLS":       siteTLS,
-		"SiteACME":      slices.ContainsFunc(certificates(p, fleet.CertHTTP), func(c host.Certificate) bool { return c.Serves(host.ConsumerSite) }),
+		"SiteACME":      slices.ContainsFunc(certificates(p, fleet.CertHTTP), func(c host.Certificate) bool { return c.Serves(host.ConsumerWeb) }),
 		"ACMEDir":       ACMEDir,
 		"CertDir":       engine.CertDir,
 		"RuleSetDir":    engine.RuleSetDir,

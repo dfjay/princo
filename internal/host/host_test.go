@@ -64,8 +64,8 @@ func TestPlan_Mux(t *testing.T) {
 	require.Equal(t, []Certificate{
 		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine}},
 		{Name: "naive-de.example.com", Domains: []string{"naive-de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine}},
-		{Name: "subs.example.com", Domains: []string{"subs.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerSite}},
-		{Name: "subs.example.org", Domains: []string{"subs.example.org"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerSite}},
+		{Name: "subs.example.com", Domains: []string{"subs.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerWeb}},
+		{Name: "subs.example.org", Domains: []string{"subs.example.org"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerWeb}},
 	}, p.Certificates)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
 	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
@@ -107,7 +107,7 @@ func TestPlan_SiteSharesEngineCertificate(t *testing.T) {
 	p, err := NewPlan(f, "de", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
 	require.Equal(t, []Certificate{
-		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine, ConsumerSite}},
+		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine, ConsumerWeb}},
 		{Name: "naive-de.example.com", Domains: []string{"naive-de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine}},
 	}, p.Certificates)
 }
@@ -234,7 +234,7 @@ certificates:
 	p, err := NewPlan(placeholders, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
 	require.Equal(t, []Certificate{
-		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Consumers: []string{ConsumerSite}},
+		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Consumers: []string{ConsumerWeb}},
 		{Name: "wild", Domains: []string{"*.example.com"}, Source: fleet.CertDNS, DNS: "cloudflare", Consumers: []string{ConsumerEngine}},
 	}, p.Certificates)
 	require.Equal(t, []SiteDomain{{Name: "subs.example.com", Certificate: "site"}}, p.Subscription.Domains)
@@ -247,7 +247,7 @@ certificates:
 	require.NoError(t, err)
 	p, err = NewPlan(placeholders, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
-	require.Equal(t, []string{ConsumerEngine, ConsumerSite}, p.Certificates[1].Consumers)
+	require.Equal(t, []string{ConsumerEngine, ConsumerWeb}, p.Certificates[1].Consumers)
 	require.Equal(t, []SiteDomain{
 		{Name: "subs.example.com", Certificate: "site"},
 		{Name: "subs2.example.com", Certificate: "wild"},
