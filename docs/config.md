@@ -478,7 +478,7 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domains` | its domains; each needs a DNS record pointing at that node, and a [certificate](#certificates) the node's engine doesn't use too |
+| `domains` | its domains; each needs a DNS record pointing at that node, and a [certificate](#certificates) |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
@@ -652,8 +652,10 @@ Every node checks:
 
 - **the engine**: that `princo.service` runs;
 - **certificates**: that each one the node serves has `certificate_days`
-  left or more. ACME renews with a month left, so two weeks means renewal
-  keeps failing;
+  left or more, and that Naive and the subscription site present the one
+  on disk. ACME renews with a month left, so two weeks means renewal keeps
+  failing; a server presenting another certificate missed a renewal and
+  goes on with the old one;
 - **WARP**, with `egress: warp` on sing-box: that a request through it gets an
   answer. The check goes through the engine's API, so the node needs the
   secret `nodes/<node>/api`, which `princo secret gen` makes.
@@ -728,6 +730,10 @@ A domain takes the entry that lists it, else one whose wildcard covers it,
 else a certificate of its own over HTTP-01. One domain can be in one entry
 only. Names of entries are like node names; a node keeps a certificate in
 `/var/lib/princo/certs/<name>`.
+
+The engine and the subscription site can serve the same certificate: a
+subscription domain under the wildcard that covers Naive's takes it too.
+The node keeps it once, and both load it anew when it is renewed.
 
 For Cloudflare, give lego an API token with Zone / DNS / Edit permission
 on the zone alone. princo checks a `file` certificate against its key and

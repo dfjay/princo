@@ -40,6 +40,17 @@ type Certificate struct {
 	Name string `json:"name"`
 	// File is its chain in PEM, the leaf first.
 	File string `json:"file"`
+	// Served are the node's TLS servers that present it.
+	Served []Served `json:"served,omitempty"`
+}
+
+// Served is a TLS server of systemd unit Unit, which presents a
+// certificate to ServerName at Address. It loaded the certificate when it
+// started or reloaded, so it may present an older one than the file holds.
+type Served struct {
+	Unit       string `json:"unit"`
+	Address    string `json:"address"`
+	ServerName string `json:"server_name"`
 }
 
 // Warp is checked through the engine's API at URL.

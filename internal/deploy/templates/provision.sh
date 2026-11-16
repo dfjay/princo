@@ -9,6 +9,16 @@ if [ -n "$missing" ]; then
 	apt-get install -y -q $missing
 fi
 getent group {{.Group}} >/dev/null || groupadd --system {{.Group}}
+{{- range .Certificates}}
+{{- if ne .Group "root"}}
+# The engine may have come to serve it since the copy was made. A link an
+# older princo left is copied next.
+dir={{q (print $.CertDir "/" .Name)}}
+if [ -f "$dir/key.pem" ] && ! [ -L "$dir/key.pem" ]; then
+	chgrp {{.Group}} "$dir" "$dir/fullchain.pem" "$dir/key.pem"
+fi
+{{- end}}
+{{- end}}
 if command -v ufw >/dev/null && ufw status | grep -q '^Status: active'; then
 	allows() { ufw status | grep -Eq "^$1 +ALLOW( IN)? +Anywhere"; }
 	for r in{{range .Ports}} {{.}}{{end}}; do

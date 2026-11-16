@@ -284,9 +284,11 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 		pkgs = append(pkgs, "openssl")
 	}
 	script, err := execute("provision.sh", map[string]any{
-		"Packages": pkgs,
-		"Ports":    ports(p),
-		"Group":    engineGroup,
+		"Packages":     pkgs,
+		"Ports":        ports(p),
+		"Group":        engineGroup,
+		"Certificates": acmeCerts(p),
+		"CertDir":      engine.CertDir,
 	})
 	if err != nil {
 		return err
@@ -295,8 +297,9 @@ func (d *Deployer) provision(ctx context.Context, p *host.Plan) error {
 }
 
 // cleanup removes what the applied node no longer needs: the other engine
-// releases, kept for a rollback until now, and the ufw rules princo opened
-// for ports it stopped using.
+// releases, kept for a rollback until now, the engine's access to
+// certificates it stopped serving, and the ufw rules princo opened for
+// ports it stopped using.
 func (d *Deployer) cleanup(ctx context.Context, p *host.Plan, e engineSpec) error {
 	keepLego := ""
 	if len(certificates(p, fleet.CertDNS)) > 0 {
@@ -312,6 +315,8 @@ func (d *Deployer) cleanup(ctx context.Context, p *host.Plan, e engineSpec) erro
 		"MonitorState": MonitorState,
 		"StateDir":     bundle.StateDir,
 		"Ports":        ports(p),
+		"Certificates": acmeCerts(p),
+		"CertDir":      engine.CertDir,
 	})
 	if err != nil {
 		return err

@@ -4,6 +4,7 @@ package deploy
 
 import (
 	"bytes"
+	"cmp"
 	"embed"
 	"fmt"
 	"maps"
@@ -45,6 +46,27 @@ const webGroup = "www-data"
 
 // engineGroup may read the engine's config and certificates.
 const engineGroup = "princo-engine"
+
+// certGroup is the group that reads certificate c, "" for root. nginx reads
+// certificates as root, so one it shares with the engine is the engine's.
+func certGroup(c host.Certificate) string {
+	if c.Serves(host.ConsumerEngine) {
+		return engineGroup
+	}
+	return ""
+}
+
+// certUnits are the units that serve certificate c.
+func certUnits(c host.Certificate) []string {
+	var units []string
+	if c.Serves(host.ConsumerEngine) {
+		units = append(units, host.EngineUnit)
+	}
+	if c.Serves(host.ConsumerSite) {
+		units = append(units, host.SiteUnit)
+	}
+	return units
+}
 
 //go:embed templates
 var templateFS embed.FS
@@ -295,19 +317,17 @@ func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engi
 		b.Dirs = append(b.Dirs, bundle.Dir{Path: engine.CertDir, Mode: 0o750, Group: engineGroup})
 	}
 	for _, c := range certs {
-		group := engineGroup
-		if c.Site {
-			group = ""
-		}
+		group := certGroup(c)
 		dir := path.Join(engine.CertDir, c.Name)
 		b.Dirs = append(b.Dirs, bundle.Dir{Path: dir, Mode: 0o750, Group: group})
 		for _, name := range []string{"fullchain.pem", "key.pem"} {
 			f := path.Join(dir, name)
 			b.Files = append(b.Files, bundle.File{Path: f, Mode: 0o640, Group: group, Data: files[path.Join(host.CertsDir, c.Name, name)]})
-			if c.Site {
-				siteFiles = append(siteFiles, f)
-			} else {
+			if c.Serves(host.ConsumerEngine) {
 				engineFiles = append(engineFiles, f)
+			}
+			if c.Serves(host.ConsumerSite) {
+				siteFiles = append(siteFiles, f)
 			}
 		}
 	}
@@ -330,7 +350,7 @@ func addSite(b *bundle.Bundle, p *host.Plan, missing []string) error {
 		"EngineDomains": engineDomains(p),
 		"Site":          p.Subscription,
 		"SiteTLS":       siteTLS,
-		"SiteACME":      slices.ContainsFunc(certificates(p, fleet.CertHTTP), func(c host.Certificate) bool { return c.Site }),
+		"SiteACME":      slices.ContainsFunc(certificates(p, fleet.CertHTTP), func(c host.Certificate) bool { return c.Serves(host.ConsumerSite) }),
 		"ACMEDir":       ACMEDir,
 		"CertDir":       engine.CertDir,
 		"RuleSetDir":    engine.RuleSetDir,
@@ -364,18 +384,35 @@ func addHook(b *bundle.Bundle, p *host.Plan) error {
 // certbotHook copies the certificates certbot and lego issue.
 func certbotHook(p *host.Plan) ([]byte, error) {
 	return execute("certbot-hook", map[string]any{
-		"Certificates": certificates(p, fleet.CertHTTP, fleet.CertDNS),
+		"Certificates": acmeCerts(p),
 		"CertDir":      engine.CertDir,
 		"Group":        engineGroup,
 	})
 }
 
-// engineDomains are the domains of the engine's HTTP-01 certificates.
+// acmeCert is an ACME certificate's copy in engine.CertDir: who reads it,
+// and the units to reload when it changes.
+type acmeCert struct {
+	Name, Group, Units string
+}
+
+func acmeCerts(p *host.Plan) []acmeCert {
+	var out []acmeCert
+	for _, c := range certificates(p, fleet.CertHTTP, fleet.CertDNS) {
+		out = append(out, acmeCert{Name: c.Name, Group: cmp.Or(certGroup(c), "root"), Units: strings.Join(certUnits(c), " ")})
+	}
+	return out
+}
+
+// engineDomains are the domains of the HTTP-01 certificates whose
+// challenges no server of the subscription site answers.
 func engineDomains(p *host.Plan) []string {
 	var out []string
 	for _, c := range certificates(p, fleet.CertHTTP) {
-		if !c.Site {
-			out = append(out, c.Domains...)
+		for _, d := range c.Domains {
+			if p.Subscription == nil || !slices.ContainsFunc(p.Subscription.Domains, func(s host.SiteDomain) bool { return s.Name == d }) {
+				out = append(out, d)
+			}
 		}
 	}
 	return out

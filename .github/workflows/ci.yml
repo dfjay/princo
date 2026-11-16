@@ -61,4 +61,4 @@ jobs:
       - uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
         with:
           extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
-      - run: nix build -L .#checks.x86_64-linux.princo .#checks.x86_64-linux.nixos .#checks.x86_64-linux.assertions
+      - run: nix build -L .#checks.x86_64-linux.princo .#checks.x86_64-linux.nixos .#checks.x86_64-linux.assertions .#checks.x86_64-linux.shared-certificate

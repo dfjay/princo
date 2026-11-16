@@ -257,10 +257,11 @@ func (m *Monitor) check(ctx context.Context) (results []result, skipped map[stri
 		engine.ok, engine.detail = false, c.Unit+" isn't running"
 	}
 	results = append(results, engine)
-	for _, cert := range c.Certificates {
-		results = append(results, m.checkCert(cert))
-	}
 	var wg sync.WaitGroup
+	certs := make([]result, len(c.Certificates))
+	for i, cert := range c.Certificates {
+		wg.Go(func() { certs[i] = m.checkCert(ctx, cert, engine.ok) })
+	}
 	var warp []result
 	switch {
 	case c.Warp == nil:
@@ -276,7 +277,7 @@ func (m *Monitor) check(ctx context.Context) (results []result, skipped map[stri
 		wg.Go(func() { reach[i] = m.checkReach(ctx, t) })
 	}
 	wg.Wait()
-	return slices.Concat(results, warp, reach), skipped
+	return slices.Concat(results, certs, warp, reach), skipped
 }
 
 func (m *Monitor) checkWarp(ctx context.Context) result {
@@ -287,7 +288,11 @@ func (m *Monitor) checkWarp(ctx context.Context) result {
 	return result{id: checkWarp, ok: true, detail: "answers in " + delay.String()}
 }
 
-func (m *Monitor) checkCert(c Certificate) result {
+// checkCert checks c's file and, while it is fine, that the node's servers
+// present the certificate in it: one that missed a renewal goes on with the
+// old one until it expires. Down with the engine, the engine's servers have
+// its check.
+func (m *Monitor) checkCert(ctx context.Context, c Certificate, engineRuns bool) result {
 	r := result{id: checkCert + c.Name}
 	data, err := os.ReadFile(c.File)
 	if err != nil {
@@ -313,7 +318,44 @@ func (m *Monitor) checkCert(c Certificate) result {
 		r.ok = left >= time.Duration(m.Config.CertificateDays)*24*time.Hour
 		r.detail = fmt.Sprintf("expires in %d days, on %s", int(left.Hours()/24), day)
 	}
+	if !r.ok {
+		return r
+	}
+	for _, s := range c.Served {
+		if s.Unit == m.Config.Unit && !engineRuns {
+			continue
+		}
+		presented, err := m.presented(ctx, s)
+		switch {
+		case err != nil:
+			r.ok, r.detail = false, fmt.Sprintf("can't tell which one %s presents as %s: %s", s.Unit, s.ServerName, reason(err))
+			return r
+		case !presented.Equal(cert):
+			r.ok, r.detail = false, fmt.Sprintf("%s presents another as %s, which expires on %s; it hasn't loaded the one in %s",
+				s.Unit, s.ServerName, presented.NotAfter.UTC().Format(time.DateOnly), c.File)
+			return r
+		}
+	}
 	return r
+}
+
+// presented is the certificate s presents.
+func (m *Monitor) presented(ctx context.Context, s Served) (*x509.Certificate, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	conn, err := m.Dial(dialCtx, "tcp", s.Address)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = conn.Close() }()
+	// Which certificate, not whether it is valid: the file's has its check.
+	client := tls.Client(conn, &tls.Config{ServerName: s.ServerName, InsecureSkipVerify: true}) //nolint:gosec
+	hsCtx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	if err := client.HandshakeContext(hsCtx); err != nil {
+		return nil, err
+	}
+	return client.ConnectionState().PeerCertificates[0], nil
 }
 
 // checkReach connects to t as a client would begin to: an address blocked

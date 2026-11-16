@@ -64,6 +64,7 @@
           nixos = pkgs.testers.runNixOSTest (import ./nix/test.nix { inherit self; });
           assertions = import ./nix/assertions.nix { inherit self nixpkgs pkgs; };
           several-files = import ./nix/several-files.nix { inherit self nixpkgs pkgs; };
+          shared-certificate = import ./nix/shared-certificate.nix { inherit self nixpkgs pkgs; };
         }
       );
 

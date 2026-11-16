@@ -113,7 +113,7 @@ func TestBuild_Certificates(t *testing.T) {
 			--deploy-hook /etc/letsencrypt/renewal-hooks/deploy/princo || status=1
 		restore 'wild' || status=1`)
 	hook := string(bundleFile(t, b, CertbotHook).Data)
-	require.Contains(t, hook, "'wild') unit=princo.service group=princo-engine ;;")
+	require.Contains(t, hook, "'wild') units='princo.service' group=princo-engine ;;")
 	require.NotContains(t, hook, "'site'")
 }
 
@@ -183,7 +183,7 @@ certificates:
 	require.NoError(t, err)
 	b, err := Build(p, files, nil, Earlier{})
 	require.NoError(t, err)
-	require.Contains(t, string(bundleFile(t, b, CertbotHook).Data), "'wild') unit=princo.service", "lego's deploy hook")
+	require.Contains(t, string(bundleFile(t, b, CertbotHook).Data), "'wild') units='princo.service'", "lego's deploy hook")
 	require.Equal(t, []string{"princo.service", "princo-lego.timer"}, unitNames(b), "no nginx")
 	require.False(t, needsSite(p))
 }
@@ -241,4 +241,83 @@ func TestDeploy_ProbesAgainWithOpenSSL(t *testing.T) {
 	d, _ = newDeployer(r, "0.2.0")
 	require.NoError(t, d.Deploy(t.Context(), p, files, nil))
 	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps)
+}
+
+// sharedPlan is a node whose subscription site shares certificates with
+// its engine: one from files with Naive, and an HTTP-01 one with Hysteria2.
+func sharedPlan(t *testing.T) (*host.Plan, map[string][]byte) {
+	t.Helper()
+	chain, key := certtest.SelfSigned(t, "shop.example.com", "subs.example.com")
+	cfg, err := config.Parse([]byte(`princo: v1
+nodes:
+  a:
+    address: a.example.com
+    hysteria2: { masquerade: https://www.example.org }
+    naive: { domain: shop.example.com }
+users:
+  u: {}
+subscription: { node: a, domains: [subs.example.com, a.example.com, subs.example.org] }
+certificates:
+  both:
+    domains: [shop.example.com, subs.example.com]
+    file: {}
+`))
+	require.NoError(t, err)
+	f, err := fleet.Build(cfg, secrets.NewStore(map[string]any{
+		"users":        map[string]any{"u": "uuid"},
+		"shared":       map[string]any{"hysteria2_obfs": "obfs"},
+		"certificates": map[string]any{"both": map[string]any{"fullchain": chain, "key": key}},
+	}))
+	require.NoError(t, err)
+	files, err := host.Files(f, "a")
+	require.NoError(t, err)
+	p, err := host.NewPlan(f, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
+	require.NoError(t, err)
+	return p, files
+}
+
+func TestBuild_SharedCertificates(t *testing.T) {
+	p, files := sharedPlan(t)
+	b, err := Build(p, files, nil, Earlier{})
+	require.NoError(t, err)
+
+	both := path.Join(engine.CertDir, "both")
+	require.Equal(t, bundle.Dir{Path: both, Mode: 0o750, Group: engineGroup}, dir(t, b, both))
+	require.Equal(t, engineGroup, bundleFile(t, b, both+"/key.pem").Group, "the engine's group reads it, nginx as root")
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(b))
+	require.Contains(t, b.Units[0].Files, both+"/key.pem", "the engine restarts on a new certificate")
+	require.Contains(t, b.Units[2].Files, both+"/key.pem", "and nginx reloads")
+
+	hook := string(bundleFile(t, b, CertbotHook).Data)
+	require.Contains(t, hook, "'a.example.com') units='princo.service nginx.service' group=princo-engine ;;")
+	require.Contains(t, hook, "'subs.example.org') units='nginx.service' group=root ;;")
+
+	conf := string(bundleFile(t, b, SiteConf).Data)
+	require.NotContains(t, conf, "The engine's domains", "the site's server answers the challenges of the domains it shares")
+	require.Contains(t, conf, "ssl_certificate /var/lib/princo/certs/both/fullchain.pem;")
+	require.Contains(t, conf, "ssl_certificate /var/lib/princo/certs/a.example.com/fullchain.pem;")
+}
+
+// A certificate copied for other consumers changes hands on the next deploy,
+// not on its next renewal.
+func TestDeploy_RegroupsCertificates(t *testing.T) {
+	p, _ := sharedPlan(t)
+	d, _ := newDeployer(&fakeRemote{t: t}, "0.2.0")
+	var script string
+	d.Remote = remoteFunc(func(s string) { script = s })
+
+	require.NoError(t, d.provision(t.Context(), p))
+	require.Contains(t, script, `dir='/var/lib/princo/certs/a.example.com'
+if [ -f "$dir/key.pem" ] && ! [ -L "$dir/key.pem" ]; then
+	chgrp princo-engine "$dir" "$dir/fullchain.pem" "$dir/key.pem"
+fi`)
+	require.NotContains(t, script, "subs.example.org", "the engine gets no access to the site's")
+	require.NotContains(t, script, "certs/both", "it comes with the bundle")
+
+	require.NoError(t, d.cleanup(t.Context(), p, engines[p.Engine]))
+	require.Contains(t, script, `dir='/var/lib/princo/certs/subs.example.org'
+if [ -f "$dir/key.pem" ]; then
+	chgrp root "$dir" "$dir/fullchain.pem" "$dir/key.pem"
+fi`)
+	require.NotContains(t, script, "certs/a.example.com")
 }

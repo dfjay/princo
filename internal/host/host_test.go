@@ -12,6 +12,7 @@ import (
 	"github.com/dfjay/princo/internal/config"
 	"github.com/dfjay/princo/internal/fleet"
 	"github.com/dfjay/princo/internal/fleet/fleettest"
+	"github.com/dfjay/princo/internal/monitor"
 	"github.com/dfjay/princo/internal/secrets"
 	"github.com/dfjay/princo/internal/subscription"
 )
@@ -61,10 +62,10 @@ func TestPlan_Mux(t *testing.T) {
 		Loopback: &Loopback{Table: LoopbackTable, Ports: []int{8444, 8445}},
 	}, p.Mux)
 	require.Equal(t, []Certificate{
-		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP},
-		{Name: "naive-de.example.com", Domains: []string{"naive-de.example.com"}, Source: fleet.CertHTTP},
-		{Name: "subs.example.com", Domains: []string{"subs.example.com"}, Source: fleet.CertHTTP, Site: true},
-		{Name: "subs.example.org", Domains: []string{"subs.example.org"}, Source: fleet.CertHTTP, Site: true},
+		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine}},
+		{Name: "naive-de.example.com", Domains: []string{"naive-de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine}},
+		{Name: "subs.example.com", Domains: []string{"subs.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerSite}},
+		{Name: "subs.example.org", Domains: []string{"subs.example.org"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerSite}},
 	}, p.Certificates)
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
 	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
@@ -103,8 +104,12 @@ func TestPlan_MuxWithoutEngine(t *testing.T) {
 func TestPlan_SiteSharesEngineCertificate(t *testing.T) {
 	f := placeholderFleet(t)
 	f.Subscription.Domains = []string{"de.example.com"}
-	_, err := NewPlan(f, "de", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
-	require.ErrorContains(t, err, "subscription.domains: de.example.com: node de's engine has certificate de.example.com too, which it can't share with the web server")
+	p, err := NewPlan(f, "de", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
+	require.NoError(t, err)
+	require.Equal(t, []Certificate{
+		{Name: "de.example.com", Domains: []string{"de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine, ConsumerSite}},
+		{Name: "naive-de.example.com", Domains: []string{"naive-de.example.com"}, Source: fleet.CertHTTP, Consumers: []string{ConsumerEngine}},
+	}, p.Certificates)
 }
 
 func TestPlan_RealityOnly(t *testing.T) {
@@ -229,16 +234,29 @@ certificates:
 	p, err := NewPlan(placeholders, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
 	require.Equal(t, []Certificate{
-		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Site: true},
-		{Name: "wild", Domains: []string{"*.example.com"}, Source: fleet.CertDNS, DNS: "cloudflare"},
+		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Consumers: []string{ConsumerSite}},
+		{Name: "wild", Domains: []string{"*.example.com"}, Source: fleet.CertDNS, DNS: "cloudflare", Consumers: []string{ConsumerEngine}},
 	}, p.Certificates)
 	require.Equal(t, []SiteDomain{{Name: "subs.example.com", Certificate: "site"}}, p.Subscription.Domains)
 	require.Subset(t, secretPaths(p), []string{"cf", "certificates/site/fullchain", "certificates/site/key"})
 
-	// A domain under the engine's wildcard can't share it.
+	// A domain under the engine's wildcard shares it, and the monitor asks
+	// each server that presents it.
 	cfg.Subscription.Domains = []string{"subs.example.com", "subs2.example.com"}
 	placeholders, err = fleet.Build(cfg, secrets.AllPlaceholders{})
 	require.NoError(t, err)
-	_, err = NewPlan(placeholders, "a", func(path string) (string, int) { return "", 0 })
-	require.ErrorContains(t, err, "subscription.domains: subs2.example.com: node a's engine has certificate wild too")
+	p, err = NewPlan(placeholders, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
+	require.NoError(t, err)
+	require.Equal(t, []string{ConsumerEngine, ConsumerSite}, p.Certificates[1].Consumers)
+	require.Equal(t, []SiteDomain{
+		{Name: "subs.example.com", Certificate: "site"},
+		{Name: "subs2.example.com", Certificate: "wild"},
+	}, p.Subscription.Domains)
+
+	n, _ := placeholders.Node("a")
+	require.Equal(t, []monitor.Served{
+		{Unit: EngineUnit, Address: "127.0.0.1:8445", ServerName: "shop.example.com"},
+		{Unit: SiteUnit, Address: SiteAddr, ServerName: "subs2.example.com"},
+	}, served(placeholders, n, p.Certificates[1]))
+	require.Equal(t, []monitor.Served{{Unit: SiteUnit, Address: SiteAddr, ServerName: "subs.example.com"}}, served(placeholders, n, p.Certificates[0]))
 }

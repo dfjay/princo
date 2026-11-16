@@ -11,10 +11,10 @@ else
 	chain=$LEGO_HOOK_CERT_PATH key=$LEGO_HOOK_CERT_KEY_PATH
 fi
 case "$d" in
-'de.example.com') unit=princo.service group=princo-engine ;;
-'naive-de.example.com') unit=princo.service group=princo-engine ;;
-'subs.example.com') unit=nginx.service group=root ;;
-'subs.example.org') unit=nginx.service group=root ;;
+'de.example.com') units='princo.service' group=princo-engine ;;
+'naive-de.example.com') units='princo.service' group=princo-engine ;;
+'subs.example.com') units='nginx.service' group=root ;;
+'subs.example.org') units='nginx.service' group=root ;;
 *) exit 0 ;;
 esac
 dir=/var/lib/princo/certs/"$d"
@@ -24,7 +24,9 @@ install -m 0640 -g "$group" "$chain" "$dir/.fullchain.pem"
 install -m 0640 -g "$group" "$key" "$dir/.key.pem"
 mv -f "$dir/.fullchain.pem" "$dir/fullchain.pem"
 mv -f "$dir/.key.pem" "$dir/key.pem"
-# Not yet there on the first deploy.
-if systemctl -q is-active "$unit"; then
-	systemctl reload-or-restart "$unit"
-fi
+# Whoever serves it loads it anew; not yet there on the first deploy.
+for unit in $units; do
+	if systemctl -q is-active "$unit"; then
+		systemctl reload-or-restart "$unit"
+	fi
+done
