@@ -596,6 +596,17 @@ func TestBuild_SubscriptionAliases(t *testing.T) {
 		require.ErrorContains(t, err, want)
 	}
 
+	// Names are checked whatever the node; a certificate needs a domain.
+	_, err = build(t, node+"subscription: { node: b, domain: 192.0.2.1, aliases: [\"bad name\", 192.0.2.2] }\n", conventionalSecrets())
+	for _, want := range []string{
+		`subscription.node: unknown node "b"`,
+		`subscription.domain: "192.0.2.1" isn't a domain`,
+		`subscription.aliases[0]: "bad name" isn't a domain`,
+		`subscription.aliases[1]: "192.0.2.2" isn't a domain`,
+	} {
+		require.ErrorContains(t, err, want)
+	}
+
 	// The multiplexer can't send a name to the site and to passthrough.
 	const through = "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n" +
 		"    passthrough: { Old.example.org: 127.0.0.1:9443, new.example.com: 127.0.0.1:9444 }\n"

@@ -520,19 +520,20 @@ func (b *builder) subscription() {
 	if c == nil {
 		return
 	}
-	n, ok := b.f.nodes[c.Node]
-	if !ok {
-		b.errorf("subscription.node: unknown node %q", c.Node)
-		return
-	}
-	n.ServesSubscription = true
-	b.f.Subscription = &Subscription{Node: n, Domain: c.Domain, Aliases: c.Aliases}
+	s := &Subscription{Domain: c.Domain, Aliases: c.Aliases}
 	// The multiplexer routes each name once, whatever its case.
 	taken := map[string]string{}
-	for _, pt := range n.Passthrough {
-		taken[strings.ToLower(pt.Host)] = fmt.Sprintf("nodes.%s.passthrough sends it to %s", n.Name, pt.Target)
+	if n, ok := b.f.nodes[c.Node]; ok {
+		n.ServesSubscription = true
+		s.Node = n
+		b.f.Subscription = s
+		for _, pt := range n.Passthrough {
+			taken[strings.ToLower(pt.Host)] = fmt.Sprintf("nodes.%s.passthrough sends it to %s", n.Name, pt.Target)
+		}
+	} else {
+		b.errorf("subscription.node: unknown node %q", c.Node)
 	}
-	for i, d := range b.f.Subscription.Domains() {
+	for i, d := range s.Domains() {
 		where := "subscription.domain"
 		if i > 0 {
 			where = fmt.Sprintf("subscription.aliases[%d]", i-1)
@@ -542,7 +543,7 @@ func (b *builder) subscription() {
 			b.errorf("%s: %s: %s", where, d, why)
 		} else if d == "" && i == 0 {
 			b.errorf("%s: required", where)
-		} else if !hostnameRe.MatchString(d) || len(d) > 253 {
+		} else if _, err := netip.ParseAddr(d); err == nil || !hostnameRe.MatchString(d) || len(d) > 253 {
 			b.errorf("%s: %q isn't a domain", where, d)
 		}
 		taken[key] = "the site has it already"
