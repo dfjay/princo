@@ -65,16 +65,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 	if !ok {
 		return nil, fmt.Errorf("princo deploy can't run engine %s yet", p.Engine)
 	}
-	b := &bundle.Bundle{Format: bundle.Format, Node: p.Node, Dirs: []bundle.Dir{stateDir}}
-
-	filesDir := bundle.Dir{Path: FilesDir, Mode: 0o750, Group: engineGroup}
-	if p.Subscription != nil {
-		filesDir.Mode = 0o751
-	}
-	b.Dirs = append(b.Dirs, filesDir)
-	if p.Subscription != nil {
-		b.Dirs = append(b.Dirs, bundle.Dir{Path: path.Join(FilesDir, p.Subscription.Root), Mode: 0o750, Group: webGroup})
-	}
+	b := &bundle.Bundle{Format: bundle.Format, Node: p.Node, Dirs: append([]bundle.Dir{stateDir}, filesDirs(p)...)}
 	config := path.Join(FilesDir, p.Config)
 	engineFiles, siteFiles := addCertFiles(b, p, files)
 	engineFiles = append([]string{UnitFile}, engineFiles...)
@@ -82,10 +73,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 		if certFile(name) {
 			continue
 		}
-		f := bundle.File{Path: path.Join(FilesDir, name), Mode: 0o600, Data: files[name]}
-		if p.Subscription != nil && strings.HasPrefix(name, p.Subscription.Root+"/") {
-			f.Mode, f.Group = 0o640, webGroup
-		}
+		f := renderedFile(p, name, files[name])
 		if f.Path == config {
 			f.Mode, f.Group = 0o640, engineGroup
 			engineFiles = append(engineFiles, f.Path)
@@ -154,7 +142,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 		nginxFiles = append(nginxFiles, StreamConf)
 	}
 	if needsSite(p) || earlier.Site {
-		if err := addSite(b, p, true); err != nil {
+		if err := addSite(b, p, nil); err != nil {
 			return nil, err
 		}
 		nginxFiles = append(nginxFiles, SiteConf)
@@ -211,9 +199,36 @@ func addMonitor(b *bundle.Bundle, p *host.Plan) error {
 	return nil
 }
 
+// filesDirs are the directory of the rendered files and, in it, the
+// subscription site's, which the web server reads.
+func filesDirs(p *host.Plan) []bundle.Dir {
+	if p.Subscription == nil {
+		return []bundle.Dir{{Path: FilesDir, Mode: 0o750, Group: engineGroup}}
+	}
+	return []bundle.Dir{
+		{Path: FilesDir, Mode: 0o751, Group: engineGroup},
+		{Path: path.Join(FilesDir, p.Subscription.Root), Mode: 0o750, Group: webGroup},
+	}
+}
+
+// siteFile tells whether name is one of the subscription site's files.
+func siteFile(p *host.Plan, name string) bool {
+	return p.Subscription != nil && strings.HasPrefix(name, p.Subscription.Root+"/")
+}
+
+// renderedFile is the bundle's file for name of the rendered files.
+func renderedFile(p *host.Plan, name string, data []byte) bundle.File {
+	f := bundle.File{Path: path.Join(FilesDir, name), Mode: 0o600, Data: data}
+	if siteFile(p, name) {
+		f.Mode, f.Group = 0o640, webGroup
+	}
+	return f
+}
+
 // Bootstrap is the partial bundle that readies the host to issue the
 // missing certificates, leaving the rest of the node: nginx answers the
-// ACME challenges, lego has its script and credentials.
+// ACME challenges, lego has its script and credentials. The subscription
+// site comes with its files, which its nginx config serves meanwhile.
 func Bootstrap(p *host.Plan, files map[string][]byte, missing []string) (*bundle.Bundle, error) {
 	b := &bundle.Bundle{Format: bundle.Format, Node: p.Node, Partial: true, Dirs: []bundle.Dir{stateDir}}
 	_, siteFiles := addCertFiles(b, p, files)
@@ -222,8 +237,15 @@ func Bootstrap(p *host.Plan, files map[string][]byte, missing []string) (*bundle
 		b.Files = append(b.Files, bundle.File{Path: path.Join(FilesDir, f), Mode: 0o600, Data: files[f]})
 	}
 	if needsSite(p) {
-		siteTLS := p.Subscription != nil && !slices.Contains(missing, p.Subscription.Certificate)
-		if err := addSite(b, p, siteTLS); err != nil {
+		if p.Subscription != nil {
+			b.Dirs = append(b.Dirs, filesDirs(p)...)
+		}
+		for _, name := range slices.Sorted(maps.Keys(files)) {
+			if siteFile(p, name) {
+				b.Files = append(b.Files, renderedFile(p, name, files[name]))
+			}
+		}
+		if err := addSite(b, p, missing); err != nil {
 			return nil, err
 		}
 		b.Units = append(b.Units, nginxUnit(append(siteFiles, SiteConf)))
@@ -292,9 +314,17 @@ func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engi
 	return engineFiles, siteFiles
 }
 
-// addSite adds nginx's sites and the ACME webroot; siteTLS serves the
-// subscription site, which needs its certificate.
-func addSite(b *bundle.Bundle, p *host.Plan, siteTLS bool) error {
+// addSite adds nginx's sites and the ACME webroot. The subscription site's
+// domains whose certificates are missing wait for them on plain HTTP.
+func addSite(b *bundle.Bundle, p *host.Plan, missing []string) error {
+	var siteTLS []host.SiteDomain
+	if p.Subscription != nil {
+		for _, d := range p.Subscription.Domains {
+			if !slices.Contains(missing, d.Certificate) {
+				siteTLS = append(siteTLS, d)
+			}
+		}
+	}
 	data := map[string]any{
 		"Node":          p.Node,
 		"EngineDomains": engineDomains(p),

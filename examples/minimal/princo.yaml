@@ -27,4 +27,4 @@ client:
 
 subscription:
   node: nl
-  domain: subs.example.com
+  domains: [subs.example.com]

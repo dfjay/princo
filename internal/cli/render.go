@@ -103,16 +103,16 @@ func newRenderCommand(global *globalFlags) *cobra.Command {
 				if err := checkSecrets(global, []byte(u.UUID)); err != nil {
 					return err
 				}
-				l, ok := subscription.UserLinks(f, u)
-				if !ok {
+				if f.Subscription == nil {
 					return fmt.Errorf("princo.yaml has no subscription")
 				}
+				l := subscription.UserLinks(f.Subscription.Domain(), u)
 				out = fmt.Appendf(nil, "QR page:   %s\nUniversal: %s\nsing-box:  %s", l.QR, l.Universal, l.SingBox)
 				for _, p := range client.ClientPlatforms() {
 					out = fmt.Appendf(out, "\n%-10s %s", string(p)+":", l.Profile(client.Name(), p))
 				}
 			default:
-				if out, err = client.RenderClient(f, userName, p); err != nil {
+				if out, err = client.RenderClient(f, userName, p, f.Subscription.Domain()); err != nil {
 					return err
 				}
 			}

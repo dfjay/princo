@@ -28,7 +28,7 @@ client: {}          # the profile users' apps get
 secrets: {}         # where secrets live
 # subscription:    # optional site users import profiles from
 #   node: nl
-#   domain: subs.example.com
+#   domains: [subs.example.com]
 # certificates: {}  # wildcards and certificates issued elsewhere
 # rule_data: runetfreedom  # where geoip: and geosite: data comes from
 # monitor: {}       # nodes check themselves and report what changed
@@ -228,17 +228,19 @@ addresses: `"[2606:4700:d0::a29f:c001]:4500"`.
 ### `passthrough`
 
 The node multiplexes 443 by TLS server name: Naive's domain and the
-subscription domain go to their servers, the rest to Reality. Other HTTPS
+subscription domains go to their servers, the rest to Reality. Other HTTPS
 sites on the same host join through `passthrough`:
 
 ```yaml
 passthrough:
   example.com: 127.0.0.1:8443   # the site listens there, not on 443
+  static.example.net: 203.0.113.7:443   # or another host, by its IP
 ```
 
 The multiplexer passes connections on as they are, and Reality and Naive
-still see each client's address: nginx connects to them from it. Hysteria2
-is UDP and bypasses it.
+still see each client's address: nginx connects to them from it. Targets
+see nginx's own address; give another host by IP, as nginx resolves no
+names there. Hysteria2 is UDP and bypasses it.
 See [Sharing port 443](deployment.md#sharing-port-443) for host setup.
 
 ## `users.<name>`
@@ -476,13 +478,13 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domain` | its domain; needs a DNS record pointing at that node, and a [certificate](#certificates) of its own: not one the node's engine uses too |
+| `domains` | its domains; each needs a DNS record pointing at that node, and a [certificate](#certificates) the node's engine doesn't use too |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
 a QR page at `/qr`. Apps that read subscription headers name the profile
 after the domain, link to the QR page and refresh it daily.
-`princo render --user <name> --links` prints them.
+`princo render --user <name> --links` prints them for the first domain.
 Under the token:
 
 | Path | Serves |
@@ -495,6 +497,28 @@ Under the token:
 
 Tokens stay stable across renders; changing a user's UUID changes their
 subscription URL.
+
+Every domain serves each user the same paths, and what it serves names
+that domain alone: its links, QR pages and the rule set URLs in its
+profiles. A user who reached the site through one domain never needs
+another, so a second domain keeps the site working where the first is
+blocked, and an old domain's links keep working after a new one is added:
+
+```yaml
+subscription:
+  node: nl
+  domains:
+    - static.example.net    # the links princo prints
+    - subs.example.com      # links users already have
+```
+
+Any of the domains can point at another host that passes its connections on,
+as a node's [`passthrough`](#passthrough) does: a node in the users'
+country forwarding `static.example.net` to the subscription node's IP on
+443 makes the site reachable where that node's address is blocked, without
+its files or keys leaving the subscription node. The forwarding host can't
+answer HTTP-01 for the name, so cover it with a DNS-01
+[certificate](#certificates).
 Deploy the subscription node after changing users or their access so its
 published profiles are updated.
 
@@ -669,7 +693,7 @@ What it doesn't see:
 
 ## `certificates`
 
-Hysteria2's `address`, Naive's `domain` and the subscription domain need
+Hysteria2's `address`, Naive's `domain` and the subscription domains need
 certificates. By default each node gets one per domain from Let's Encrypt
 over HTTP-01, which needs TCP 80 open. Every certificate is published in
 [Certificate Transparency](https://certificate.transparency.dev/) logs,

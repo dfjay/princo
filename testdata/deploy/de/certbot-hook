@@ -14,6 +14,7 @@ case "$d" in
 'de.example.com') unit=princo.service group=princo-engine ;;
 'naive-de.example.com') unit=princo.service group=princo-engine ;;
 'subs.example.com') unit=nginx.service group=root ;;
+'subs.example.org') unit=nginx.service group=root ;;
 *) exit 0 ;;
 esac
 dir=/var/lib/princo/certs/"$d"

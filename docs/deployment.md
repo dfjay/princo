@@ -8,7 +8,7 @@ or use the NixOS module with your existing NixOS deployment workflow.
 ## Before deploying
 
 - Point each domain that needs a certificate at the node: the Hysteria2
-  `address`, Naive's `domain` and the subscription domain, when configured.
+  `address`, Naive's `domain` and the subscription domains, when configured.
   A Reality-only node can use an IP address.
 - Allow TCP 443 and, for Hysteria2, UDP 443 in any external firewall. Allow
   TCP 80 for HTTP-01 certificate issuance and renewal when the node has

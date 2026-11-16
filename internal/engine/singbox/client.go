@@ -12,8 +12,9 @@ import (
 
 func (e *Engine) ClientPlatforms() []engine.Platform { return []engine.Platform{engine.Linux} }
 
-// RenderClient renders a user's sing-box profile for platform p.
-func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([]byte, error) {
+// RenderClient renders a user's sing-box profile for platform p, its rule
+// sets from the subscription site at domain.
+func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, domain string) ([]byte, error) {
 	u, ok := f.User(name)
 	if !ok {
 		return nil, fmt.Errorf("no user named %q", name)
@@ -137,7 +138,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform) ([
 		cfg["dns"] = map[string]any{"rules": noAAAA}
 	}
 	if len(sets.tags) > 0 {
-		route["rule_set"] = remoteRuleSets(f, sets.tags)
+		route["rule_set"] = remoteRuleSets(domain, sets.tags)
 	}
 	cfg["route"] = route
 
@@ -328,25 +329,25 @@ func realityOutbound(n *fleet.Node, uuid string) map[string]any {
 	}
 }
 
-func remoteRuleSets(f *fleet.Fleet, tags []string) []any {
+func remoteRuleSets(domain string, tags []string) []any {
 	out := make([]any, 0, len(tags))
 	for _, tag := range tags {
 		out = append(out, map[string]any{
 			"tag":    tag,
 			"type":   "remote",
 			"format": "binary",
-			"url":    RuleSetURL(f, tag),
+			"url":    RuleSetURL(domain, tag),
 		})
 	}
 	return out
 }
 
 // RuleSetURL is where a client profile gets a rule set: the subscription
-// site, which serves the nodes' own, or else SagerNet's, which may tell
-// different countries from the nodes' rule data.
-func RuleSetURL(f *fleet.Fleet, tag string) string {
-	if f.Subscription != nil {
-		return "https://" + f.Subscription.Domain + engine.RuleSetSitePath + tag + ".srs"
+// site at domain, which serves the nodes' own, or without one SagerNet's,
+// which may tell different countries from the nodes' rule data.
+func RuleSetURL(domain, tag string) string {
+	if domain != "" {
+		return "https://" + domain + engine.RuleSetSitePath + tag + ".srs"
 	}
 	repo := "sing-geosite"
 	if strings.HasPrefix(tag, "geoip-") {

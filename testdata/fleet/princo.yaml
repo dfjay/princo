@@ -107,7 +107,7 @@ client:
 
 subscription:
   node: de
-  domain: subs.example.com
+  domains: [subs.example.com, subs.example.org]
 
 monitor:
   notify:

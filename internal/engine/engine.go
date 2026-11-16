@@ -76,8 +76,9 @@ type Engine interface {
 	MinVersion() string
 	// RenderServer renders the config of the named node.
 	RenderServer(f *fleet.Fleet, node string) ([]byte, error)
-	// RenderClient renders the named user's profile for platform p.
-	RenderClient(f *fleet.Fleet, user string, p Platform) ([]byte, error)
+	// RenderClient renders the named user's profile for platform p, as the
+	// subscription site serves it under domain; empty without the site.
+	RenderClient(f *fleet.Fleet, user string, p Platform, domain string) ([]byte, error)
 	// ClientPlatforms are the platforms besides AnyPlatform it renders
 	// profiles for.
 	ClientPlatforms() []Platform

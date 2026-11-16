@@ -104,7 +104,62 @@ let
   certUnits = map (c: "acme-${c.name}.service") acmeCerts;
   # The engine's HTTP-01 certificates, whose challenges nginx answers.
   engineHTTPCerts = lib.filter (c: !(c.site or false)) (bySource "http");
-  siteCert = if site == null then null else lib.findFirst (c: c.name == site.certificate) null certs;
+  certNamed = name: lib.findFirst (c: c.name == name) null certs;
+  # The site's domains: each a server of its own, with its own files.
+  siteDomains = if site == null then [ ] else site.domains;
+  siteNames = map (d: d.name) siteDomains;
+  siteCerts = map (d: certNamed d.certificate) siteDomains;
+  # What the site's server for domain serves.
+  siteServer = domain: {
+    # Subscription URLs grant access: no log records their requests.
+    extraConfig = ''
+      access_log off;
+      log_not_found off;
+      add_header X-Robots-Tag "noindex, nofollow" always;
+    '';
+    # /<token>/sing-box is the apps' profile,
+    # /<token>/sing-box/<platform> a platform's.
+    locations."~ ^/([a-f0-9]+)/sing-box(/[a-z]+)?$".extraConfig = ''
+      default_type application/json;
+      try_files /$1/sing-box$2/config =404;
+    '';
+    locations."~ ^/([a-f0-9]+)/qr$".extraConfig = ''
+      default_type text/html;
+      try_files /$1/index.html =404;
+    '';
+    # The client profiles' rule sets, the node's own. Store
+    # paths share an mtime, so the apps download them whole.
+    locations."~ ^/rules/([^/]+\\.srs)$".extraConfig = ''
+      alias /var/lib/princo/rules/$1;
+      default_type application/octet-stream;
+      etag off;
+      if_modified_since off;
+    '';
+    # Named capture: the `if` regex below would reset $1.
+    locations."~ ^/(?<token>[a-f0-9]+)/?$".extraConfig = ''
+      # sing-box apps send "SFx (sing-box ...)": give them the
+      # profile so the universal link works there too.
+      if ($http_user_agent ~ "^SF[A-Z] \(sing-box") {
+        rewrite ^ /$token/sing-box last;
+      }
+      default_type text/plain;
+      # add_header here drops the server's.
+      add_header X-Robots-Tag "noindex, nofollow" always;
+      add_header profile-update-interval "24";
+      add_header profile-title "${domain}";
+      add_header profile-web-page-url "https://${domain}/$token/qr";
+      try_files /$token/base64 =404;
+    '';
+    # The share links, whatever the app.
+    locations."~ ^/(?<token>[a-f0-9]+)/base64$".extraConfig = ''
+      default_type text/plain;
+      add_header X-Robots-Tag "noindex, nofollow" always;
+      add_header profile-update-interval "24";
+      add_header profile-title "${domain}";
+      add_header profile-web-page-url "https://${domain}/$token/qr";
+      try_files /$token/base64 =404;
+    '';
+  };
   renderedCert = name: "${outDir}/certificates/${name}";
   # engine.CertDir: a directory per certificate.
   certLinks = pkgs.linkFarm "princo-certs-${cfg.node}" (
@@ -389,8 +444,8 @@ in
               } ${renderedCert c.name}"
             ) (bySource "file")
             # The engine restarts with princo-render; nginx needs a reload.
-            ++ lib.optional (
-              siteCert != null && siteCert.source == "file"
+            ++ lib.optional (lib.any (c: c.source == "file")
+              siteCerts
             ) "${config.systemd.package}/bin/systemctl --no-block try-reload-or-restart nginx.service";
           };
         };
@@ -518,76 +573,37 @@ in
               locations."^~ /.well-known/acme-challenge/".root = acmeWebroot;
               locations."/".return = lib.mkDefault "404";
             })
-            // lib.optionalAttrs (site != null) {
-              ${site.domain} = {
-                onlySSL = true;
-                listen = [ ((parseAddr site.listen) // { ssl = true; }) ];
-                root = siteRoot;
-              }
-              // (
-                if siteCert.source == "file" then
+            // lib.listToAttrs (
+              map (d: {
+                inherit (d) name;
+                value =
+                  let
+                    cert = certNamed d.certificate;
+                  in
                   {
-                    sslCertificate = "${renderedCert siteCert.name}/fullchain.pem";
-                    sslCertificateKey = "${renderedCert siteCert.name}/key.pem";
+                    onlySSL = true;
+                    listen = [ ((parseAddr site.listen) // { ssl = true; }) ];
+                    root = "${siteRoot}/${d.name}";
                   }
-                else
-                  { useACMEHost = siteCert.name; }
-              )
-              // {
-                # Subscription URLs grant access: no log records their requests.
-                extraConfig = ''
-                  access_log off;
-                  log_not_found off;
-                  add_header X-Robots-Tag "noindex, nofollow" always;
-                '';
-                # /<token>/sing-box is the apps' profile,
-                # /<token>/sing-box/<platform> a platform's.
-                locations."~ ^/([a-f0-9]+)/sing-box(/[a-z]+)?$".extraConfig = ''
-                  default_type application/json;
-                  try_files /$1/sing-box$2/config =404;
-                '';
-                locations."~ ^/([a-f0-9]+)/qr$".extraConfig = ''
-                  default_type text/html;
-                  try_files /$1/index.html =404;
-                '';
-                # The client profiles' rule sets, the node's own. Store
-                # paths share an mtime, so the apps download them whole.
-                locations."~ ^/rules/([^/]+\\.srs)$".extraConfig = ''
-                  alias /var/lib/princo/rules/$1;
-                  default_type application/octet-stream;
-                  etag off;
-                  if_modified_since off;
-                '';
-                # Named capture: the `if` regex below would reset $1.
-                locations."~ ^/(?<token>[a-f0-9]+)/?$".extraConfig = ''
-                  # sing-box apps send "SFx (sing-box ...)": give them the
-                  # profile so the universal link works there too.
-                  if ($http_user_agent ~ "^SF[A-Z] \(sing-box") {
-                    rewrite ^ /$token/sing-box last;
-                  }
-                  default_type text/plain;
-                  # add_header here drops the server's.
-                  add_header X-Robots-Tag "noindex, nofollow" always;
-                  add_header profile-update-interval "24";
-                  add_header profile-title "${site.domain}";
-                  add_header profile-web-page-url "https://${site.domain}/$token/qr";
-                  try_files /$token/base64 =404;
-                '';
-                # The share links, whatever the app.
-                locations."~ ^/(?<token>[a-f0-9]+)/base64$".extraConfig = ''
-                  default_type text/plain;
-                  add_header X-Robots-Tag "noindex, nofollow" always;
-                  add_header profile-update-interval "24";
-                  add_header profile-title "${site.domain}";
-                  add_header profile-web-page-url "https://${site.domain}/$token/qr";
-                  try_files /$token/base64 =404;
-                '';
-              };
+                  // (
+                    if cert.source == "file" then
+                      {
+                        sslCertificate = "${renderedCert cert.name}/fullchain.pem";
+                        sslCertificateKey = "${renderedCert cert.name}/key.pem";
+                      }
+                    else
+                      { useACMEHost = cert.name; }
+                  )
+                  // siteServer d.name;
+              }) siteDomains
+            )
+            // lib.optionalAttrs (site != null) {
               # Its plain HTTP side, which forceSSL would generate with logging on.
-              "${site.domain}-http" = {
-                serverName = site.domain;
+              "${lib.head siteNames}-http" = {
+                serverName = lib.head siteNames;
+                serverAliases = lib.tail siteNames;
                 listen = http;
-                locations."^~ /.well-known/acme-challenge/" = lib.mkIf (siteCert.source == "http") {
+                locations."^~ /.well-known/acme-challenge/" = lib.mkIf (lib.any (c: c.source == "http") siteCerts) {
                   root = acmeWebroot;
                 };
                 locations."/".return = "301 https://$host$request_uri";

@@ -188,8 +188,8 @@ type Group struct {
 }
 
 type Subscription struct {
-	Node   string `yaml:"node"`
-	Domain string `yaml:"domain"`
+	Node    string   `yaml:"node"`
+	Domains []string `yaml:"domains"`
 }
 
 // Certificate covers Domains, wildcards among them, from ACME or File.

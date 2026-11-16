@@ -562,7 +562,7 @@ func TestBuild_RealityNameTakenByMux(t *testing.T) {
 	for taken, extra := range map[string]string{
 		"passthrough; drop that entry and set reality.target to 127.0.0.1:8443": "    passthrough: { S.Example.com: 127.0.0.1:8443 }\n",
 		"naive; give one of them another name":                                  "    naive: { domain: s.example.com }\n",
-		"the subscription site; give one of them another name":                  "subscription: { node: a, domain: s.example.com }\n",
+		"the subscription site; give one of them another name":                  "subscription: { node: a, domains: [s.example.com] }\n",
 	} {
 		_, err := build(t, "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n"+extra, conventionalSecrets())
 		require.ErrorContains(t, err, "nodes.a.reality.server_name: the multiplexer sends s.example.com to "+taken, taken)
@@ -576,6 +576,36 @@ nodes:
     passthrough: { site.example.com: 127.0.0.1:8443 }
 `, conventionalSecrets())
 	require.NoError(t, err, "self-steal: the node's own name, its site behind")
+}
+
+func TestBuild_SubscriptionDomains(t *testing.T) {
+	const node = "nodes:\n  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n"
+	f, err := build(t, node+"subscription: { node: a, domains: [New.example.com, old.example.org] }\n", conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, []string{"new.example.com", "old.example.org"}, f.Subscription.Domains)
+	require.Equal(t, "new.example.com", f.Subscription.Domain())
+
+	_, err = build(t, node+"subscription: { node: a, domains: [new.example.com, S.example.com] }\n", conventionalSecrets())
+	require.ErrorContains(t, err, "nodes.a.reality.server_name: the multiplexer sends s.example.com to the subscription site", "every domain takes its name in the multiplexer")
+
+	_, err = build(t, node+"subscription: { node: a }\n", conventionalSecrets())
+	require.ErrorContains(t, err, "subscription.domains: required")
+
+	// Names are checked whatever the node; a certificate needs a domain.
+	_, err = build(t, node+"subscription: { node: b, domains: [new.example.com, New.example.com, \"bad name\", 192.0.2.1] }\n", conventionalSecrets())
+	for _, want := range []string{
+		`subscription.node: unknown node "b"`,
+		"subscription.domains[1]: new.example.com: the site has it already",
+		`subscription.domains[2]: "bad name" isn't a domain`,
+		`subscription.domains[3]: "192.0.2.1" isn't a domain`,
+	} {
+		require.ErrorContains(t, err, want)
+	}
+
+	// The multiplexer can't send a name to the site and to passthrough.
+	_, err = build(t, node+"    passthrough: { Old.example.org: 127.0.0.1:9443 }\n"+
+		"subscription: { node: a, domains: [new.example.com, old.example.org] }\n", conventionalSecrets())
+	require.ErrorContains(t, err, "subscription.domains[1]: old.example.org: nodes.a.passthrough sends it to 127.0.0.1:9443")
 }
 
 func TestBuild_Stats(t *testing.T) {
