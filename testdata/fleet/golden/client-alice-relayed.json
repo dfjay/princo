@@ -1,0 +1,270 @@
+{
+  "dns": {
+    "final": "proxy-dns",
+    "rules": [
+      {
+        "action": "predefined",
+        "mode": "and",
+        "rules": [
+          {
+            "default_interface_address": [
+              "2000::/3"
+            ],
+            "invert": true
+          },
+          {
+            "query_type": [
+              "AAAA"
+            ],
+            "rule_set": [
+              "geosite-category-ru"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "geosite-category-ru"
+        ],
+        "server": "ru-dns"
+      }
+    ],
+    "servers": [
+      {
+        "detour": "select",
+        "domain_resolver": "bootstrap-dns",
+        "server": "dns.quad9.net",
+        "tag": "proxy-dns",
+        "type": "https"
+      },
+      {
+        "server": "77.88.8.8",
+        "tag": "direct-dns",
+        "type": "udp"
+      },
+      {
+        "server": "77.88.8.8",
+        "tag": "bootstrap-dns",
+        "type": "udp"
+      },
+      {
+        "server": "77.88.8.8",
+        "tag": "ru-dns",
+        "type": "udp"
+      }
+    ],
+    "strategy": "prefer_ipv4"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "store_dns": true
+    }
+  },
+  "http_clients": [
+    {
+      "tag": "rules-http"
+    }
+  ],
+  "inbounds": [
+    {
+      "address": [
+        "172.19.0.1/30",
+        "fdfe:dcba:9876::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": true,
+      "tag": "tun-in",
+      "type": "tun"
+    }
+  ],
+  "log": {
+    "level": "error",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "outbounds": [
+        "de-reality",
+        "de-hysteria2",
+        "de-naive",
+        "us-reality",
+        "fi-reality"
+      ],
+      "tag": "select-auto",
+      "type": "urltest"
+    },
+    {
+      "default": "select-auto",
+      "outbounds": [
+        "select-auto",
+        "de-reality",
+        "de-hysteria2",
+        "de-naive",
+        "us-reality",
+        "fi-reality"
+      ],
+      "tag": "select",
+      "type": "selector"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "de.example.com",
+      "server_port": 443,
+      "tag": "de-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "rTfvDnYUF2iyaHAreWAuNEJ2MipD-PGBiDysUvNJHjM",
+          "short_id": "1a3287df"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+    },
+    {
+      "password": "dbc5aca6-f0dd-416d-b30f-813754d72f99",
+      "server": "de.example.com",
+      "server_port": 443,
+      "tag": "de-hysteria2",
+      "tls": {
+        "enabled": true,
+        "server_name": "de.example.com"
+      },
+      "type": "hysteria2"
+    },
+    {
+      "password": "dbc5aca6-f0dd-416d-b30f-813754d72f99",
+      "server": "naive-de.example.com",
+      "server_port": 443,
+      "tag": "de-naive",
+      "tls": {
+        "enabled": true,
+        "server_name": "naive-de.example.com"
+      },
+      "type": "naive",
+      "username": "alice"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "203.0.113.7",
+      "server_port": 443,
+      "tag": "us-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk",
+          "short_id": "2b4398e0"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+    },
+    {
+      "flow": "xtls-rprx-vision",
+      "server": "fi.example.com",
+      "server_port": 443,
+      "tag": "fi-reality",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc",
+          "short_id": "3c5409f1"
+        },
+        "server_name": "www.samsung.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "dbc5aca6-f0dd-416d-b30f-813754d72f99"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "default_domain_resolver": "bootstrap-dns",
+    "default_http_client": "rules-http",
+    "final": "select",
+    "rule_set": [
+      {
+        "format": "binary",
+        "tag": "geoip-ru",
+        "type": "remote",
+        "url": "https://subs.example.org/rules/geoip-ru.srs"
+      },
+      {
+        "format": "binary",
+        "tag": "geosite-category-ru",
+        "type": "remote",
+        "url": "https://subs.example.org/rules/geosite-category-ru.srs"
+      }
+    ],
+    "rules": [
+      {
+        "action": "reject",
+        "mode": "and",
+        "no_drop": true,
+        "rules": [
+          {
+            "default_interface_address": [
+              "2000::/3"
+            ],
+            "invert": true
+          },
+          {
+            "ip_version": 6,
+            "rule_set": [
+              "geoip-ru"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "hijack-dns",
+        "protocol": "dns"
+      },
+      {
+        "action": "route",
+        "ip_is_private": true,
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "network": "icmp",
+        "outbound": "direct"
+      },
+      {
+        "action": "route",
+        "outbound": "direct",
+        "rule_set": [
+          "geosite-category-ru",
+          "geoip-ru"
+        ]
+      }
+    ]
+  }
+}

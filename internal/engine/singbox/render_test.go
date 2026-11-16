@@ -52,6 +52,12 @@ func TestGolden(t *testing.T) {
 			golden(t, "client-"+u.Name+".json", got)
 		})
 	}
+	// From the domain relay forwards: rule sets fetched directly.
+	t.Run("client-alice-relayed", func(t *testing.T) {
+		got, err := e.RenderClient(f, "alice", engine.AnyPlatform, "subs.example.org")
+		require.NoError(t, err)
+		golden(t, "client-alice-relayed.json", got)
+	})
 }
 
 func golden(t *testing.T, name string, got []byte) {
