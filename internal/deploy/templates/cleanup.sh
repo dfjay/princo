@@ -9,7 +9,7 @@ done
 {{- if eq .Group "root"}}
 # The engine may have served it before.
 dir={{q (print $.CertDir "/" .Name)}}
-if [ -f "$dir/key.pem" ]; then
+if [ -f "$dir/fullchain.pem" ] && [ -f "$dir/key.pem" ]; then
 	chgrp root "$dir" "$dir/fullchain.pem" "$dir/key.pem"
 fi
 {{- end}}

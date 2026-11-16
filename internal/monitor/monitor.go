@@ -297,15 +297,24 @@ func (m *Monitor) checkWarp(ctx context.Context) result {
 // that presents it. skipped are the servers it couldn't ask anything of.
 func (m *Monitor) checkCert(ctx context.Context, c Certificate, engineRuns bool) (results []result, skipped []string) {
 	file, cert := m.checkCertFile(c)
-	results = append(results, file)
-	for _, s := range c.Served {
+	// All at once: servers that hang would outlast the run one by one.
+	var wg sync.WaitGroup
+	served := make([]*result, len(c.Served))
+	for i, s := range c.Served {
 		id := checkServed + s.ServerName
 		// Down with the engine, its servers have the engine's check.
 		if cert == nil || s.Unit == m.Config.Unit && !engineRuns {
 			skipped = append(skipped, id)
 			continue
 		}
-		results = append(results, m.checkServed(ctx, id, s, c, cert))
+		wg.Go(func() { served[i] = new(m.checkServed(ctx, id, s, c, cert)) })
+	}
+	wg.Wait()
+	results = append(results, file)
+	for _, r := range served {
+		if r != nil {
+			results = append(results, *r)
+		}
 	}
 	return results, skipped
 }

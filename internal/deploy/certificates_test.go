@@ -308,7 +308,7 @@ func TestDeploy_RegroupsCertificates(t *testing.T) {
 
 	require.NoError(t, d.provision(t.Context(), p))
 	require.Contains(t, script, `dir='/var/lib/princo/certs/a.example.com'
-if [ -f "$dir/key.pem" ] && ! [ -L "$dir/key.pem" ]; then
+if [ -f "$dir/fullchain.pem" ] && [ -f "$dir/key.pem" ] && ! [ -L "$dir/key.pem" ]; then
 	chgrp princo-engine "$dir" "$dir/fullchain.pem" "$dir/key.pem"
 fi`)
 	require.NotContains(t, script, "subs.example.org", "the engine gets no access to the site's")
@@ -316,7 +316,7 @@ fi`)
 
 	require.NoError(t, d.cleanup(t.Context(), p, engines[p.Engine]))
 	require.Contains(t, script, `dir='/var/lib/princo/certs/subs.example.org'
-if [ -f "$dir/key.pem" ]; then
+if [ -f "$dir/fullchain.pem" ] && [ -f "$dir/key.pem" ]; then
 	chgrp root "$dir" "$dir/fullchain.pem" "$dir/key.pem"
 fi`)
 	require.NotContains(t, script, "certs/a.example.com")

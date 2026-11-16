@@ -529,6 +529,9 @@ func (b *builder) subscription() {
 		for _, pt := range n.Passthrough {
 			taken[strings.ToLower(pt.Host)] = fmt.Sprintf("nodes.%s.passthrough sends it to %s", n.Name, pt.Target)
 		}
+		if n.Naive != nil {
+			taken[strings.ToLower(n.Naive.Domain)] = fmt.Sprintf("nodes.%s.naive.domain takes it to Naive; give one of them another name", n.Name)
+		}
 	}
 	if len(c.Domains) == 0 {
 		b.errorf("subscription.domains: required")
