@@ -4,6 +4,7 @@ package fleet
 
 import (
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -215,6 +216,25 @@ func (f *Fleet) Reaches(n *Node) []*Node {
 		}
 	}
 	return out
+}
+
+// Relay is the node that forwards host, a domain of the subscription
+// site, to the site's node by passthrough, or nil when the site's node
+// serves host itself. A relay is there to be reached directly where the
+// site's node isn't.
+func (f *Fleet) Relay(host string) *Node {
+	if f.Subscription == nil {
+		return nil
+	}
+	for _, n := range f.Nodes {
+		if n == f.Subscription.Node {
+			continue
+		}
+		if slices.ContainsFunc(n.Passthrough, func(pt Passthrough) bool { return strings.EqualFold(pt.Host, host) }) {
+			return n
+		}
+	}
+	return nil
 }
 
 // Via lists the nodes n sends its reports to ch through, sorted by name:

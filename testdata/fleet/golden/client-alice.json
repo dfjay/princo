@@ -66,7 +66,7 @@
   "http_clients": [
     {
       "detour": "select",
-      "tag": "proxy-http"
+      "tag": "rules-http"
     }
   ],
   "inbounds": [
@@ -204,7 +204,7 @@
   "route": {
     "auto_detect_interface": true,
     "default_domain_resolver": "bootstrap-dns",
-    "default_http_client": "proxy-http",
+    "default_http_client": "rules-http",
     "final": "select",
     "rule_set": [
       {

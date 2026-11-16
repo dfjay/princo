@@ -112,8 +112,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		// Above warn, the apps' logs list where the user went.
 		"log":          renderLog(u.Client.Log),
 		"experimental": map[string]any{"cache_file": map[string]any{"enabled": true, "store_dns": true}},
-		// Remote rule sets are fetched through the proxy.
-		"http_clients": []any{map[string]any{"tag": "proxy-http", "detour": final}},
+		"http_clients": []any{map[string]any{"tag": "rules-http", "detour": ruleSetDetour(f, domain, final)}},
 		"inbounds":     []any{tun},
 		"outbounds":    c.outbounds(),
 	}
@@ -121,7 +120,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		"rules":                 rules,
 		"auto_detect_interface": true,
 		"final":                 final,
-		"default_http_client":   "proxy-http",
+		"default_http_client":   "rules-http",
 	}
 	if d := u.Client.DNS; d != nil {
 		cfg["dns"] = renderDNS(d, &sets, noAAAA, func(s fleet.DNSServer) string {
@@ -143,6 +142,18 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 	cfg["route"] = route
 
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// ruleSetDetour is the outbound that fetches the rule sets from the
+// subscription site at domain: through the proxy, final; directly when a
+// relay serves domain, as it is there to be reached directly, and the
+// nodes behind final may refuse its address, as one in a country they
+// keep traffic out of.
+func ruleSetDetour(f *fleet.Fleet, domain, final string) string {
+	if domain != "" && f.Relay(domain) != nil {
+		return "direct"
+	}
+	return final
 }
 
 // detourOf turns an outbound into a DNS detour; "direct" means none.

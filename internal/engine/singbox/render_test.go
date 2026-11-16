@@ -476,3 +476,24 @@ func TestRealityTarget(t *testing.T) {
 	require.Equal(t, us.Reality.ServerName, tls["server_name"])
 	require.Equal(t, map[string]any{"server": "127.0.0.1", "server_port": 8443.0}, tls["reality"].(map[string]any)["handshake"])
 }
+
+// A profile fetches its rule sets through the proxy, unless a relay
+// serves the domain it is from: the relay is there to be reached directly,
+// and the nodes behind the proxy may refuse its address.
+func TestRuleSetDetour(t *testing.T) {
+	e := New()
+	f := fleettest.Load(t, fixture)
+	relay := f.Nodes[slices.IndexFunc(f.Nodes, func(n *fleet.Node) bool { return n != f.Subscription.Node })]
+	relay.Passthrough = append(relay.Passthrough, fleet.Passthrough{Host: "Subs.Example.org", Target: "192.0.2.1:443"})
+
+	detour := func(domain string) any {
+		out, err := e.RenderClient(f, "alice", engine.AnyPlatform, domain)
+		require.NoError(t, err)
+		var cfg map[string]any
+		require.NoError(t, json.Unmarshal(out, &cfg))
+		require.Equal(t, "rules-http", cfg["route"].(map[string]any)["default_http_client"])
+		return cfg["http_clients"].([]any)[0].(map[string]any)["detour"]
+	}
+	require.Equal(t, "select", detour("subs.example.com"), "served by the site's node")
+	require.Equal(t, "direct", detour("subs.example.org"), "served through a relay")
+}
