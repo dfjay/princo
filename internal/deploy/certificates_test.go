@@ -88,10 +88,11 @@ func TestBuild_Certificates(t *testing.T) {
 
 	site := path.Join(engine.CertDir, "site")
 	require.Equal(t, bundle.Dir{Path: engine.CertDir, Mode: 0o750, Group: engineGroup}, dir(t, b, engine.CertDir))
-	require.Equal(t, bundle.Dir{Path: site, Mode: 0o750}, dir(t, b, site), "nginx reads it as root")
+	require.Equal(t, bundle.Dir{Path: site, Mode: 0o750}, dir(t, b, site), "nginx alone gets in, as root")
+	wild := path.Join(engine.CertDir, "wild")
+	require.Equal(t, bundle.Dir{Path: wild, Mode: 0o750, Group: engineGroup}, dir(t, b, wild), "an ACME certificate's too")
 	key := bundleFile(t, b, site+"/key.pem")
 	require.Equal(t, files["certificates/site/key.pem"], key.Data)
-	require.Equal(t, "", key.Group)
 	require.EqualValues(t, 0o640, key.Mode)
 	for _, f := range b.Files {
 		require.NotEqual(t, path.Join(FilesDir, "certificates/site/key.pem"), f.Path, "not twice")
@@ -113,7 +114,7 @@ func TestBuild_Certificates(t *testing.T) {
 			--deploy-hook /etc/letsencrypt/renewal-hooks/deploy/princo || status=1
 		restore 'wild' || status=1`)
 	hook := string(bundleFile(t, b, CertbotHook).Data)
-	require.Contains(t, hook, "'wild') unit=princo.service group=princo-engine ;;")
+	require.Contains(t, hook, "'wild') units='princo.service' group=princo-engine ;;")
 	require.NotContains(t, hook, "'site'")
 }
 
@@ -183,7 +184,7 @@ certificates:
 	require.NoError(t, err)
 	b, err := Build(p, files, nil, Earlier{})
 	require.NoError(t, err)
-	require.Contains(t, string(bundleFile(t, b, CertbotHook).Data), "'wild') unit=princo.service", "lego's deploy hook")
+	require.Contains(t, string(bundleFile(t, b, CertbotHook).Data), "'wild') units='princo.service'", "lego's deploy hook")
 	require.Equal(t, []string{"princo.service", "princo-lego.timer"}, unitNames(b), "no nginx")
 	require.False(t, needsSite(p))
 }
@@ -241,4 +242,96 @@ func TestDeploy_ProbesAgainWithOpenSSL(t *testing.T) {
 	d, _ = newDeployer(r, "0.2.0")
 	require.NoError(t, d.Deploy(t.Context(), p, files, nil))
 	require.Equal(t, []string{"probe", "provision", "apply", "prune"}, r.steps)
+}
+
+// sharedPlan is a node whose subscription site shares certificates with
+// its engine: one from files with Naive, and an HTTP-01 one with Hysteria2.
+func sharedPlan(t *testing.T) (*host.Plan, map[string][]byte) {
+	t.Helper()
+	chain, key := certtest.SelfSigned(t, "shop.example.com", "subs.example.com")
+	cfg, err := config.Parse([]byte(`princo: v1
+nodes:
+  a:
+    address: a.example.com
+    hysteria2: { masquerade: https://www.example.org }
+    naive: { domain: shop.example.com }
+users:
+  u: {}
+subscription: { node: a, domains: [subs.example.com, a.example.com, subs.example.org] }
+certificates:
+  both:
+    domains: [shop.example.com, subs.example.com]
+    file: {}
+`))
+	require.NoError(t, err)
+	f, err := fleet.Build(cfg, secrets.NewStore(map[string]any{
+		"users":        map[string]any{"u": "uuid"},
+		"shared":       map[string]any{"hysteria2_obfs": "obfs"},
+		"certificates": map[string]any{"both": map[string]any{"fullchain": chain, "key": key}},
+	}))
+	require.NoError(t, err)
+	files, err := host.Files(f, "a")
+	require.NoError(t, err)
+	p, err := host.NewPlan(f, "a", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
+	require.NoError(t, err)
+	return p, files
+}
+
+func TestBuild_SharedCertificates(t *testing.T) {
+	p, files := sharedPlan(t)
+	b, err := Build(p, files, nil, Earlier{})
+	require.NoError(t, err)
+
+	both := path.Join(engine.CertDir, "both")
+	require.Equal(t, bundle.Dir{Path: both, Mode: 0o750, Group: engineGroup}, dir(t, b, both))
+	// A deploy hands a copy made for other consumers over with its
+	// directory, not on the certificate's next renewal.
+	shared := path.Join(engine.CertDir, "a.example.com")
+	require.Equal(t, bundle.Dir{Path: shared, Mode: 0o750, Group: engineGroup}, dir(t, b, shared))
+	sites := path.Join(engine.CertDir, "subs.example.org")
+	require.Equal(t, bundle.Dir{Path: sites, Mode: 0o750}, dir(t, b, sites), "the engine stays out of the site's own")
+	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(b))
+	require.Contains(t, b.Units[0].Files, both+"/key.pem", "the engine restarts on a new certificate")
+	require.Contains(t, b.Units[2].Files, both+"/key.pem", "and nginx reloads")
+
+	hook := string(bundleFile(t, b, CertbotHook).Data)
+	require.Contains(t, hook, "'a.example.com') units='princo.service nginx.service' group=princo-engine ;;")
+	require.Contains(t, hook, "'subs.example.org') units='nginx.service' group=root ;;")
+
+	conf := string(bundleFile(t, b, SiteConf).Data)
+	require.NotContains(t, conf, "The engine's domains", "the site's server answers the challenges of the domains it shares")
+	require.Contains(t, conf, "ssl_certificate /var/lib/princo/certs/both/fullchain.pem;")
+	require.Contains(t, conf, "ssl_certificate /var/lib/princo/certs/a.example.com/fullchain.pem;")
+}
+
+// A unit that fails to reload keeps the others from no new certificate.
+func TestCertbotHook_ReloadsEveryUnit(t *testing.T) {
+	root := t.TempDir()
+	hook, err := execute("certbot-hook", map[string]any{
+		"Certificates": []acmeCert{{Name: "wild", Group: "$(id -gn)", Units: "princo.service nginx.service"}},
+		"CertDir":      filepath.Join(root, "certs"),
+		"Group":        "$(id -gn)",
+	})
+	require.NoError(t, err)
+	bin := filepath.Join(root, "bin")
+	require.NoError(t, os.MkdirAll(bin, 0o755))
+	// The engine's reload fails.
+	systemctl := "#!/bin/sh\n[ \"$1\" = -q ] && exit 0\necho \"$2\" >> " + shellQuote(filepath.Join(root, "reloaded")) + "\n[ \"$2\" != princo.service ]\n"
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "systemctl"), []byte(systemctl), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wild.crt"), []byte("crt"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "wild.key"), []byte("key"), 0o600))
+
+	cmd := exec.Command("sh", "-c", string(hook))
+	cmd.Env = append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"LEGO_HOOK_CERT_NAME=wild",
+		"LEGO_HOOK_CERT_PATH="+filepath.Join(root, "wild.crt"),
+		"LEGO_HOOK_CERT_KEY_PATH="+filepath.Join(root, "wild.key"),
+	)
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, "the failure is told: %s", out)
+	reloaded, err := os.ReadFile(filepath.Join(root, "reloaded"))
+	require.NoError(t, err, string(out))
+	require.Equal(t, "princo.service\nnginx.service\n", string(reloaded))
+	require.FileExists(t, filepath.Join(root, "certs", "wild", "key.pem"))
 }

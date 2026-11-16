@@ -1,0 +1,6 @@
+# Over testdata/fleet: the subscription site takes a domain whose
+# certificate node de's engine serves too.
+princo: v1
+
+subscription:
+  domains: [de.example.com, subs.example.org]

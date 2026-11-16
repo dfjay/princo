@@ -56,7 +56,8 @@ princo deploy --node nl --host admin@nl.example.com
    the lego release pinned by this version of princo, verified by its
    SHA-256 under `/usr/local/lib/princo-lego`. The certbot timer and
    `princo-lego.timer` renew them; a hook copies each to
-   `/var/lib/princo/certs` for the engine and nginx. Certificates from
+   `/var/lib/princo/certs` and reloads whichever of the engine and nginx
+   serve it. Certificates from
    [`file`](config.md#certificates) come with the node's files.
 5. Applies the rendered files, rule sets, `princo.service` and nginx config,
    restarting or reloading services whose files changed.
@@ -65,7 +66,8 @@ princo deploy --node nl --host admin@nl.example.com
 
 The engine runs as a dynamic user without access to other users' files. Its
 config and certificates belong to root and the `princo-engine` group, which
-only the engine joins. nginx doesn't log subscription requests, as their URLs
+only the engine joins; a certificate the subscription site alone serves is in
+a directory only root enters, as nginx does. nginx doesn't log subscription requests, as their URLs
 grant access.
 
 The rendered files live in `/var/lib/princo/files`. Rule sets, in
@@ -173,7 +175,9 @@ deploy-rs. The module:
 
 - runs `princo plan` during evaluation to configure the firewall, nginx SNI
   multiplexer, ACME certificates through `security.acme` (with its
-  `dnsProvider` for DNS-01) and subscription site;
+  `dnsProvider` for DNS-01) and subscription site. A certificate the engine
+  and the site both serve belongs to the `princo-certs` group, which both
+  join;
 - renders the node's files into `/run/princo/files` on the host through
   `princo-render.service`, keeping decrypted secrets out of the Nix store;
 - runs the engine through `princo.service` and checks its minimum required

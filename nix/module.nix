@@ -102,13 +102,31 @@ let
   bySource = source: lib.filter (c: c.source == source) certs;
   acmeCerts = lib.filter (c: c.source != "file") certs;
   certUnits = map (c: "acme-${c.name}.service") acmeCerts;
-  # The engine's HTTP-01 certificates, whose challenges nginx answers.
-  engineHTTPCerts = lib.filter (c: !(c.site or false)) (bySource "http");
   certNamed = name: lib.findFirst (c: c.name == name) null certs;
+  # Who serves a certificate reads it and loads it anew when it changes.
+  serves = consumer: c: lib.elem consumer c.consumers;
+  shared = c: serves "engine" c && serves "web" c;
+  # The engine and nginx both join sharedGroup; neither gets the other's
+  # own files with it.
+  sharedGroup = "princo-certs";
+  certGroup =
+    c:
+    if shared c then
+      sharedGroup
+    else if serves "web" c then
+      config.services.nginx.group
+    else
+      "princo-engine";
+  certServices =
+    c:
+    lib.optional (serves "engine" c) "princo.service" ++ lib.optional (serves "web" c) "nginx.service";
+  anyShared = lib.any shared certs;
   # The site's domains: each a server of its own, with its own files.
   siteDomains = if site == null then [ ] else site.domains;
   siteNames = map (d: d.name) siteDomains;
   siteCerts = map (d: certNamed d.certificate) siteDomains;
+  # The HTTP-01 domains no server of the site answers the challenges of.
+  engineHTTPDomains = lib.subtractLists siteNames (lib.concatMap (c: c.domains) (bySource "http"));
   # What the site's server for domain serves.
   siteServer = domain: {
     # Subscription URLs grant access: no log records their requests.
@@ -392,6 +410,7 @@ in
 
         # May read the engine's config and certificates.
         users.groups.princo-engine = { };
+        users.groups.${sharedGroup} = lib.mkIf anyShared { };
 
         networking.firewall = {
           allowedTCPPorts = plan.tcp_ports ++ lib.optional (bySource "http" != [ ]) 80;
@@ -437,12 +456,7 @@ in
               "${pkgs.coreutils}/bin/chgrp -R ${config.services.nginx.group} ${siteRoot}"
             ]
             ++ lib.optional (bySource "file" != [ ]) "${pkgs.coreutils}/bin/chmod 0751 ${outDir}/certificates"
-            ++ map (
-              c:
-              "${pkgs.coreutils}/bin/chgrp -R ${
-                if c.site or false then config.services.nginx.group else "princo-engine"
-              } ${renderedCert c.name}"
-            ) (bySource "file")
+            ++ map (c: "${pkgs.coreutils}/bin/chgrp -R ${certGroup c} ${renderedCert c.name}") (bySource "file")
             # The engine restarts with princo-render; nginx needs a reload.
             ++ lib.optional (lib.any (c: c.source == "file")
               siteCerts
@@ -481,7 +495,7 @@ in
               );
               ExecReload = lib.mkIf engine.reloads "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
               DynamicUser = true;
-              SupplementaryGroups = [ "princo-engine" ];
+              SupplementaryGroups = [ "princo-engine" ] ++ lib.optional anyShared sharedGroup;
               StateDirectory = "princo-${plan.engine}";
               StateDirectoryMode = "0700";
               AmbientCapabilities = caps;
@@ -517,8 +531,8 @@ in
               value = {
                 domain = lib.head c.domains;
                 extraDomainNames = lib.tail c.domains;
-                group = if c.site or false then config.services.nginx.group else "princo-engine";
-                reloadServices = [ (if c.site or false then "nginx.service" else "princo.service") ];
+                group = certGroup c;
+                reloadServices = certServices c;
               }
               // (
                 if c.source == "dns" then
@@ -568,7 +582,7 @@ in
 
           # The engine's domains: plain HTTP, only for ACME challenges.
           virtualHosts =
-            lib.genAttrs (lib.concatMap (c: c.domains) engineHTTPCerts) (_: {
+            lib.genAttrs engineHTTPDomains (_: {
               listen = lib.mkDefault http;
               locations."^~ /.well-known/acme-challenge/".root = acmeWebroot;
               locations."/".return = lib.mkDefault "404";
@@ -615,6 +629,10 @@ in
             };
         };
         systemd.services.nginx = lib.mkMerge [
+          # It serves certificates the engine does too.
+          (lib.mkIf anyShared {
+            serviceConfig.SupplementaryGroups = [ sharedGroup ];
+          })
           # nginx reads the site that princo-render writes.
           (lib.mkIf (site != null) {
             wants = [ "princo-render.service" ];
@@ -712,11 +730,14 @@ in
 
       {
         systemd.services =
-          # nginx answers the challenges of the engine's HTTP-01 certificates.
-          lib.genAttrs (map (c: "acme-order-renew-${c.name}") engineHTTPCerts) (_: {
-            wants = [ "nginx.service" ];
-            after = [ "nginx.service" ];
-          })
+          # nginx answers the challenges of the HTTP-01 certificates; those
+          # the site serves wait for it already.
+          lib.genAttrs
+            (map (c: "acme-order-renew-${c.name}") (lib.filter (c: !(serves "web" c)) (bySource "http")))
+            (_: {
+              wants = [ "nginx.service" ];
+              after = [ "nginx.service" ];
+            })
           # princo-render writes the DNS provider's credentials.
           // lib.genAttrs (map (c: "acme-order-renew-${c.name}") (bySource "dns")) (_: {
             wants = [ "princo-render.service" ];

@@ -606,6 +606,11 @@ func TestBuild_SubscriptionDomains(t *testing.T) {
 	_, err = build(t, node+"    passthrough: { Old.example.org: 127.0.0.1:9443 }\n"+
 		"subscription: { node: a, domains: [new.example.com, old.example.org] }\n", conventionalSecrets())
 	require.ErrorContains(t, err, "subscription.domains[1]: old.example.org: nodes.a.passthrough sends it to 127.0.0.1:9443")
+
+	// Nor to the site and to Naive, though the two may share a certificate.
+	_, err = build(t, node+"    naive: { domain: Shop.example.com }\n"+
+		"subscription: { node: a, domains: [shop.example.com] }\n", conventionalSecrets())
+	require.ErrorContains(t, err, "subscription.domains[0]: shop.example.com: nodes.a.naive.domain takes it to Naive; give one of them another name")
 }
 
 func TestBuild_Stats(t *testing.T) {

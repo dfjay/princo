@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/iotest"
 	"time"
@@ -343,6 +345,80 @@ func TestRun_Certificates(t *testing.T) {
 	write("due.example.com", t0.Add(90*24*time.Hour))
 	h.run()
 	require.Equal(t, []string{"princo node us\n🟢 Certificate due.example.com is fine again: expires in 89 days, on 2027-02-10"}, h.run())
+}
+
+// A server that missed a renewal goes on presenting the old certificate.
+func TestRun_ServedCertificate(t *testing.T) {
+	const name = "subs.example.com"
+	pair := func(notAfter time.Time) (string, *tls.Certificate) {
+		chain, key := certtest.ExpiringPair(t, notAfter, "shop.example.com", name)
+		c, err := tls.X509KeyPair([]byte(chain), []byte(key))
+		require.NoError(t, err)
+		return chain, &c
+	}
+	_, old := pair(t0.Add(20 * 24 * time.Hour))
+	renewed, fresh := pair(t0.Add(80 * 24 * time.Hour))
+	var presents atomic.Pointer[tls.Certificate]
+	presents.Store(old)
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return presents.Load(), nil
+		},
+	})
+	require.NoError(t, err)
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				_ = conn.(*tls.Conn).HandshakeContext(t.Context())
+				_ = conn.Close()
+			}()
+		}
+	}()
+	file := filepath.Join(t.TempDir(), "fullchain.pem")
+	require.NoError(t, os.WriteFile(file, []byte(renewed), 0o600))
+	addr := ln.Addr().String()
+	h := newHarness(t, &Config{Certificates: []Certificate{{Name: "wild", File: file, Served: []Served{
+		{Unit: "princo.service", Address: addr, ServerName: "shop.example.com"},
+		{Unit: "nginx.service", Address: addr, ServerName: name},
+	}}}})
+
+	const stale = " presents one that expires on 2026-12-02, not wild on disk"
+	h.run()
+	sent := h.run()
+	require.Len(t, sent, 1)
+	require.Contains(t, sent[0], "🔴 Certificate served as shop.example.com: princo.service"+stale)
+	require.Contains(t, sent[0], "🔴 Certificate served as subs.example.com: nginx.service"+stale)
+	require.NotContains(t, sent[0], "Certificate wild", "the file is fine")
+
+	// Down with the engine, its server says nothing of the certificate:
+	// not that it loaded the new one either.
+	h.down = true
+	presents.Store(fresh)
+	h.run()
+	require.Equal(t, []string{"princo node us\n🔴 The engine is down: princo.service isn't running\n🟢 Certificate served as subs.example.com is the one on disk again, after 2m"}, h.run())
+	require.NotContains(t, h.out.String(), "served/shop.example.com: princo.service presents wild\n")
+
+	h.down = false
+	h.run()
+	require.Equal(t, []string{"princo node us\n🟢 The engine runs again, after 2m\n🟢 Certificate served as shop.example.com is the one on disk again, after 4m"}, h.run())
+
+	require.NoError(t, ln.Close())
+	h.run()
+	sent = h.run()
+	require.Len(t, sent, 1)
+	require.Contains(t, sent[0], "🔴 Certificate served as subs.example.com: can't ask nginx.service at "+addr+": ")
+
+	// Without the certificate on disk there is nothing to compare with.
+	require.NoError(t, os.Remove(file))
+	h.out.Reset()
+	h.run()
+	require.Contains(t, h.out.String(), "FAIL certificate/wild: can't read it")
+	require.NotContains(t, h.out.String(), "served/")
 }
 
 func TestRun_Reach(t *testing.T) {

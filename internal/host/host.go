@@ -46,6 +46,9 @@ const (
 // EngineUnit is the systemd unit that runs the node's engine.
 const EngineUnit = "princo.service"
 
+// WebUnit is the web server's.
+const WebUnit = "nginx.service"
+
 // ConfigFile is the server config's path for an engine, e.g. sing-box.json.
 func ConfigFile(engineName string) string { return engineName + ".json" }
 
@@ -66,13 +69,9 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 		return nil, err
 	}
 	files := map[string][]byte{ConfigFile(n.Engine): append(cfg, '\n')}
-	certs := engineCertificates(cfg)
-	for _, d := range siteDomains(f, n) {
-		certs = append(certs, d.Certificate)
-	}
-	certs = sortedUnique(certs)
-	for _, name := range certs {
-		addCertFiles(files, f.CertificateNamed(name))
+	certs := certificates(f, n, cfg)
+	for _, c := range certs {
+		addCertFiles(files, f.CertificateNamed(c.Name))
 	}
 	if f.Monitor != nil {
 		data, err := json.Marshal(monitorConfig(f, n, certs), jsontext.WithIndent("  "))
@@ -104,9 +103,9 @@ func Files(f *fleet.Fleet, node string) (map[string][]byte, error) {
 	return files, nil
 }
 
-// monitorConfig is what n checks: its engine, the certificates certs name,
-// its WARP and the nodes it is to reach.
-func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Config {
+// monitorConfig is what n checks: its engine, its certificates certs, its
+// WARP and the nodes it is to reach.
+func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []Certificate) *monitor.Config {
 	c := &monitor.Config{
 		Node:            n.Name,
 		Unit:            EngineUnit,
@@ -128,8 +127,12 @@ func monitorConfig(f *fleet.Fleet, n *fleet.Node, certs []string) *monitor.Confi
 		}
 		c.Notify = append(c.Notify, out)
 	}
-	for _, name := range certs {
-		c.Certificates = append(c.Certificates, monitor.Certificate{Name: name, File: path.Join(engine.CertDir, name, "fullchain.pem")})
+	for _, cert := range certs {
+		c.Certificates = append(c.Certificates, monitor.Certificate{
+			Name:   cert.Name,
+			File:   path.Join(engine.CertDir, cert.Name, "fullchain.pem"),
+			Served: served(f, n, cert),
+		})
 	}
 	if f.MonitorsWarp(n) {
 		c.Warp = &monitor.Warp{
@@ -235,16 +238,25 @@ type Loopback struct {
 // main table (32766).
 const LoopbackTable = 4430
 
+// Who serves a certificate, and so reads it and loads it anew when it is
+// renewed: the engine or the web server.
+const (
+	ConsumerEngine = "engine"
+	ConsumerWeb    = "web"
+)
+
 // Certificate is one the node serves; see fleet.Certificate.
 type Certificate struct {
 	Name    string   `json:"name"`
 	Domains []string `json:"domains"`
 	Source  string   `json:"source"`
 	DNS     string   `json:"dns,omitempty"`
-	// Site tells that nginx serves it, for the subscription site, rather
-	// than the engine.
-	Site bool `json:"site,omitempty"`
+	// Consumers are ConsumerEngine, ConsumerWeb or both, in that order.
+	Consumers []string `json:"consumers"`
 }
+
+// Serves tells whether consumer is one of c's.
+func (c Certificate) Serves(consumer string) bool { return slices.Contains(c.Consumers, consumer) }
 
 type Site struct {
 	// Domains each serve the site, from their own directory under Root.
@@ -305,7 +317,6 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 		Config:           ConfigFile(n.Engine),
 		TCPPorts:         []int{},
 		UDPPorts:         []int{},
-		Certificates:     []Certificate{},
 		ACMEEmail:        n.ACMEEmail,
 		RuleSets:         e.RuleSets(files[ConfigFile(n.Engine)]),
 		SiteRuleSets:     []string{},
@@ -324,24 +335,10 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 	if f.Monitor != nil {
 		p.Monitor = &Monitor{Config: MonitorFile, IntervalSeconds: int(f.Monitor.Interval.Seconds())}
 	}
-	engineCerts := engineCertificates(files[ConfigFile(n.Engine)])
-	for _, name := range engineCerts {
-		p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(name), false))
-	}
+	p.Certificates = certificates(f, n, files[ConfigFile(n.Engine)])
 	if domains := siteDomains(f, n); domains != nil {
 		p.Subscription = &Site{Domains: domains, Root: SiteDir, Listen: SiteAddr}
-		var siteCerts []string
-		for _, d := range domains {
-			if slices.Contains(engineCerts, d.Certificate) {
-				return nil, fmt.Errorf("subscription.domains: %s: node %s's engine has certificate %s too, which it can't share with the web server; give the site a certificate of its own", d.Name, node, d.Certificate)
-			}
-			siteCerts = append(siteCerts, d.Certificate)
-		}
-		for _, name := range sortedUnique(siteCerts) {
-			p.Certificates = append(p.Certificates, planCertificate(f.CertificateNamed(name), true))
-		}
 	}
-	slices.SortFunc(p.Certificates, func(a, b Certificate) int { return strings.Compare(a.Name, b.Name) })
 
 	var secretPaths []string
 	for _, name := range slices.Sorted(maps.Keys(files)) {
@@ -407,8 +404,43 @@ func addCertFiles(files map[string][]byte, c *fleet.Certificate) {
 	}
 }
 
-func planCertificate(c *fleet.Certificate, site bool) Certificate {
-	return Certificate{Name: c.Name, Domains: c.Domains, Source: c.Source, DNS: c.DNS, Site: site}
+// certificates are the ones n serves, sorted by name: those its engine
+// config cfg reads and those of the subscription site's domains.
+func certificates(f *fleet.Fleet, n *fleet.Node, cfg []byte) []Certificate {
+	consumers := map[string][]string{}
+	for _, name := range engineCertificates(cfg) {
+		consumers[name] = append(consumers[name], ConsumerEngine)
+	}
+	for _, d := range siteDomains(f, n) {
+		if !slices.Contains(consumers[d.Certificate], ConsumerWeb) {
+			consumers[d.Certificate] = append(consumers[d.Certificate], ConsumerWeb)
+		}
+	}
+	certs := []Certificate{}
+	for _, name := range slices.Sorted(maps.Keys(consumers)) {
+		c := f.CertificateNamed(name)
+		certs = append(certs, Certificate{Name: c.Name, Domains: c.Domains, Source: c.Source, DNS: c.DNS, Consumers: consumers[name]})
+	}
+	return certs
+}
+
+// served are the TLS servers on n that present cert. Hysteria2's is on
+// UDP, which the monitor doesn't ask.
+func served(f *fleet.Fleet, n *fleet.Node, cert Certificate) []monitor.Served {
+	var out []monitor.Served
+	if n.Naive != nil && f.Certificate(n.Naive.Domain).Name == cert.Name {
+		out = append(out, monitor.Served{
+			Unit:       EngineUnit,
+			Address:    net.JoinHostPort("127.0.0.1", strconv.Itoa(engine.MuxNaivePort)),
+			ServerName: n.Naive.Domain,
+		})
+	}
+	for _, d := range siteDomains(f, n) {
+		if d.Certificate == cert.Name {
+			out = append(out, monitor.Served{Unit: WebUnit, Address: SiteAddr, ServerName: d.Name})
+		}
+	}
+	return out
 }
 
 func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {

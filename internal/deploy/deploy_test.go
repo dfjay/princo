@@ -263,15 +263,17 @@ func olderThan(a, b string) bool {
 func TestCertbotHook_SiteKeyStaysRoots(t *testing.T) {
 	hook, err := certbotHook(&host.Plan{
 		Certificates: []host.Certificate{
-			{Name: "de.example.com", Source: fleet.CertHTTP},
-			{Name: "subs.example.com", Source: fleet.CertHTTP, Site: true},
-			{Name: "own", Source: fleet.CertFile},
+			{Name: "de.example.com", Source: fleet.CertHTTP, Consumers: []string{host.ConsumerEngine}},
+			{Name: "subs.example.com", Source: fleet.CertHTTP, Consumers: []string{host.ConsumerWeb}},
+			{Name: "wild", Source: fleet.CertDNS, Consumers: []string{host.ConsumerEngine, host.ConsumerWeb}},
+			{Name: "own", Source: fleet.CertFile, Consumers: []string{host.ConsumerEngine}},
 		},
 		Subscription: &host.Site{Domains: []host.SiteDomain{{Name: "subs.example.com", Certificate: "subs.example.com"}}},
 	})
 	require.NoError(t, err)
-	require.Contains(t, string(hook), "'subs.example.com') unit=nginx.service group=root ;;")
-	require.Contains(t, string(hook), "'de.example.com') unit=princo.service group=princo-engine ;;")
+	require.Contains(t, string(hook), "'subs.example.com') units='nginx.service' group=root ;;")
+	require.Contains(t, string(hook), "'de.example.com') units='princo.service' group=princo-engine ;;")
+	require.Contains(t, string(hook), "'wild') units='princo.service nginx.service' group=princo-engine ;;", "nginx reads it as root, and both load it anew")
 	require.NotContains(t, string(hook), "'own'", "its files come with the bundle")
 }
 

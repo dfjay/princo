@@ -30,6 +30,12 @@ func Expiring(t *testing.T, notAfter time.Time, names ...string) []byte {
 	return []byte(chain)
 }
 
+// ExpiringPair is Expiring with the certificate's key.
+func ExpiringPair(t *testing.T, notAfter time.Time, names ...string) (chain, key string) {
+	t.Helper()
+	return selfSigned(t, notAfter, names)
+}
+
 func selfSigned(t *testing.T, notAfter time.Time, names []string) (chain, key string) {
 	t.Helper()
 	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

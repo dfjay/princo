@@ -30,9 +30,10 @@ const stepTimeout = 8 * time.Second
 const (
 	checkEngine = "engine"
 	checkWarp   = "warp"
-	// Followed by a certificate's or a node's name.
-	checkCert  = "certificate/"
-	checkReach = "reach/"
+	// Followed by a certificate's name, a server name or a node's name.
+	checkCert   = "certificate/"
+	checkServed = "served/"
+	checkReach  = "reach/"
 )
 
 // Engine is the engine's API; see stats.Client.
@@ -257,10 +258,23 @@ func (m *Monitor) check(ctx context.Context) (results []result, skipped map[stri
 		engine.ok, engine.detail = false, c.Unit+" isn't running"
 	}
 	results = append(results, engine)
-	for _, cert := range c.Certificates {
-		results = append(results, m.checkCert(cert))
-	}
 	var wg sync.WaitGroup
+	var served []*result
+	for _, cert := range c.Certificates {
+		file, leaf := m.checkCert(cert)
+		results = append(results, file)
+		for _, s := range cert.Served {
+			// Nothing to compare with; or down with the engine, which has
+			// its own check.
+			if leaf == nil || s.Unit == c.Unit && !engine.ok {
+				skipped[checkServed+s.ServerName] = true
+				continue
+			}
+			r := new(result)
+			served = append(served, r)
+			wg.Go(func() { *r = m.checkServed(ctx, s, cert.Name, leaf) })
+		}
+	}
 	var warp []result
 	switch {
 	case c.Warp == nil:
@@ -276,6 +290,9 @@ func (m *Monitor) check(ctx context.Context) (results []result, skipped map[stri
 		wg.Go(func() { reach[i] = m.checkReach(ctx, t) })
 	}
 	wg.Wait()
+	for _, r := range served {
+		results = append(results, *r)
+	}
 	return slices.Concat(results, warp, reach), skipped
 }
 
@@ -287,22 +304,24 @@ func (m *Monitor) checkWarp(ctx context.Context) result {
 	return result{id: checkWarp, ok: true, detail: "answers in " + delay.String()}
 }
 
-func (m *Monitor) checkCert(c Certificate) result {
+// checkCert checks that c's file holds a certificate with time left, and
+// returns the certificate if it holds one.
+func (m *Monitor) checkCert(c Certificate) (result, *x509.Certificate) {
 	r := result{id: checkCert + c.Name}
 	data, err := os.ReadFile(c.File)
 	if err != nil {
 		r.detail = "can't read it: " + err.Error()
-		return r
+		return r, nil
 	}
 	block, _ := pem.Decode(data)
 	if block == nil {
 		r.detail = c.File + " holds no PEM certificate"
-		return r
+		return r, nil
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		r.detail = c.File + ": " + err.Error()
-		return r
+		return r, nil
 	}
 	left := cert.NotAfter.Sub(m.Now())
 	day := cert.NotAfter.UTC().Format(time.DateOnly)
@@ -313,7 +332,43 @@ func (m *Monitor) checkCert(c Certificate) result {
 		r.ok = left >= time.Duration(m.Config.CertificateDays)*24*time.Hour
 		r.detail = fmt.Sprintf("expires in %d days, on %s", int(left.Hours()/24), day)
 	}
+	return r, cert
+}
+
+// checkServed checks that s presents leaf, certificate name's on disk: a
+// server that missed a renewal goes on with the old one until it expires.
+func (m *Monitor) checkServed(ctx context.Context, s Served, name string, leaf *x509.Certificate) result {
+	r := result{id: checkServed + s.ServerName}
+	presented, err := m.presented(ctx, s)
+	switch {
+	case err != nil:
+		r.detail = "can't ask " + s.Unit + " at " + s.Address + ": " + reason(err)
+	case !presented.Equal(leaf):
+		r.detail = fmt.Sprintf("%s presents one that expires on %s, not %s on disk",
+			s.Unit, presented.NotAfter.UTC().Format(time.DateOnly), name)
+	default:
+		r.ok, r.detail = true, s.Unit+" presents "+name
+	}
 	return r
+}
+
+// presented is the certificate s presents.
+func (m *Monitor) presented(ctx context.Context, s Served) (*x509.Certificate, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	conn, err := m.Dial(dialCtx, "tcp", s.Address)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = conn.Close() }()
+	// Which certificate, not whether it is valid.
+	client := tls.Client(conn, &tls.Config{ServerName: s.ServerName, InsecureSkipVerify: true}) //nolint:gosec
+	hsCtx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	if err := client.HandshakeContext(hsCtx); err != nil {
+		return nil, err
+	}
+	return client.ConnectionState().PeerCertificates[0], nil
 }
 
 // checkReach connects to t as a client would begin to: an address blocked
@@ -373,6 +428,10 @@ func describe(id string, c *checkState) string {
 		return "🔴 Certificate " + name + ": " + c.Detail
 	case strings.HasPrefix(id, checkCert):
 		return "🟢 Certificate " + name + " is fine again: " + c.Detail
+	case strings.HasPrefix(id, checkServed) && c.Down:
+		return "🔴 Certificate served as " + name + ": " + c.Detail
+	case strings.HasPrefix(id, checkServed):
+		return "🟢 Certificate served as " + name + " is the one on disk again" + after
 	case c.Down:
 		return "🔴 Can't reach node " + name + ": " + c.Detail
 	default:

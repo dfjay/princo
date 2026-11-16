@@ -12,18 +12,23 @@ else
 fi
 case "$d" in
 {{- range .Certificates}}
-{{q .Name}}) {{if .Site}}unit=nginx.service group=root{{else}}unit=princo.service group={{$.Group}}{{end}} ;;
+{{q .Name}}) units={{q .Units}} group={{.Group}} ;;
 {{- end}}
 *) exit 0 ;;
 esac
 dir={{.CertDir}}/"$d"
 install -d -m 0750 -g {{.Group}} {{.CertDir}}
 install -d -m 0750 -g "$group" "$dir"
-install -m 0640 -g "$group" "$chain" "$dir/.fullchain.pem"
-install -m 0640 -g "$group" "$key" "$dir/.key.pem"
+# The directory lets in whoever serves it.
+install -m 0640 -g {{.Group}} "$chain" "$dir/.fullchain.pem"
+install -m 0640 -g {{.Group}} "$key" "$dir/.key.pem"
 mv -f "$dir/.fullchain.pem" "$dir/fullchain.pem"
 mv -f "$dir/.key.pem" "$dir/key.pem"
-# Not yet there on the first deploy.
-if systemctl -q is-active "$unit"; then
-	systemctl reload-or-restart "$unit"
-fi
+# Not yet there on the first deploy. One that fails doesn't stop the rest.
+status=0
+for unit in $units; do
+	if systemctl -q is-active "$unit"; then
+		systemctl reload-or-restart "$unit" || status=1
+	fi
+done
+exit $status
