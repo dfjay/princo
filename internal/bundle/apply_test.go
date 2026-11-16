@@ -274,6 +274,22 @@ func TestApply_CheckFails(t *testing.T) {
 	}, h.calls)
 }
 
+// A directory's mode and group say who reads what is in it: they go back
+// with the files.
+func TestApply_CheckFailsRestoresDirs(t *testing.T) {
+	h := newFakeHost(t)
+	_, err := h.Apply(t.Context(), node(`{"a":1}`, ""))
+	require.NoError(t, err)
+	h.fail["nginx -t"] = 1
+
+	b := node(`{"a":1}`, "")
+	b.Dirs[0].Mode = 0o700
+	b.Files[2].Data = []byte("server { listen 80; }\n")
+	_, err = h.Apply(t.Context(), b)
+	require.ErrorContains(t, err, "the old files are back")
+	require.EqualValues(t, 0o751, h.mode(t, "/var/lib/princo/files"))
+}
+
 func TestApply_RestartFails(t *testing.T) {
 	h := newFakeHost(t)
 	_, err := h.Apply(t.Context(), node(`{"a":1}`, ""))

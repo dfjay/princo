@@ -47,8 +47,8 @@ const webGroup = "www-data"
 // engineGroup may read the engine's config and certificates.
 const engineGroup = "princo-engine"
 
-// certGroup is the group that reads certificate c, "" for root. nginx reads
-// certificates as root, so one it shares with the engine is the engine's.
+// certGroup is the group of certificate c's directory, which lets its
+// readers in: the engine's, or "" for root's, as nginx reads certificates.
 func certGroup(c host.Certificate) string {
 	if c.Serves(host.ConsumerEngine) {
 		return engineGroup
@@ -63,7 +63,7 @@ func certUnits(c host.Certificate) []string {
 		units = append(units, host.EngineUnit)
 	}
 	if c.Serves(host.ConsumerWeb) {
-		units = append(units, host.SiteUnit)
+		units = append(units, host.WebUnit)
 	}
 	return units
 }
@@ -309,20 +309,22 @@ func certFile(name string) bool {
 	return strings.HasPrefix(name, host.CertsDir+"/") && strings.HasSuffix(name, ".pem")
 }
 
-// addCertFiles adds the certificates from secrets to b, and returns the
+// addCertFiles adds the certificates' directories to b, which let in
+// whoever serves each, and the certificates from secrets. It returns the
 // files the engine and nginx read.
 func addCertFiles(b *bundle.Bundle, p *host.Plan, files map[string][]byte) (engineFiles, siteFiles []string) {
-	certs := certificates(p, fleet.CertFile)
-	if len(certs) > 0 {
+	if len(p.Certificates) > 0 {
 		b.Dirs = append(b.Dirs, bundle.Dir{Path: engine.CertDir, Mode: 0o750, Group: engineGroup})
 	}
-	for _, c := range certs {
-		group := certGroup(c)
+	for _, c := range p.Certificates {
 		dir := path.Join(engine.CertDir, c.Name)
-		b.Dirs = append(b.Dirs, bundle.Dir{Path: dir, Mode: 0o750, Group: group})
+		b.Dirs = append(b.Dirs, bundle.Dir{Path: dir, Mode: 0o750, Group: certGroup(c)})
+		if c.Source != fleet.CertFile {
+			continue
+		}
 		for _, name := range []string{"fullchain.pem", "key.pem"} {
 			f := path.Join(dir, name)
-			b.Files = append(b.Files, bundle.File{Path: f, Mode: 0o640, Group: group, Data: files[path.Join(host.CertsDir, c.Name, name)]})
+			b.Files = append(b.Files, bundle.File{Path: f, Mode: 0o640, Group: engineGroup, Data: files[path.Join(host.CertsDir, c.Name, name)]})
 			if c.Serves(host.ConsumerEngine) {
 				engineFiles = append(engineFiles, f)
 			}
@@ -390,8 +392,8 @@ func certbotHook(p *host.Plan) ([]byte, error) {
 	})
 }
 
-// acmeCert is an ACME certificate's copy in engine.CertDir: who reads it,
-// and the units to reload when it changes.
+// acmeCert is an ACME certificate's copy in engine.CertDir: its
+// directory's group, and the units to reload when it changes.
 type acmeCert struct {
 	Name, Group, Units string
 }

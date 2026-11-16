@@ -88,10 +88,11 @@ func TestBuild_Certificates(t *testing.T) {
 
 	site := path.Join(engine.CertDir, "site")
 	require.Equal(t, bundle.Dir{Path: engine.CertDir, Mode: 0o750, Group: engineGroup}, dir(t, b, engine.CertDir))
-	require.Equal(t, bundle.Dir{Path: site, Mode: 0o750}, dir(t, b, site), "nginx reads it as root")
+	require.Equal(t, bundle.Dir{Path: site, Mode: 0o750}, dir(t, b, site), "nginx alone gets in, as root")
+	wild := path.Join(engine.CertDir, "wild")
+	require.Equal(t, bundle.Dir{Path: wild, Mode: 0o750, Group: engineGroup}, dir(t, b, wild), "an ACME certificate's too")
 	key := bundleFile(t, b, site+"/key.pem")
 	require.Equal(t, files["certificates/site/key.pem"], key.Data)
-	require.Equal(t, "", key.Group)
 	require.EqualValues(t, 0o640, key.Mode)
 	for _, f := range b.Files {
 		require.NotEqual(t, path.Join(FilesDir, "certificates/site/key.pem"), f.Path, "not twice")
@@ -283,7 +284,12 @@ func TestBuild_SharedCertificates(t *testing.T) {
 
 	both := path.Join(engine.CertDir, "both")
 	require.Equal(t, bundle.Dir{Path: both, Mode: 0o750, Group: engineGroup}, dir(t, b, both))
-	require.Equal(t, engineGroup, bundleFile(t, b, both+"/key.pem").Group, "the engine's group reads it, nginx as root")
+	// A deploy hands a copy made for other consumers over with its
+	// directory, not on the certificate's next renewal.
+	shared := path.Join(engine.CertDir, "a.example.com")
+	require.Equal(t, bundle.Dir{Path: shared, Mode: 0o750, Group: engineGroup}, dir(t, b, shared))
+	sites := path.Join(engine.CertDir, "subs.example.org")
+	require.Equal(t, bundle.Dir{Path: sites, Mode: 0o750}, dir(t, b, sites), "the engine stays out of the site's own")
 	require.Equal(t, []string{"princo.service", "princo-loopback.service", "nginx.service"}, unitNames(b))
 	require.Contains(t, b.Units[0].Files, both+"/key.pem", "the engine restarts on a new certificate")
 	require.Contains(t, b.Units[2].Files, both+"/key.pem", "and nginx reloads")
@@ -296,30 +302,6 @@ func TestBuild_SharedCertificates(t *testing.T) {
 	require.NotContains(t, conf, "The engine's domains", "the site's server answers the challenges of the domains it shares")
 	require.Contains(t, conf, "ssl_certificate /var/lib/princo/certs/both/fullchain.pem;")
 	require.Contains(t, conf, "ssl_certificate /var/lib/princo/certs/a.example.com/fullchain.pem;")
-}
-
-// A certificate copied for other consumers changes hands on the next deploy,
-// not on its next renewal.
-func TestDeploy_RegroupsCertificates(t *testing.T) {
-	p, _ := sharedPlan(t)
-	d, _ := newDeployer(&fakeRemote{t: t}, "0.2.0")
-	var script string
-	d.Remote = remoteFunc(func(s string) { script = s })
-
-	require.NoError(t, d.provision(t.Context(), p))
-	require.Contains(t, script, `dir='/var/lib/princo/certs/a.example.com'
-if [ -f "$dir/fullchain.pem" ] && [ -f "$dir/key.pem" ] && ! [ -L "$dir/key.pem" ]; then
-	chgrp princo-engine "$dir" "$dir/fullchain.pem" "$dir/key.pem"
-fi`)
-	require.NotContains(t, script, "subs.example.org", "the engine gets no access to the site's")
-	require.NotContains(t, script, "certs/both", "it comes with the bundle")
-
-	require.NoError(t, d.cleanup(t.Context(), p, engines[p.Engine]))
-	require.Contains(t, script, `dir='/var/lib/princo/certs/subs.example.org'
-if [ -f "$dir/fullchain.pem" ] && [ -f "$dir/key.pem" ]; then
-	chgrp root "$dir" "$dir/fullchain.pem" "$dir/key.pem"
-fi`)
-	require.NotContains(t, script, "certs/a.example.com")
 }
 
 // A unit that fails to reload keeps the others from no new certificate.

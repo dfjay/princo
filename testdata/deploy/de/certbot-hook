@@ -20,12 +20,12 @@ esac
 dir=/var/lib/princo/certs/"$d"
 install -d -m 0750 -g princo-engine /var/lib/princo/certs
 install -d -m 0750 -g "$group" "$dir"
-install -m 0640 -g "$group" "$chain" "$dir/.fullchain.pem"
-install -m 0640 -g "$group" "$key" "$dir/.key.pem"
+# The directory lets in whoever serves it.
+install -m 0640 -g princo-engine "$chain" "$dir/.fullchain.pem"
+install -m 0640 -g princo-engine "$key" "$dir/.key.pem"
 mv -f "$dir/.fullchain.pem" "$dir/fullchain.pem"
 mv -f "$dir/.key.pem" "$dir/key.pem"
-# Whoever serves it loads it anew; not yet there on the first deploy. One
-# that fails keeps none of the others from it.
+# Not yet there on the first deploy. One that fails doesn't stop the rest.
 status=0
 for unit in $units; do
 	if systemctl -q is-active "$unit"; then

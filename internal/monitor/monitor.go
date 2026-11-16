@@ -259,10 +259,21 @@ func (m *Monitor) check(ctx context.Context) (results []result, skipped map[stri
 	}
 	results = append(results, engine)
 	var wg sync.WaitGroup
-	certs := make([][]result, len(c.Certificates))
-	unasked := make([][]string, len(c.Certificates))
-	for i, cert := range c.Certificates {
-		wg.Go(func() { certs[i], unasked[i] = m.checkCert(ctx, cert, engine.ok) })
+	var served []*result
+	for _, cert := range c.Certificates {
+		file, leaf := m.checkCert(cert)
+		results = append(results, file)
+		for _, s := range cert.Served {
+			// Nothing to compare with; or down with the engine, which has
+			// its own check.
+			if leaf == nil || s.Unit == c.Unit && !engine.ok {
+				skipped[checkServed+s.ServerName] = true
+				continue
+			}
+			r := new(result)
+			served = append(served, r)
+			wg.Go(func() { *r = m.checkServed(ctx, s, cert.Name, leaf) })
+		}
 	}
 	var warp []result
 	switch {
@@ -279,10 +290,10 @@ func (m *Monitor) check(ctx context.Context) (results []result, skipped map[stri
 		wg.Go(func() { reach[i] = m.checkReach(ctx, t) })
 	}
 	wg.Wait()
-	for _, id := range slices.Concat(unasked...) {
-		skipped[id] = true
+	for _, r := range served {
+		results = append(results, *r)
 	}
-	return slices.Concat(results, slices.Concat(certs...), warp, reach), skipped
+	return slices.Concat(results, warp, reach), skipped
 }
 
 func (m *Monitor) checkWarp(ctx context.Context) result {
@@ -293,35 +304,9 @@ func (m *Monitor) checkWarp(ctx context.Context) result {
 	return result{id: checkWarp, ok: true, detail: "answers in " + delay.String()}
 }
 
-// checkCert checks c's file and, with the certificate in it, each server
-// that presents it. skipped are the servers it couldn't ask anything of.
-func (m *Monitor) checkCert(ctx context.Context, c Certificate, engineRuns bool) (results []result, skipped []string) {
-	file, cert := m.checkCertFile(c)
-	// All at once: servers that hang would outlast the run one by one.
-	var wg sync.WaitGroup
-	served := make([]*result, len(c.Served))
-	for i, s := range c.Served {
-		id := checkServed + s.ServerName
-		// Down with the engine, its servers have the engine's check.
-		if cert == nil || s.Unit == m.Config.Unit && !engineRuns {
-			skipped = append(skipped, id)
-			continue
-		}
-		wg.Go(func() { served[i] = new(m.checkServed(ctx, id, s, c, cert)) })
-	}
-	wg.Wait()
-	results = append(results, file)
-	for _, r := range served {
-		if r != nil {
-			results = append(results, *r)
-		}
-	}
-	return results, skipped
-}
-
-// checkCertFile checks that c's file holds a certificate with time left,
-// and returns the certificate if it holds one.
-func (m *Monitor) checkCertFile(c Certificate) (result, *x509.Certificate) {
+// checkCert checks that c's file holds a certificate with time left, and
+// returns the certificate if it holds one.
+func (m *Monitor) checkCert(c Certificate) (result, *x509.Certificate) {
 	r := result{id: checkCert + c.Name}
 	data, err := os.ReadFile(c.File)
 	if err != nil {
@@ -350,19 +335,19 @@ func (m *Monitor) checkCertFile(c Certificate) (result, *x509.Certificate) {
 	return r, cert
 }
 
-// checkServed checks that s presents cert, the one in c's file: a server
-// that missed a renewal goes on with the old one until it expires.
-func (m *Monitor) checkServed(ctx context.Context, id string, s Served, c Certificate, cert *x509.Certificate) result {
-	r := result{id: id}
+// checkServed checks that s presents leaf, certificate name's on disk: a
+// server that missed a renewal goes on with the old one until it expires.
+func (m *Monitor) checkServed(ctx context.Context, s Served, name string, leaf *x509.Certificate) result {
+	r := result{id: checkServed + s.ServerName}
 	presented, err := m.presented(ctx, s)
 	switch {
 	case err != nil:
 		r.detail = "can't ask " + s.Unit + " at " + s.Address + ": " + reason(err)
-	case !presented.Equal(cert):
-		r.detail = fmt.Sprintf("%s presents one that expires on %s, not %s's in %s",
-			s.Unit, presented.NotAfter.UTC().Format(time.DateOnly), c.Name, c.File)
+	case !presented.Equal(leaf):
+		r.detail = fmt.Sprintf("%s presents one that expires on %s, not %s on disk",
+			s.Unit, presented.NotAfter.UTC().Format(time.DateOnly), name)
 	default:
-		r.ok, r.detail = true, s.Unit+" presents "+c.Name+"'s"
+		r.ok, r.detail = true, s.Unit+" presents "+name
 	}
 	return r
 }
@@ -376,7 +361,7 @@ func (m *Monitor) presented(ctx context.Context, s Served) (*x509.Certificate, e
 		return nil, err
 	}
 	defer func() { _ = conn.Close() }()
-	// Which certificate, not whether it is valid: the file's has its check.
+	// Which certificate, not whether it is valid.
 	client := tls.Client(conn, &tls.Config{ServerName: s.ServerName, InsecureSkipVerify: true}) //nolint:gosec
 	hsCtx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()

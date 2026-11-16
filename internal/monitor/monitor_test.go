@@ -387,7 +387,7 @@ func TestRun_ServedCertificate(t *testing.T) {
 		{Unit: "nginx.service", Address: addr, ServerName: name},
 	}}}})
 
-	stale := " presents one that expires on 2026-12-02, not wild's in " + file
+	const stale = " presents one that expires on 2026-12-02, not wild on disk"
 	h.run()
 	sent := h.run()
 	require.Len(t, sent, 1)
@@ -401,7 +401,7 @@ func TestRun_ServedCertificate(t *testing.T) {
 	presents.Store(fresh)
 	h.run()
 	require.Equal(t, []string{"princo node us\n🔴 The engine is down: princo.service isn't running\n🟢 Certificate served as subs.example.com is the one on disk again, after 2m"}, h.run())
-	require.NotContains(t, h.out.String(), "served/shop.example.com: princo.service presents wild's")
+	require.NotContains(t, h.out.String(), "served/shop.example.com: princo.service presents wild\n")
 
 	h.down = false
 	h.run()

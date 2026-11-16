@@ -105,9 +105,17 @@ type fileChange struct {
 	old, new entry
 }
 
+// dirChange is a directory that was there, with the attributes it had.
+type dirChange struct {
+	path string
+	mode fs.FileMode
+	gid  int
+}
+
 type prepared struct {
 	changes []Change
 	files   []fileChange
+	dirs    []dirChange
 }
 
 // Diff is what Apply would change, without changing anything.
@@ -121,8 +129,8 @@ func (h *Host) Diff(b *Bundle) ([]Change, error) {
 
 // Apply writes b, removes the files of the last apply that b lacks, and
 // restarts the units whose files changed; it starts the others. When a
-// check or a restart fails, the old files go back and the units restart
-// on them.
+// check or a restart fails, the old files and the directories' old modes
+// and groups go back, and the units restart on them.
 func (h *Host) Apply(ctx context.Context, b *Bundle) ([]Change, error) {
 	if err := b.validate(); err != nil {
 		return nil, err
@@ -138,18 +146,18 @@ func (h *Host) Apply(ctx context.Context, b *Bundle) ([]Change, error) {
 	}
 	for _, d := range b.Dirs {
 		if err := h.makeDir(d); err != nil {
-			return nil, err
+			return nil, errors.Join(err, h.undo(nil, p.dirs))
 		}
 	}
 	changed := map[string]bool{}
 	for i, fc := range p.files {
 		if err := h.put(fc.path, fc.new); err != nil {
-			return nil, errors.Join(err, h.undo(p.files[:i]))
+			return nil, errors.Join(err, h.undo(p.files[:i], p.dirs))
 		}
 		changed[fc.path] = true
 	}
 	if err := h.activate(ctx, b.Units, changed); err != nil {
-		if uerr := h.undo(p.files); uerr != nil {
+		if uerr := h.undo(p.files, p.dirs); uerr != nil {
 			return nil, errors.Join(err, fmt.Errorf("putting the old files back: %w", uerr))
 		}
 		// Even when ctx is what failed the apply.
@@ -194,6 +202,7 @@ func (h *Host) prepare(b *Bundle) (*prepared, error) {
 			return nil, fmt.Errorf("%s isn't a directory", d.Path)
 		case fi.Mode().Perm() != d.Mode || gidOf(fi) != gid:
 			p.changes = append(p.changes, Change{Update, d.Path + "/"})
+			p.dirs = append(p.dirs, dirChange{d.Path, fi.Mode().Perm(), gidOf(fi)})
 		}
 	}
 
@@ -322,11 +331,15 @@ func touched(u Unit, changed map[string]bool) bool {
 	return false
 }
 
-// undo puts the files back as they were, last change first.
-func (h *Host) undo(files []fileChange) error {
+// undo puts the files back as they were, last change first, and gives the
+// directories their modes and groups back.
+func (h *Host) undo(files []fileChange, dirs []dirChange) error {
 	var errs []error
 	for _, fc := range slices.Backward(files) {
 		errs = append(errs, h.put(fc.path, fc.old))
+	}
+	for _, d := range dirs {
+		errs = append(errs, h.Root.Chmod(rel(d.path), d.mode), h.Root.Chown(rel(d.path), -1, d.gid))
 	}
 	return errors.Join(errs...)
 }

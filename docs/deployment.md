@@ -66,8 +66,8 @@ princo deploy --node nl --host admin@nl.example.com
 
 The engine runs as a dynamic user without access to other users' files. Its
 config and certificates belong to root and the `princo-engine` group, which
-only the engine joins; the subscription site's own certificates are root's
-alone, as nginx reads them. nginx doesn't log subscription requests, as their URLs
+only the engine joins; a certificate the subscription site alone serves is in
+a directory only root enters, as nginx does. nginx doesn't log subscription requests, as their URLs
 grant access.
 
 The rendered files live in `/var/lib/princo/files`. Rule sets, in

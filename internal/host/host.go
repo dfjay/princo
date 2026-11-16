@@ -46,8 +46,8 @@ const (
 // EngineUnit is the systemd unit that runs the node's engine.
 const EngineUnit = "princo.service"
 
-// SiteUnit is the web server's, which serves the subscription site.
-const SiteUnit = "nginx.service"
+// WebUnit is the web server's.
+const WebUnit = "nginx.service"
 
 // ConfigFile is the server config's path for an engine, e.g. sing-box.json.
 func ConfigFile(engineName string) string { return engineName + ".json" }
@@ -239,12 +239,10 @@ type Loopback struct {
 const LoopbackTable = 4430
 
 // Who serves a certificate, and so reads it and loads it anew when it is
-// renewed.
+// renewed: the engine or the web server.
 const (
-	// ConsumerEngine is the node's engine.
 	ConsumerEngine = "engine"
-	// ConsumerWeb is the web server, which serves the subscription site.
-	ConsumerWeb = "web"
+	ConsumerWeb    = "web"
 )
 
 // Certificate is one the node serves; see fleet.Certificate.
@@ -253,8 +251,7 @@ type Certificate struct {
 	Domains []string `json:"domains"`
 	Source  string   `json:"source"`
 	DNS     string   `json:"dns,omitempty"`
-	// Consumers are who serves it, sorted: ConsumerEngine, ConsumerWeb or
-	// both. They read the same files.
+	// Consumers are ConsumerEngine, ConsumerWeb or both, in that order.
 	Consumers []string `json:"consumers"`
 }
 
@@ -427,8 +424,8 @@ func certificates(f *fleet.Fleet, n *fleet.Node, cfg []byte) []Certificate {
 	return certs
 }
 
-// served are the TLS servers on n that present cert, for the monitor to
-// ask. Hysteria2 is UDP, which it doesn't.
+// served are the TLS servers on n that present cert. Hysteria2's is on
+// UDP, which the monitor doesn't ask.
 func served(f *fleet.Fleet, n *fleet.Node, cert Certificate) []monitor.Served {
 	var out []monitor.Served
 	if n.Naive != nil && f.Certificate(n.Naive.Domain).Name == cert.Name {
@@ -440,7 +437,7 @@ func served(f *fleet.Fleet, n *fleet.Node, cert Certificate) []monitor.Served {
 	}
 	for _, d := range siteDomains(f, n) {
 		if d.Certificate == cert.Name {
-			out = append(out, monitor.Served{Unit: SiteUnit, Address: SiteAddr, ServerName: d.Name})
+			out = append(out, monitor.Served{Unit: WebUnit, Address: SiteAddr, ServerName: d.Name})
 		}
 	}
 	return out

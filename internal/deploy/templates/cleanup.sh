@@ -5,15 +5,6 @@ done
 for dir in {{q .LegoRoot}}/*; do
 	[ "$dir" = {{q .KeepLego}} ] || rm -rf "$dir"
 done
-{{- range .Certificates}}
-{{- if eq .Group "root"}}
-# The engine may have served it before.
-dir={{q (print $.CertDir "/" .Name)}}
-if [ -f "$dir/fullchain.pem" ] && [ -f "$dir/key.pem" ]; then
-	chgrp root "$dir" "$dir/fullchain.pem" "$dir/key.pem"
-fi
-{{- end}}
-{{- end}}
 if ! [ -e {{q .LegoTimer}} ]; then
 	systemctl disable --now --quiet princo-lego.timer 2>/dev/null || true
 fi

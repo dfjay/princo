@@ -106,8 +106,8 @@ let
   # Who serves a certificate reads it and loads it anew when it changes.
   serves = consumer: c: lib.elem consumer c.consumers;
   shared = c: serves "engine" c && serves "web" c;
-  # Whoever serves a certificate both do is in sharedGroup; neither gets
-  # the other's own files with it.
+  # The engine and nginx both join sharedGroup; neither gets the other's
+  # own files with it.
   sharedGroup = "princo-certs";
   certGroup =
     c:

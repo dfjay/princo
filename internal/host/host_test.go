@@ -256,7 +256,7 @@ certificates:
 	n, _ := placeholders.Node("a")
 	require.Equal(t, []monitor.Served{
 		{Unit: EngineUnit, Address: "127.0.0.1:8445", ServerName: "shop.example.com"},
-		{Unit: SiteUnit, Address: SiteAddr, ServerName: "subs2.example.com"},
+		{Unit: WebUnit, Address: SiteAddr, ServerName: "subs2.example.com"},
 	}, served(placeholders, n, p.Certificates[1]))
-	require.Equal(t, []monitor.Served{{Unit: SiteUnit, Address: SiteAddr, ServerName: "subs.example.com"}}, served(placeholders, n, p.Certificates[0]))
+	require.Equal(t, []monitor.Served{{Unit: WebUnit, Address: SiteAddr, ServerName: "subs.example.com"}}, served(placeholders, n, p.Certificates[0]))
 }

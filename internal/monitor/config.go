@@ -44,9 +44,8 @@ type Certificate struct {
 	Served []Served `json:"served,omitempty"`
 }
 
-// Served is a TLS server of systemd unit Unit, which presents a
-// certificate to ServerName at Address. It loaded the certificate when it
-// started or reloaded, so it may present an older one than the file holds.
+// Served is a TLS server of systemd unit Unit, which presents the
+// certificate to ServerName at Address: the one it last loaded.
 type Served struct {
 	Unit       string `json:"unit"`
 	Address    string `json:"address"`
