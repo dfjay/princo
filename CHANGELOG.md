@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.7.0](https://github.com/dfjay/princo/compare/v0.6.0...v0.7.0) (2026-11-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* let the engine and the subscription site share a certificate ([#56](https://github.com/dfjay/princo/issues/56))
+* **subscription:** serve the site under independent domains ([#54](https://github.com/dfjay/princo/issues/54))
+
+### Features
+
+* **client:** offer a group's nodes through relay nodes ([#58](https://github.com/dfjay/princo/issues/58)) ([6d10a89](https://github.com/dfjay/princo/commit/6d10a89ed9029bed14069a59b7d73199ed772706))
+* let the engine and the subscription site share a certificate ([#56](https://github.com/dfjay/princo/issues/56)) ([7149b5d](https://github.com/dfjay/princo/commit/7149b5dbc2dd2caa1b0696d6c07986a9bc56248b))
+* **monitor:** send reports through nodes that reach the channel ([#50](https://github.com/dfjay/princo/issues/50)) ([169cc10](https://github.com/dfjay/princo/commit/169cc1048dfc1f1325c2a0fff29a827cd882aa01))
+* **subscription:** decide in fleet how profiles fetch rule sets ([#57](https://github.com/dfjay/princo/issues/57)) ([9911dd5](https://github.com/dfjay/princo/commit/9911dd53b29e721ade2f931175843092d78e1fdc))
+* **subscription:** serve the site under independent domains ([#54](https://github.com/dfjay/princo/issues/54)) ([e64c059](https://github.com/dfjay/princo/commit/e64c059cf8b54e4f879b67a3174814ff61cb542a))
+
+
+### Bug Fixes
+
+* **client:** fetch rule sets directly when a relay serves the subscription domain ([33a4a71](https://github.com/dfjay/princo/commit/33a4a71f5c684230c0d4f698bbe7deae948f0f5c))
+
 ## [0.6.0](https://github.com/dfjay/princo/compare/v0.5.0...v0.6.0) (2026-11-15)
 
 
