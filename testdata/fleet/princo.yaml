@@ -87,6 +87,7 @@ client:
   groups:
     select:
       nodes: "!domestic"
+      relay: domestic
       auto: true
     ru-select:
       nodes: domestic

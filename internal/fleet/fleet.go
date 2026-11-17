@@ -389,7 +389,11 @@ const (
 type Group struct {
 	Name string
 	// Members selects nodes by tag.
-	Members       Selector
+	Members Selector
+	// Relay selects the nodes each member is also offered through, the
+	// client connecting to the member inside its connection to the relay;
+	// nil for none.
+	Relay         *Selector
 	Default       string // "first", "auto", "direct" or an outbound tag
 	IncludeDirect bool
 	// Auto adds a member that picks the fastest working one.

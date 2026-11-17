@@ -77,7 +77,8 @@
   "outbounds": [
     {
       "outbounds": [
-        "us-reality"
+        "us-reality",
+        "us-reality@relay"
       ],
       "tag": "select-auto",
       "type": "urltest"
@@ -86,7 +87,8 @@
       "default": "select-auto",
       "outbounds": [
         "select-auto",
-        "us-reality"
+        "us-reality",
+        "us-reality@relay"
       ],
       "tag": "select",
       "type": "selector"
@@ -134,6 +136,28 @@
           "short_id": "f0447be7"
         },
         "server_name": "www.ozon.ru",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "vless",
+      "uuid": "5ad0af17-e352-4d1e-a22a-a5d4007007da"
+    },
+    {
+      "detour": "relay-reality",
+      "flow": "xtls-rprx-vision",
+      "server": "203.0.113.7",
+      "server_port": 443,
+      "tag": "us-reality@relay",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "P-R8AofeIpznJ9PWf-FMZm17TspZbFspvXU2zDTRXhk",
+          "short_id": "2b4398e0"
+        },
+        "server_name": "www.samsung.com",
         "utls": {
           "enabled": true,
           "fingerprint": "chrome"

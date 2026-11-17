@@ -174,15 +174,51 @@ func detourOf(outbound string) string {
 type clientView struct {
 	f       *fleet.Fleet
 	user    *fleet.User
-	members map[string][]*fleet.Node // group name → member nodes
+	members map[string][]member // group name → its members
+}
+
+// member is a way out through a node: straight to it, or through relay,
+// which then sees only the connection to exit.
+type member struct {
+	exit  *fleet.Node
+	relay *fleet.Node // nil when straight
+}
+
+// tags are the member's outbounds, one per protocol. Through a relay that is
+// Reality alone, the protocol the relay is reached by too.
+func (p member) tags() []any {
+	if p.relay != nil {
+		return []any{relayedTag(p)}
+	}
+	var tags []any
+	for _, protocol := range protocols(p.exit) {
+		tags = append(tags, outboundTag(p.exit, protocol))
+	}
+	return tags
 }
 
 func newClientView(f *fleet.Fleet, u *fleet.User) *clientView {
-	c := &clientView{f: f, user: u, members: map[string][]*fleet.Node{}}
+	c := &clientView{f: f, user: u, members: map[string][]member{}}
 	for _, g := range u.Client.Groups {
+		var straight []member
 		for _, n := range u.Nodes {
 			if g.Members.Matches(n) {
-				c.members[g.Name] = append(c.members[g.Name], n)
+				straight = append(straight, member{exit: n})
+			}
+		}
+		// The straight ones first, so they stay the first member.
+		c.members[g.Name] = straight
+		if g.Relay == nil {
+			continue
+		}
+		for _, relay := range u.Nodes {
+			if !g.Relay.Matches(relay) || relay.Reality == nil {
+				continue
+			}
+			for _, p := range straight {
+				if p.exit != relay && p.exit.Reality != nil {
+					c.members[g.Name] = append(c.members[g.Name], member{exit: p.exit, relay: relay})
+				}
 			}
 		}
 	}
@@ -215,7 +251,8 @@ func (c *clientView) resolve(name string) string {
 
 // ipv4Only reports whether an outbound includes a node without IPv6.
 func (c *clientView) ipv4Only(outbound string) bool {
-	return slices.ContainsFunc(c.members[outbound], func(n *fleet.Node) bool { return !n.IPv6 })
+	// A relay only carries the connection to the exit, whatever is in it.
+	return slices.ContainsFunc(c.members[outbound], func(p member) bool { return !p.exit.IPv6 })
 }
 
 // ipv6 is how far an outbound carries IPv6. Where traffic may leave
@@ -240,15 +277,13 @@ func (c *clientView) ipv6(outbound string) ipv6Support {
 func (c *clientView) outbounds() []any {
 	var out []any
 	for _, g := range c.user.Client.Groups {
-		nodes := c.members[g.Name]
-		if len(nodes) == 0 {
+		members := c.members[g.Name]
+		if len(members) == 0 {
 			continue
 		}
 		var proxies []any
-		for _, n := range nodes {
-			for _, ob := range nodeOutbounds(n, c.user) {
-				proxies = append(proxies, ob["tag"])
-			}
+		for _, p := range members {
+			proxies = append(proxies, p.tags()...)
 		}
 		var tags []any
 		auto := g.Name + "-auto"
@@ -266,7 +301,7 @@ func (c *clientView) outbounds() []any {
 			def = auto
 		case def == "first", !slices.Contains(tags, any(def)):
 			// The default may be a node this user can't use.
-			def = outboundTag(nodes[0], firstProtocol(nodes[0]))
+			def = proxies[0].(string)
 		}
 		out = append(out, map[string]any{"type": "selector", "tag": g.Name, "outbounds": tags, "default": def})
 	}
@@ -275,20 +310,43 @@ func (c *clientView) outbounds() []any {
 			out = append(out, ob)
 		}
 	}
+	// Each relayed member once, however many groups offer it.
+	relayed := map[string]bool{}
+	for _, g := range c.user.Client.Groups {
+		for _, p := range c.members[g.Name] {
+			if p.relay == nil || relayed[relayedTag(p)] {
+				continue
+			}
+			relayed[relayedTag(p)] = true
+			ob := realityOutbound(p.exit, c.user.UUID)
+			ob["tag"] = relayedTag(p)
+			ob["detour"] = outboundTag(p.relay, "reality")
+			out = append(out, ob)
+		}
+	}
 	return append(out, map[string]any{"type": "direct", "tag": "direct"})
 }
 
 func outboundTag(n *fleet.Node, protocol string) string { return n.Name + "-" + protocol }
 
-func firstProtocol(n *fleet.Node) string {
-	switch {
-	case n.Reality != nil:
-		return "reality"
-	case n.Hysteria2 != nil:
-		return "hysteria2"
-	default:
-		return "naive"
+// relayedTag names a member through a relay, as fr-reality@ru; no name of a
+// node or a group has an @.
+func relayedTag(p member) string { return outboundTag(p.exit, "reality") + "@" + p.relay.Name }
+
+// protocols are the ones n serves to sing-box apps, in the order of their
+// outbounds.
+func protocols(n *fleet.Node) []string {
+	var out []string
+	if n.Reality != nil {
+		out = append(out, "reality")
 	}
+	if n.Hysteria2 != nil {
+		out = append(out, "hysteria2")
+	}
+	if n.Naive != nil {
+		out = append(out, "naive")
+	}
+	return out
 }
 
 // nodeOutbounds is how user reaches n: one outbound per protocol.

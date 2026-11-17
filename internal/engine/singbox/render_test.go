@@ -179,7 +179,8 @@ func TestClientGroups(t *testing.T) {
 			selectors[ob["tag"].(string)] = ob["outbounds"].([]any)
 		}
 	}
-	require.Equal(t, []any{"select-auto", "us-reality"}, selectors["select"])
+	// us is offered through relay too, after the straight members.
+	require.Equal(t, []any{"select-auto", "us-reality", "us-reality@relay"}, selectors["select"])
 	require.Equal(t, []any{"direct", "relay-reality"}, selectors["ru-select"])
 	// relay has no IPv6: refuse IPv6 to RU IPs before anything else, but
 	// for what an earlier rule sends directly.
@@ -208,6 +209,54 @@ func TestClientGroups(t *testing.T) {
 			require.Equal(t, "us-reality", ob["default"])
 		}
 	}
+}
+
+// TestClientRelay offers a group's members through its relay nodes: inside
+// the user's connection to the relay, as the user, over Reality.
+func TestClientRelay(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	e := New()
+	outbounds := func(user string) map[string]map[string]any {
+		out := map[string]map[string]any{}
+		for _, ob := range renderJSON(t, client(e, engine.AnyPlatform), f, user)["outbounds"].([]any) {
+			ob := ob.(map[string]any)
+			require.NotContains(t, out, ob["tag"], "an outbound twice")
+			out[ob["tag"].(string)] = ob
+		}
+		return out
+	}
+
+	bob := outbounds("bob")
+	relayed, straight := bob["us-reality@relay"], bob["us-reality"]
+	require.Equal(t, "relay-reality", relayed["detour"])
+	require.NotContains(t, straight, "detour")
+	for _, k := range []string{"type", "server", "server_port", "uuid", "flow", "tls"} {
+		require.Equal(t, straight[k], relayed[k], k)
+	}
+
+	// alice may not use relay: nothing of hers goes through it.
+	for tag := range outbounds("alice") {
+		require.NotContains(t, tag, "@")
+	}
+
+	// Every node relays every other one with Reality, never itself; a
+	// member of two groups is one outbound.
+	all := fleet.Selector{All: true}
+	f.Client.Groups[0].Members, f.Client.Groups[0].Relay = all, &all
+	f.Client.Groups[1].Members, f.Client.Groups[1].Relay = all, &all
+	u, _ := f.User("bob")
+	de, _ := f.Node("de")
+	u.Nodes = append(u.Nodes, de)
+	bob = outbounds("bob")
+	require.Equal(t, []any{
+		"select-auto",
+		"us-reality", "relay-reality", "de-reality", "de-hysteria2", "de-naive",
+		"relay-reality@us", "de-reality@us",
+		"us-reality@relay", "de-reality@relay",
+		"us-reality@de", "relay-reality@de",
+	}, bob["select"]["outbounds"])
+	require.Equal(t, "us-reality", bob["de-reality@us"]["detour"])
+	require.Equal(t, "de.example.com", bob["de-reality@us"]["server"])
 }
 
 // TestSingBoxCheck runs `sing-box check` on everything rendered, with

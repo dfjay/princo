@@ -378,6 +378,37 @@ client:
 	require.ErrorContains(t, err, "client.groups.manual.default: auto needs auto: true")
 }
 
+func TestBuild_GroupRelay(t *testing.T) {
+	src := func(relay string) string {
+		return `
+nodes:
+  a: { address: a.example.com, reality: { server_name: s, short_id: "1", public_key: p } }
+  b: { address: b.example.com, tags: [near], reality: { server_name: s, short_id: "1", public_key: p } }
+users:
+  u: {}
+client:
+  groups:
+    proxy: { nodes: "!near", relay: ` + relay + ` }
+  final: proxy
+`
+	}
+	f, err := build(t, src("near"), conventionalSecrets())
+	require.NoError(t, err)
+	a, _ := f.Node("a")
+	b, _ := f.Node("b")
+	require.True(t, f.Client.Groups[0].Relay.Matches(b))
+	require.False(t, f.Client.Groups[0].Relay.Matches(a))
+
+	_, err = build(t, src(`"!"`), conventionalSecrets())
+	require.ErrorContains(t, err, `client.groups.proxy.relay: want <tag>, !<tag> or all, got "!"`)
+	_, err = build(t, src("nowhere"), conventionalSecrets())
+	require.ErrorContains(t, err, "client.groups.proxy.relay: no node with reality matches nowhere")
+
+	f, err = build(t, strings.Replace(src("near"), ", relay: near", "", 1), conventionalSecrets())
+	require.NoError(t, err)
+	require.Nil(t, f.Client.Groups[0].Relay)
+}
+
 func TestBuild_ClientProtocolWithoutGroups(t *testing.T) {
 	_, err := build(t, `
 nodes:

@@ -695,6 +695,17 @@ func (b *builder) buildClient(where string, c config.Client) Client {
 		if err != nil {
 			b.errorf("%s.nodes: %w", w, err)
 		}
+		var relay *Selector
+		if g.Relay != "" {
+			switch r, err := parseSelector(g.Relay); {
+			case err != nil:
+				b.errorf("%s.relay: %w", w, err)
+			case !slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return r.Matches(n) && n.Reality != nil }):
+				b.errorf("%s.relay: no node with reality matches %s", w, g.Relay)
+			default:
+				relay = &r
+			}
+		}
 		if g.Fallback != "" && g.Fallback != "direct" && (g.Fallback == name || !slices.Contains(groups, g.Fallback)) {
 			b.errorf("%s.fallback: want direct or another group, got %q", w, g.Fallback)
 		}
@@ -711,6 +722,7 @@ func (b *builder) buildClient(where string, c config.Client) Client {
 		out.Groups = append(out.Groups, Group{
 			Name:          name,
 			Members:       sel,
+			Relay:         relay,
 			Default:       def,
 			IncludeDirect: g.IncludeDirect,
 			Auto:          g.Auto,
