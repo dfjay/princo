@@ -316,6 +316,7 @@ subscription update; raise it for diagnosis and lower it afterwards.
 | Field | Default | Description |
 | --- | --- | --- |
 | `nodes` | `all` | members: `all`, `<tag>`, or `!<tag>` (without the tag) |
+| `relay` | — | nodes the members are also offered through, selected like `nodes` (see below) |
 | `default` | `first`, or `auto` with `auto` | the preselected member: `first`, `auto`, `direct`, or an outbound tag such as `fr-reality`; users who can't use that tag get `first` |
 | `include_direct` | `false` | also offer `direct` |
 | `auto` | `false` | add a member, `<group>-auto`, that tests the others and uses the fastest working one |
@@ -328,6 +329,45 @@ XHTTP has no member: sing-box doesn't speak it.
 For example, tag a node with `tags: [europe]`, then use a group with
 `nodes: europe` to offer its protocols. Quote negated selectors in YAML:
 `nodes: "!europe"`.
+
+#### `relay`
+
+Where a network lets connections through to some nodes only, such as those
+in its own country, `relay` offers the others through them:
+
+```yaml
+nodes:
+  ru: { tags: [domestic], egress: direct }   # reality, address: as usual
+
+client:
+  groups:
+    select:
+      nodes: "!domestic"
+      relay: domestic
+```
+
+A user of `fr` and `ru` then has `fr-reality@ru` beside `fr-reality`: the
+app connects to `ru`, and inside that connection to `fr` as usual. The
+network sees a connection to `ru`. `ru` sees one to `fr` that it can't
+read, and `fr` still sees the user, with `ru`'s address.
+
+- The relayed members come after the others, as `<node>-reality@<relay>`,
+  one for each relay the user may use. With `auto`, the app takes whichever
+  works, so a profile goes on working where only the relay is in reach.
+- Both hops are VLESS-Reality: the relay and the member each need
+  `reality`, and a member's other protocols are offered straight only.
+- Nodes need nothing for it. The relay treats the connection like any
+  other of the user's, so its `rules` and `egress` must let it out to the
+  member's `address` on port 443: `egress: direct` does.
+- A relay needn't be among the group's `nodes`, and `relay` doesn't put it
+  there: above, `select` offers `fr` through `ru` but not `ru` itself. Its
+  users may still leave through it where another group offers it.
+- IPv6 follows the member: a relay with `ipv6: false` still carries IPv6
+  to a member that has it.
+
+Unlike a [chain](#egress), which sends everything a node receives to one
+upstream, this leaves the choice to the app and the relay unable to read
+what it carries.
 
 ## Rules
 

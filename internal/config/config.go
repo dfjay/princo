@@ -180,7 +180,10 @@ type Client struct {
 // Group is a selector in the client app over some of the user's nodes.
 type Group struct {
 	// Nodes selects members by tag: "<tag>", "!<tag>" or "all".
-	Nodes         string `yaml:"nodes"`
+	Nodes string `yaml:"nodes"`
+	// Relay selects, the same way, the nodes each member is also offered
+	// through.
+	Relay         string `yaml:"relay"`
 	Default       string `yaml:"default"`
 	Auto          bool   `yaml:"auto"`
 	IncludeDirect bool   `yaml:"include_direct"`
