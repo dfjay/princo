@@ -83,7 +83,7 @@
       "flow": "xtls-rprx-vision",
       "server": "de.example.com",
       "server_port": 443,
-      "tag": "de-reality",
+      "tag": "de/reality",
       "tls": {
         "enabled": true,
         "reality": {
@@ -171,7 +171,7 @@
   ],
   "route": {
     "default_domain_resolver": "bootstrap",
-    "final": "de-reality",
+    "final": "de/reality",
     "rule_set": [
       {
         "format": "binary",

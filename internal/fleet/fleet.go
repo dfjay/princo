@@ -3,6 +3,7 @@
 package fleet
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 	"time"
@@ -73,7 +74,6 @@ type Node struct {
 	Reality   *Reality
 	Hysteria2 *Hysteria2
 	Naive     *Naive
-	XHTTP     *XHTTP
 
 	Egress Egress
 	// Warp holds the WARP credentials when Egress is EgressWarp.
@@ -106,9 +106,6 @@ func (n *Node) Protocols() []string {
 	var out []string
 	if n.Reality != nil {
 		out = append(out, "reality")
-	}
-	if n.XHTTP != nil {
-		out = append(out, "xhttp")
 	}
 	if n.Hysteria2 != nil {
 		out = append(out, "hysteria2")
@@ -219,15 +216,18 @@ func (f *Fleet) Reaches(n *Node) []*Node {
 }
 
 // Via lists the nodes n sends its reports to ch through, sorted by name:
-// those ch.Via selects that serve Reality. None when n is one of them, and
-// sends on its own.
+// those ch.Via selects whose Reality n's engine can connect to. None when
+// n is one of them, and sends on its own.
 func (f *Fleet) Via(n *Node, ch Channel) []*Node {
 	if ch.Via == nil || ch.Via.Matches(n) {
 		return nil
 	}
 	var out []*Node
 	for _, m := range f.Nodes {
-		if ch.Via.Matches(m) && m.Reality != nil {
+		if !ch.Via.Matches(m) {
+			continue
+		}
+		if _, ok := m.Dial(n.Engine); ok {
 			out = append(out, m)
 		}
 	}
@@ -261,6 +261,197 @@ type Reality struct {
 	ShortID    string
 	PublicKey  string
 	PrivateKey string
+	// Transports are the ways in, at least one, in the order of
+	// TransportKinds.
+	Transports []Transport
+}
+
+// The Reality transports, by their names in princo.yaml.
+const (
+	// TransportTCP is VLESS on the TLS stream itself, with XTLS Vision.
+	TransportTCP   = "tcp"
+	TransportGRPC  = "grpc"
+	TransportXHTTP = "xhttp"
+)
+
+// TransportKinds lists the transports, the preferred first: what connects
+// to a node takes the first of the node's that it speaks.
+var TransportKinds = []string{TransportTCP, TransportGRPC, TransportXHTTP}
+
+// Transport is one way into a node's Reality inbound.
+type Transport struct {
+	// Kind is one of TransportKinds.
+	Kind string
+	// ServiceName is gRPC's.
+	ServiceName string
+	// Path is XHTTP's, and Mode its client's: auto, packet-up, stream-up
+	// or stream-one.
+	Path string
+	Mode string
+}
+
+// Protocol names Reality over t among a node's protocols: reality for
+// tcp, the default, and reality-<kind> for the others.
+func (t Transport) Protocol() string {
+	if t.Kind == TransportTCP {
+		return "reality"
+	}
+	return "reality-" + t.Kind
+}
+
+// Vision reports whether accounts on t use the XTLS Vision flow, which
+// needs the TLS stream to itself.
+func (t Transport) Vision() bool { return t.Kind == TransportTCP }
+
+// The engines, by their names in princo.yaml.
+const (
+	SingBox = "sing-box"
+	Xray    = "xray"
+)
+
+// ClientEngine renders client profiles whatever engine the servers run:
+// sing-box profiles are what the apps import.
+const ClientEngine = SingBox
+
+// engineTransports are the Reality transports each engine speaks, both
+// serving them and connecting to another node. A transport an engine
+// learns is added here and to its renderer.
+var engineTransports = map[string][]string{
+	SingBox: {TransportTCP, TransportGRPC},
+	Xray:    {TransportTCP, TransportGRPC, TransportXHTTP},
+}
+
+// EngineTransports lists the Reality transports engine speaks.
+func EngineTransports(engine string) []string { return engineTransports[engine] }
+
+// engineFallbacks are the transports each engine serves beside tcp on the
+// same port, one at a time: what isn't VLESS on the TLS stream falls back
+// to them.
+var engineFallbacks = map[string][]string{
+	Xray: {TransportXHTTP},
+}
+
+// MemberID identifies a node's protocol in princo.yaml and in server
+// configs, as fr/reality-grpc: no name has a slash. What apps show for it
+// is Client.Name.
+func MemberID(n *Node, protocol string) string { return n.Name + "/" + protocol }
+
+// Relayed is a member, by its ID or its name, as reached through relay:
+// fr/reality@ru or fr-reality@ru. Nothing else has an @.
+func Relayed(member string, relay *Node) string { return member + "@" + relay.Name }
+
+// ClientProtocols names what n offers the client profiles, in the order
+// of their outbounds: Reality by the transports the client engine speaks,
+// then the rest. None for a node that is in share links only.
+func (n *Node) ClientProtocols() []string { return n.protocols(n.Dials(ClientEngine)) }
+
+// LinkProtocols names everything n has a share link for, in their order:
+// Reality by every transport, as an app of another engine may speak what
+// the profiles' doesn't.
+func (n *Node) LinkProtocols() []string {
+	if n.Reality == nil {
+		return n.protocols(nil)
+	}
+	return n.protocols(n.Reality.Transports)
+}
+
+// protocols names Reality over each of ts, then n's other protocols.
+func (n *Node) protocols(ts []Transport) []string {
+	var out []string
+	for _, t := range ts {
+		out = append(out, t.Protocol())
+	}
+	if n.Hysteria2 != nil {
+		out = append(out, "hysteria2")
+	}
+	if n.Naive != nil {
+		out = append(out, "naive")
+	}
+	return out
+}
+
+// Dials lists the transports of n's Reality that engine connects by, the
+// preferred first; none without Reality.
+func (n *Node) Dials(engine string) []Transport {
+	if n.Reality == nil {
+		return nil
+	}
+	var out []Transport
+	for _, t := range n.Reality.Transports {
+		if slices.Contains(engineTransports[engine], t.Kind) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// Dial is the transport whatever runs engine connects to n by where it
+// takes one: a chain hop, a monitor's reports or a relayed connection.
+func (n *Node) Dial(engine string) (Transport, bool) {
+	ts := n.Dials(engine)
+	if len(ts) == 0 {
+		return Transport{}, false
+	}
+	return ts[0], true
+}
+
+// Upstreams are the nodes n connects to by Reality: its chain's next hop,
+// then those its monitor reports through.
+func (n *Node) Upstreams() []*Node {
+	var out []*Node
+	if up := n.Egress.Node; up != nil {
+		out = append(out, up)
+	}
+	return append(out, n.MonitorVia...)
+}
+
+// ServesTogether reports whether engine serves ts on one port: one
+// transport it speaks, or tcp and one it falls back to.
+func ServesTogether(engine string, ts []Transport) bool {
+	for _, t := range ts {
+		if !slices.Contains(engineTransports[engine], t.Kind) {
+			return false
+		}
+	}
+	switch len(ts) {
+	case 1:
+		return true
+	case 2:
+		return ts[0].Kind == TransportTCP && slices.Contains(engineFallbacks[engine], ts[1].Kind)
+	default:
+		return false
+	}
+}
+
+// Account is who logs in to a node's Reality inbound.
+type Account struct {
+	Name string
+	UUID string
+}
+
+// Accounts lists who connects to n by t: its users, then the chain hops
+// and the monitors of the nodes that reach it by t. Those log in like
+// users, as no user can be named.
+func (f *Fleet) Accounts(n *Node, t Transport) []Account {
+	var out []Account
+	for _, u := range f.UsersOf(n) {
+		out = append(out, Account{Name: u.Name, UUID: u.UUID})
+	}
+	by := func(m *Node) bool {
+		d, ok := n.Dial(m.Engine)
+		return ok && d.Kind == t.Kind
+	}
+	for _, m := range f.ChainsInto(n) {
+		if by(m) {
+			out = append(out, Account{Name: "chain:" + m.Name, UUID: m.ChainUUID})
+		}
+	}
+	for _, m := range f.MonitorsInto(n) {
+		if by(m) {
+			out = append(out, Account{Name: MonitorAccount(m), UUID: m.MonitorUUID})
+		}
+	}
+	return out
 }
 
 type Hysteria2 struct {
@@ -268,12 +459,6 @@ type Hysteria2 struct {
 	// Obfs is salamander, gecko or empty for none.
 	Obfs         string
 	ObfsPassword string
-}
-
-type XHTTP struct {
-	Path string
-	// Mode is the client's: auto, packet-up, stream-up or stream-one.
-	Mode string
 }
 
 type Naive struct {
@@ -368,11 +553,26 @@ type Client struct {
 	DNS    *DNS
 	Rules  []Rule
 	Final  string
+	// Label is what apps show for a node's protocol: its outbound's tag
+	// in a profile and its share link's name. A template of LabelFields.
+	Label string
 	// Log is the apps' log level, one of LogLevels.
 	Log string
 	// IPv6 says whether direct traffic can use IPv6; nil leaves it to the
 	// profile, which checks the network it is on.
 	IPv6 *bool
+}
+
+// DefaultLabel names a node's protocol as fr-reality-grpc.
+const DefaultLabel = "{node}-{protocol}"
+
+// LabelFields are what a label is made of.
+var LabelFields = []string{"node", "protocol", "user"}
+
+// Name is what apps show u for n's protocol: c.Label filled in.
+func (c *Client) Name(u *User, n *Node, protocol string) string {
+	label := cmp.Or(c.Label, DefaultLabel)
+	return strings.NewReplacer("{node}", n.Name, "{protocol}", protocol, "{user}", u.Name).Replace(label)
 }
 
 // LogLevels are the log levels, most verbose first; engines map them to
@@ -394,7 +594,7 @@ type Group struct {
 	// client connecting to the member inside its connection to the relay;
 	// nil for none.
 	Relay         *Selector
-	Default       string // "first", "auto", "direct" or an outbound tag
+	Default       string // "first", "auto", "direct" or a member's ID
 	IncludeDirect bool
 	// Auto adds a member that picks the fastest working one.
 	Auto bool

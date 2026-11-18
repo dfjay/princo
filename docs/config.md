@@ -89,8 +89,7 @@ Every node inherits these; a node's own value wins.
 | --- | --- | --- |
 | `engine` | `sing-box` | what the nodes run: `sing-box` or `xray` (see [Engines](#engines)) |
 | `acme_email` | — | the email ACME certificates are registered with |
-| `reality` | — | default `server_name`, `short_id` of `reality` blocks |
-| `xhttp` | — | default `path`, `mode` of `xhttp` blocks |
+| `reality` | — | default `server_name`, `target`, `short_id` of `reality` blocks, and the values of their `transports` |
 | `hysteria2` | — | default `masquerade`, `obfs`, `obfs_password` of `hysteria2` blocks |
 | `egress` | `direct` | see `nodes.<name>.egress` |
 | `dns` | — | see [DNS](#dns); a node's block replaces the default block |
@@ -100,14 +99,14 @@ Every node inherits these; a node's own value wins.
 
 A protocol block in `defaults` only supplies values: a node serves a
 protocol when it has its own block, even an empty one (`hysteria2: {}`).
+The same goes for the blocks of `reality.transports`.
 
 ## `nodes.<name>`
 
 | Field | Description |
 | --- | --- |
 | `address` | the host name or IP apps connect to; required for `reality` and `hysteria2` |
-| `reality` | serve VLESS-Reality over TCP 443 |
-| `xhttp` | serve VLESS over XHTTP behind `reality` (xray only) |
+| `reality` | serve VLESS-Reality over TCP 443, by its `transports` |
 | `hysteria2` | serve Hysteria2 over UDP 443 |
 | `naive` | serve NaiveProxy over TCP 443 |
 | `egress` | where traffic leaves: `direct`, `warp`, or another node's name |
@@ -118,8 +117,8 @@ protocol when it has its own block, even an empty one (`hysteria2: {}`).
 | `dns`, `rules`, `engine`, `acme_email`, `log`, `stats` | override `defaults` |
 | `ssh` | `user@host` or a `~/.ssh/config` Host that `princo deploy` connects to |
 
-A node needs at least one protocol. All of them share port 443: Reality,
-XHTTP and Naive over TCP, Hysteria2 over UDP.
+A node needs at least one protocol. All of them share port 443: Reality
+and Naive over TCP, Hysteria2 over UDP.
 
 ### `reality`
 
@@ -130,6 +129,7 @@ XHTTP and Naive over TCP, Hysteria2 over UDP.
 | `short_id` | hex, up to 16 characters (`openssl rand -hex 4`) |
 | `public_key` | set by `princo secret gen nodes/<node>/reality`, or from `sing-box generate reality-keypair` or `xray x25519` (its `Password`) |
 | `private_key` | *secret*, `nodes/<node>/reality` |
+| `transports` | how VLESS travels inside Reality: `tcp` alone by default (see [below](#transports)) |
 
 Whoever connects without being a client, a scanner included, gets
 `server_name`'s site. By default that is someone else's, while the node's
@@ -158,17 +158,62 @@ catches the node's address and loopback, but doesn't resolve names, so a
 `target`, or a `server_name` without one, mustn't be another name of the
 node on 443; for self-steal, always set `target`.
 
-### `xhttp`
+#### `transports`
 
-| Field | Default | Description |
+Reality is the TLS layer; a transport is how VLESS travels inside it. Each
+block of `transports` enables one, on the same port, server name and keys:
+
+```yaml
+nodes:
+  fr:
+    reality:
+      transports:
+        grpc: { service_name: a1b2c3 }
+  fi:
+    engine: xray
+    reality:
+      transports:
+        tcp: {}
+        xhttp: { path: /f7Kq2m }
+```
+
+| Transport | Fields | Description |
 | --- | --- | --- |
-| `path` | — | required HTTP path, e.g. `/f7Kq2m`; each `/`-separated segment uses letters, digits, `.`, `_`, `~`, `-` |
-| `mode` | `auto` | how apps carry the upload: `auto`, `packet-up`, `stream-up` or `stream-one` |
+| `tcp` | — | VLESS on the TLS stream itself, with the XTLS Vision flow; what a node serves without `transports` |
+| `grpc` | `service_name` (required) | VLESS in gRPC streams over HTTP/2, many connections in one; no Vision. The name uses letters, digits, `.`, `_`, `~`, `-` |
+| `xhttp` | `path` (required), `mode` (`auto`) | VLESS in HTTP requests; no Vision. `path` is like `/f7Kq2m`, each `/`-separated segment of letters, digits, `.`, `_`, `~`, `-`; `mode` is how apps carry the upload: `auto`, `packet-up`, `stream-up` or `stream-one` |
 
-XHTTP rides on the node's `reality`: same port, server name and keys.
-Whatever reaches the Reality inbound and isn't VLESS over a raw TLS
-stream falls back to the XHTTP inbound. sing-box apps can't use XHTTP,
-so it is only in share links.
+With `transports`, a node serves what it lists: name `tcp` to keep it,
+as `tcp: {}`. A block without a value, `tcp:` or `transports:` itself, is
+an error rather than a guess.
+Which transports a node can serve, and serve together, depends on its
+engine (see [Engines](#engines)): sing-box serves one, xray one or `tcp`
+with `xhttp`, where whatever isn't VLESS on the TLS stream falls back to
+the XHTTP inbound.
+
+Vision keeps a connection from looking like TLS inside TLS, so prefer
+`tcp` where it gets through. Xray deprecates its gRPC transport in favour
+of XHTTP and warns of it at start; gRPC is the one transport besides `tcp`
+that sing-box, and so the client profiles, speak.
+
+Every transport has its share link. Profiles get a member for each one
+sing-box speaks, `reality` for `tcp` and `reality-<transport>` for the
+others among the node's [protocols](#label), so a node that changes
+transport changes that member, and a group's `default` has to name the new
+one. A node with
+no protocol sing-box speaks, as `xhttp` alone, is in share links only; a
+[group](#clientgroupsname) whose nodes are all such for some user needs a
+`fallback` that leads to `direct` or to a group the user has nodes in, as
+it would otherwise send that user's traffic directly unasked.
+
+On a sing-box node, an app connecting over `grpc` can name the address it
+comes from, which is then the one [`princo stats`](deployment.md#watching-who-connects)
+shows for it: there the addresses tell nothing about who shares a
+subscription. Whatever
+else connects to the node, a [chain](#egress) hop, a
+[relayed](#relay) connection or a [monitor](#monitor)'s reports, takes the
+first of `tcp`, `grpc`, `xhttp` that the node serves and its own engine
+speaks.
 
 ### `hysteria2`
 
@@ -199,7 +244,8 @@ must then be a domain pointing at the node.
 - `direct`: out of the node itself.
 - `warp`: through Cloudflare WARP, with the node's `warp` account.
 - `<node>`: through another node over VLESS-Reality (a chain). The
-  upstream needs `reality`; the hop uses the *secret* `nodes/<node>/chain`
+  upstream needs `reality` with a [transport](#transports) this node's
+  engine speaks; the hop uses the *secret* `nodes/<node>/chain`
   as its UUID there. Chains may be longer than one hop but can't loop.
 
 For example, on a node named `relay`, `egress: fr` sends traffic through
@@ -286,6 +332,7 @@ The sing-box profile users import.
 | `groups` | selectors in the app, in order (see below) |
 | `dns` | the app's resolver, see [DNS](#dns) |
 | `rules` | see [Rules](#rules) |
+| `label` | what apps show for a node's protocol, `{node}-{protocol}` by default (see [below](#label)) |
 | `final` | where unmatched traffic goes: a group or `direct` (the default) |
 | `log` | the app's log level, as for nodes; `warn` by default |
 | `ipv6` | whether the user's own network has IPv6, for traffic that leaves directly; unset, the app checks (see below) |
@@ -311,20 +358,52 @@ At `info` and `debug`, sing-box, in the app or on a node, logs every
 destination it connects to. The client's level reaches every user's app with the next
 subscription update; raise it for diagnosis and lower it afterwards.
 
+### `label`
+
+A node's protocol is known by two names. In `princo.yaml` it is its ID,
+`<node>/<protocol>`, whatever apps show for it: `fr/reality`, `fr/reality-grpc`,
+`fr/hysteria2`, `fr/naive`, and `fr/reality@ru` through a
+[relay](#relay). Reality is `reality` over `tcp` and
+`reality-<transport>` over another [transport](#transports).
+
+Apps show what `label` makes of it, as the member's name in a profile and
+as the share link's name:
+
+```yaml
+client:
+  label: "{node} · {protocol}"   # fr · reality-grpc
+```
+
+| Field | Is |
+| --- | --- |
+| `{node}` | the node's name; required |
+| `{protocol}` | `reality`, `reality-grpc`, `reality-xhttp`, `hysteria2` or `naive`; required |
+| `{user}` | the user's name |
+
+A label can't have an `@`, which sets a relay apart: through `ru`, the
+member above is `fr · reality-grpc@ru`. Nor can it have control characters,
+or a space at either end. Everything a user is shown needs a name of its
+own, so a label mustn't make two share links alike, or a member look like
+a group, its `<group>-auto` or `direct`.
+
+Apps remember what was selected in a group by these names, so changing
+the label, as changing a node's transport, has users select again.
+
 ### `client.groups.<name>`
 
 | Field | Default | Description |
 | --- | --- | --- |
 | `nodes` | `all` | members: `all`, `<tag>`, or `!<tag>` (without the tag) |
 | `relay` | — | nodes the members are also offered through, selected like `nodes` (see below) |
-| `default` | `first`, or `auto` with `auto` | the preselected member: `first`, `auto`, `direct`, or an outbound tag such as `fr-reality`; users who can't use that tag get `first` |
+| `default` | `first`, or `auto` with `auto` | the preselected member: `first`, `auto`, `direct`, or a member's [ID](#label) such as `fr/reality`, of a node and a protocol the group offers; `direct` needs `include_direct`. Users who haven't got that node get `first` |
 | `include_direct` | `false` | also offer `direct` |
 | `auto` | `false` | add a member, `<group>-auto`, that tests the others and uses the fastest working one |
 | `fallback` | — | a group or `direct` to use when the user has no members here |
 
-Every node a user may use contributes one member per protocol, tagged
-`<node>-reality`, `<node>-hysteria2`, `<node>-naive`. `direct` is reserved.
-XHTTP has no member: sing-box doesn't speak it.
+Every node a user may use contributes one member per protocol, named by
+the [`label`](#label): `fr-reality`, `fr-hysteria2`, `fr-naive`, and
+`fr-reality-grpc` for Reality over gRPC. XHTTP has no member, as sing-box
+doesn't speak it. `direct` is reserved.
 
 For example, tag a node with `tags: [europe]`, then use a group with
 `nodes: europe` to offer its protocols. Quote negated selectors in YAML:
@@ -351,11 +430,13 @@ app connects to `ru`, and inside that connection to `fr` as usual. The
 network sees a connection to `ru`. `ru` sees one to `fr` that it can't
 read, and `fr` still sees the user, with `ru`'s address.
 
-- The relayed members come after the others, as `<node>-reality@<relay>`,
-  one for each relay the user may use. With `auto`, the app takes whichever
+- The relayed members come after the others, named as the member with
+  `@<relay>` after it, one for each relay the user may use. With `auto`, the app takes whichever
   works, so a profile goes on working where only the relay is in reach.
 - Both hops are VLESS-Reality: the relay and the member each need
-  `reality`, and a member's other protocols are offered straight only.
+  `reality` with a [transport](#transports) sing-box speaks, and a
+  member's other protocols are offered straight only. Over gRPC the
+  member is `fr-reality-grpc@ru`.
 - Nodes need nothing for it. The relay treats the connection like any
   other of the user's, so its `rules` and `egress` must let it out to the
   member's `address` on port 443: `egress: direct` does.
@@ -499,9 +580,18 @@ the REALITY handshake target.
 | Protocol | sing-box | xray |
 | --- | --- | --- |
 | `reality` | yes | yes |
-| `xhttp` | no | yes |
 | `hysteria2` | yes | no |
 | `naive` | yes | no |
+
+| `reality` transport | sing-box | xray |
+| --- | --- | --- |
+| `tcp` | yes | yes |
+| `grpc` | yes | yes, deprecated by Xray |
+| `xhttp` | no | yes |
+| several at once | no | `tcp` with `xhttp` |
+
+An engine connects to other nodes by the transports it serves. Client
+profiles are sing-box's, whatever the nodes run.
 
 On xray nodes:
 
@@ -683,7 +773,8 @@ monitor:
 ```
 
 A node `via` selects reports on its own. Every other node reports through
-the selected ones that serve `reality`, over the tunnel a
+the selected ones that serve `reality` by a [transport](#transports) its
+engine speaks, over the tunnel a
 [chain](#egress) uses but with its own UUID, the *secret*
 `nodes/<node>/monitor`; there the reports leave directly, whatever the
 node's `egress`. A run tries up to three of them, so the report that one

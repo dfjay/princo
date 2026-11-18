@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/dfjay/princo/internal/config"
 	"github.com/dfjay/princo/internal/secrets"
@@ -29,18 +30,23 @@ func secretChainUUID(node string) string      { return "nodes/" + node + "/chain
 func secretAPI(node string) string            { return "nodes/" + node + "/api" }
 func secretMonitorUUID(node string) string    { return "nodes/" + node + "/monitor" }
 
-// engineProtocols are the protocols each engine serves.
+// engineProtocols are the protocols each engine serves; engineTransports
+// are the ways into reality.
 var engineProtocols = map[string][]string{
-	"sing-box": {"reality", "hysteria2", "naive"},
-	"xray":     {"reality", "xhttp"},
+	SingBox: {"reality", "hysteria2", "naive"},
+	Xray:    {"reality"},
 }
 
 var xhttpModes = []string{"auto", "packet-up", "stream-up", "stream-one"}
 
 var hysteria2Obfs = []string{"salamander", "gecko"}
 
-// xhttpPathRe keeps XHTTP paths safe in URLs and share links.
-var xhttpPathRe = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
+// xhttpPathRe keeps XHTTP paths safe in URLs and share links, and
+// grpcServiceRe gRPC service names, which are a path segment.
+var (
+	xhttpPathRe   = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
+	grpcServiceRe = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
+)
 
 // nameRe is what names of nodes, users and client groups may be: they end
 // up in file and secret paths, outbound tags and links.
@@ -121,7 +127,7 @@ func (b *builder) nodes() {
 			Name:      name,
 			SSH:       c.SSH,
 			Address:   c.Address,
-			Engine:    cmp.Or(c.Engine, d.Engine, "sing-box"),
+			Engine:    cmp.Or(c.Engine, d.Engine, SingBox),
 			ACMEEmail: cmp.Or(c.ACMEEmail, d.ACMEEmail),
 			Tags:      c.Tags,
 			IPv6:      c.IPv6 == nil || *c.IPv6,
@@ -141,6 +147,7 @@ func (b *builder) nodes() {
 				ShortID:    cmp.Or(c.Reality.ShortID, def.ShortID),
 				PublicKey:  c.Reality.PublicKey,
 				PrivateKey: b.secret(where+".reality.private_key", c.Reality.PrivateKey, secretReality(name), SecretRealityKey),
+				Transports: b.transports(where+".reality.transports", n.Engine, c.Reality.Transports, def.Transports),
 			}
 			if n.Reality.ServerName == "" || n.Reality.ShortID == "" || n.Reality.PublicKey == "" {
 				b.errorf("%s.reality: server_name, short_id and public_key are required", where)
@@ -185,25 +192,9 @@ func (b *builder) nodes() {
 			}
 			n.Naive = &Naive{Domain: c.Naive.Domain}
 		}
-		if c.XHTTP != nil {
-			def := deref(d.XHTTP)
-			n.XHTTP = &XHTTP{
-				Path: cmp.Or(c.XHTTP.Path, def.Path),
-				Mode: cmp.Or(c.XHTTP.Mode, def.Mode, "auto"),
-			}
-			if !xhttpPathRe.MatchString(n.XHTTP.Path) {
-				b.errorf("%s.xhttp.path: want a path such as /a1b2c3 (letters, digits, ., _, ~, -), got %q", where, n.XHTTP.Path)
-			}
-			if !slices.Contains(xhttpModes, n.XHTTP.Mode) {
-				b.errorf("%s.xhttp.mode: want one of %s, got %q", where, strings.Join(xhttpModes, ", "), n.XHTTP.Mode)
-			}
-			if n.Reality == nil {
-				b.errorf("%s.xhttp: needs reality, whose inbound serves it", where)
-			}
-		}
 		protocols := n.Protocols()
 		if len(protocols) == 0 {
-			b.errorf("%s: enable at least one protocol (reality, xhttp, hysteria2, naive)", where)
+			b.errorf("%s: enable at least one protocol (reality, hysteria2, naive)", where)
 		}
 		if served, ok := engineProtocols[n.Engine]; ok {
 			for _, p := range protocols {
@@ -244,6 +235,67 @@ func (b *builder) nodes() {
 		b.f.Nodes = append(b.f.Nodes, n)
 		b.f.nodes[name] = n
 	}
+}
+
+// transports resolves a reality block's transports, own over the defaults
+// def, and checks that engine serves them: tcp alone without the block.
+func (b *builder) transports(where, engine string, own, def *config.Transports) []Transport {
+	if own == nil {
+		return []Transport{{Kind: TransportTCP}}
+	}
+	d := deref(def)
+	var out []Transport
+	if own.TCP != nil {
+		out = append(out, Transport{Kind: TransportTCP})
+	}
+	if own.GRPC != nil {
+		t := Transport{Kind: TransportGRPC, ServiceName: cmp.Or(own.GRPC.ServiceName, deref(d.GRPC).ServiceName)}
+		if !grpcServiceRe.MatchString(t.ServiceName) {
+			b.errorf("%s.grpc.service_name: want a name such as a1b2c3 (letters, digits, ., _, ~, -), got %q", where, t.ServiceName)
+		}
+		out = append(out, t)
+	}
+	if own.XHTTP != nil {
+		def := deref(d.XHTTP)
+		t := Transport{
+			Kind: TransportXHTTP,
+			Path: cmp.Or(own.XHTTP.Path, def.Path),
+			Mode: cmp.Or(own.XHTTP.Mode, def.Mode, "auto"),
+		}
+		if !xhttpPathRe.MatchString(t.Path) {
+			b.errorf("%s.xhttp.path: want a path such as /a1b2c3 (letters, digits, ., _, ~, -), got %q", where, t.Path)
+		}
+		if !slices.Contains(xhttpModes, t.Mode) {
+			b.errorf("%s.xhttp.mode: want one of %s, got %q", where, strings.Join(xhttpModes, ", "), t.Mode)
+		}
+		out = append(out, t)
+	}
+	if len(out) == 0 {
+		b.errorf("%s: enable at least one transport (%s)", where, strings.Join(TransportKinds, ", "))
+		// So what connects to the node doesn't report it again.
+		return []Transport{{Kind: TransportTCP}}
+	}
+
+	speaks, ok := engineTransports[engine]
+	if !ok {
+		return out // reported with the node
+	}
+	served := true
+	for _, t := range out {
+		if !slices.Contains(speaks, t.Kind) {
+			b.errorf("%s.%s: engine %s doesn't serve it", where, t.Kind, engine)
+			served = false
+		}
+	}
+	if served && !ServesTogether(engine, out) {
+		beside := engineFallbacks[engine]
+		limit := "one transport at a time"
+		if len(beside) > 0 {
+			limit += ", or tcp with " + strings.Join(beside, " or ")
+		}
+		b.errorf("%s: engine %s serves %s", where, engine, limit)
+	}
+	return out
 }
 
 // hostPort splits host:port, where host is an IP or a hostname.
@@ -287,6 +339,8 @@ func (b *builder) xrayLimits(where string, n *Node) {
 
 // egress resolves each node's way out, once every node exists.
 func (b *builder) egress() {
+	// chains are the nodes' upstreams as written, valid or not.
+	chains := map[*Node]*Node{}
 	for _, n := range b.f.Nodes {
 		c, _ := b.cfg.Nodes.Get(n.Name)
 		where := "nodes." + n.Name
@@ -312,6 +366,9 @@ func (b *builder) egress() {
 			}
 		default:
 			up, ok := b.f.nodes[egress]
+			if ok {
+				chains[n] = up
+			}
 			switch {
 			case !ok:
 				b.errorf("%s.egress: %q is not warp, direct or a node", where, egress)
@@ -319,16 +376,19 @@ func (b *builder) egress() {
 				b.errorf("%s.egress: a node can't chain to itself", where)
 			case up.Reality == nil:
 				b.errorf("%s.egress: chain upstream %s needs reality", where, egress)
+			case len(up.Dials(n.Engine)) == 0 && engineTransports[n.Engine] != nil:
+				b.errorf("%s.egress: engine %s can't connect to chain upstream %s, which serves reality over %s alone", where, n.Engine, egress, kinds(up.Reality.Transports))
 			default:
 				n.Egress = Egress{Kind: EgressNode, Node: up}
 				n.ChainUUID = b.secret(where+".egress", nil, secretChainUUID(n.Name), SecretUUID)
 			}
 		}
 	}
-	// Chains must end somewhere.
+	// Chains must end somewhere: as princo.yaml has them, so that a hop
+	// refused for another reason doesn't hide a loop until it is fixed.
 	for _, n := range b.f.Nodes {
 		seen := map[*Node]bool{}
-		for m := n; m != nil && m.Egress.Kind == EgressNode; m = m.Egress.Node {
+		for m := n; chains[m] != nil && chains[m] != m; m = chains[m] {
 			if seen[m] {
 				b.errorf("nodes.%s.egress: chain loops back to %s", n.Name, m.Name)
 				break
@@ -393,6 +453,13 @@ func (b *builder) monitor() {
 	for _, n := range b.f.Nodes {
 		if b.f.MonitorsWarp(n) {
 			b.api(n, "nodes."+n.Name+".warp")
+		}
+		for _, ch := range m.Notify {
+			// No node with reality at all is the channel's own error.
+			if ch.Via != nil && !ch.Via.Matches(n) && len(b.f.Via(n, ch)) == 0 &&
+				slices.ContainsFunc(b.f.Nodes, func(up *Node) bool { return ch.Via.Matches(up) && up.Reality != nil }) {
+				b.errorf("monitor.notify.%s.via: engine %s of node %s speaks no reality transport of the nodes it selects", ch.Name, n.Engine, n.Name)
+			}
 		}
 		for _, up := range b.f.Nodes {
 			if slices.ContainsFunc(m.Notify, func(ch Channel) bool { return slices.Contains(b.f.Via(n, ch), up) }) {
@@ -679,6 +746,94 @@ func (b *builder) client() {
 		b.errs = append(b.errs[:start], slices.DeleteFunc(b.errs[start:], inherited)...)
 		u.Client = &own
 	}
+	reported := map[string]bool{}
+	for _, u := range b.f.Users {
+		b.unusableGroups(u)
+		b.profileNames(u, reported)
+	}
+}
+
+// profileNames checks that the label gives everything u is shown a name
+// of its own: no two share links alike, and no member of the profile
+// like one of its groups, their auto members or direct. One error per
+// clash, however many users share the client.
+func (b *builder) profileNames(u *User, reported map[string]bool) {
+	where := "client"
+	if u.Client != &b.f.Client {
+		where = "users." + u.Name + ".client"
+	}
+	clash := func(id, name, other string) {
+		msg := fmt.Sprintf("%s.label: %s is named %q, like %s; rename the group or change the label", where, id, name, other)
+		if !reported[msg] {
+			reported[msg] = true
+			b.errorf("%s", msg)
+		}
+	}
+	selectors := map[string]string{"direct": "direct"}
+	for _, g := range u.Client.Groups {
+		if !hasMembers(u, g) {
+			continue // the profile leaves it out
+		}
+		selectors[g.Name] = "group " + g.Name
+		if g.Auto {
+			selectors[g.Name+"-auto"] = "the auto member of group " + g.Name
+		}
+	}
+	links := map[string]string{}
+	for _, n := range u.Nodes {
+		offered := n.ClientProtocols()
+		for _, p := range n.LinkProtocols() {
+			id, name := MemberID(n, p), u.Client.Name(u, n, p)
+			if other, ok := links[name]; ok {
+				clash(id, name, other)
+			} else {
+				links[name] = id
+			}
+			if other, ok := selectors[name]; ok && slices.Contains(offered, p) {
+				clash(id, name, other)
+			}
+		}
+	}
+}
+
+// hasMembers reports whether u's profile has group g: some node of u's
+// in it offers the profile a protocol.
+func hasMembers(u *User, g Group) bool {
+	return slices.ContainsFunc(u.Nodes, func(n *Node) bool { return g.Members.Matches(n) && len(n.ClientProtocols()) > 0 })
+}
+
+// unusableGroups reports the groups whose nodes of u's all serve only
+// what the profile can't use, as reality over xhttp alone. Such a group
+// gives way to its fallback and in the end to direct, like one without
+// nodes, but u was given nodes for it: direct must be asked for, by a
+// fallback that leads there or to a group u has members in.
+func (b *builder) unusableGroups(u *User) {
+	groups := map[string]Group{}
+	for _, g := range u.Client.Groups {
+		groups[g.Name] = g
+	}
+	for _, g := range u.Client.Groups {
+		var unusable []string
+		for _, n := range u.Nodes {
+			if g.Members.Matches(n) && len(n.ClientProtocols()) == 0 {
+				unusable = append(unusable, n.Name)
+			}
+		}
+		if len(unusable) == 0 || hasMembers(u, g) {
+			continue
+		}
+		// As the renderer resolves it; a loop ends nowhere.
+		leads, next := false, g.Fallback
+		for range len(groups) {
+			to, ok := groups[next]
+			leads = leads || next == "direct" || ok && hasMembers(u, to)
+			next = to.Fallback
+		}
+		if !leads {
+			b.errorf("users.%s: group %s has only nodes the profile can't use (%s), which serve no protocol %s speaks, and would go direct; give the user another node, or the group a fallback that leads to direct or to a group the user has nodes in",
+				u.Name, g.Name, strings.Join(unusable, ", "), ClientEngine)
+		}
+	}
 }
 
 // buildClient checks a client: section, at where, and converts it.
@@ -700,8 +855,8 @@ func (b *builder) buildClient(where string, c config.Client) Client {
 			switch r, err := parseSelector(g.Relay); {
 			case err != nil:
 				b.errorf("%s.relay: %w", w, err)
-			case !slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return r.Matches(n) && n.Reality != nil }):
-				b.errorf("%s.relay: no node with reality matches %s", w, g.Relay)
+			case !slices.ContainsFunc(b.f.Nodes, func(n *Node) bool { return r.Matches(n) && len(n.Dials(ClientEngine)) > 0 }):
+				b.errorf("%s.relay: no node with reality over a transport the profiles speak matches %s", w, g.Relay)
 			default:
 				relay = &r
 			}
@@ -719,6 +874,14 @@ func (b *builder) buildClient(where string, c config.Client) Client {
 		if def == "auto" && !g.Auto {
 			b.errorf("%s.default: auto needs auto: true", w)
 		}
+		if def == "direct" && !g.IncludeDirect {
+			b.errorf("%s.default: direct needs include_direct: true", w)
+		}
+		if !slices.Contains([]string{"first", "auto", "direct"}, def) && err == nil {
+			if why := b.notMember(def, sel, relay); why != "" {
+				b.errorf("%s.default: want first, auto, direct or a member of the group such as fr/reality or fr/reality@ru; %q %s", w, def, why)
+			}
+		}
 		out.Groups = append(out.Groups, Group{
 			Name:          name,
 			Members:       sel,
@@ -735,12 +898,74 @@ func (b *builder) buildClient(where string, c config.Client) Client {
 	// Client profiles sniff before any rule.
 	out.Rules = b.rules(where+".rules", c.Rules, []string{ActionDirect, ActionReject}, groups, true)
 	out.Log = b.logLevel(where+".log", c.Log)
+	out.Label = b.label(where+".label", c.Label)
 	out.IPv6 = c.IPv6
 	out.Final = cmp.Or(c.Final, "direct")
 	if out.Final != "direct" && !slices.Contains(groups, out.Final) {
 		b.errorf("%s.final: want direct or a group, got %q", where, out.Final)
 	}
 	return out
+}
+
+// labelFieldRe finds the fields of a label, and what only looks like one.
+var labelFieldRe = regexp.MustCompile(`\{[^{}]*\}`)
+
+// label checks a label, DefaultLabel when unset.
+func (b *builder) label(where, label string) string {
+	if label == "" {
+		return DefaultLabel
+	}
+	for _, field := range labelFieldRe.FindAllString(label, -1) {
+		if !slices.Contains(LabelFields, strings.Trim(field, "{}")) {
+			b.errorf("%s: unknown field %s; have {%s}", where, field, strings.Join(LabelFields, "}, {"))
+		}
+	}
+	for _, field := range []string{"{node}", "{protocol}"} {
+		if !strings.Contains(label, field) {
+			b.errorf("%s: needs %s, to tell a node's protocols and the nodes apart", where, field)
+		}
+	}
+	if strings.ContainsFunc(label, func(r rune) bool { return r == '@' || unicode.IsControl(r) }) {
+		b.errorf("%s: can't have @, which names a relay, or control characters", where)
+	}
+	if label != strings.TrimSpace(label) {
+		b.errorf("%s: can't start or end with a space", where)
+	}
+	return label
+}
+
+// notMember says why no user has id as a member of a group of members,
+// offered through relays, or "" when those with its nodes do.
+func (b *builder) notMember(id string, members Selector, relays *Selector) string {
+	straight, via, relayed := strings.Cut(id, "@")
+	name, protocol, ok := strings.Cut(straight, "/")
+	if !ok {
+		return "isn't <node>/<protocol>"
+	}
+	n, ok := b.f.nodes[name]
+	switch {
+	case !ok:
+		return "names no node"
+	case !members.Matches(n):
+		return "is of a node the group's nodes leave out"
+	case !slices.Contains(n.ClientProtocols(), protocol):
+		return fmt.Sprintf("is no protocol node %s offers profiles (%s)", name, cmp.Or(strings.Join(n.ClientProtocols(), ", "), "none"))
+	case !relayed:
+		return ""
+	}
+	relay, ok := b.f.nodes[via]
+	t, dials := n.Dial(ClientEngine)
+	switch {
+	case !ok:
+		return "names no relay node"
+	case relays == nil || !relays.Matches(relay) || len(relay.Dials(ClientEngine)) == 0:
+		return "is through a node the group's relay leaves out"
+	case relay == n:
+		return "is through the node itself"
+	case !dials || t.Protocol() != protocol:
+		return fmt.Sprintf("isn't what a relay carries to node %s, %s", name, MemberID(n, t.Protocol()))
+	}
+	return ""
 }
 
 // logLevel checks a log level, LogWarn when unset.
@@ -888,6 +1113,15 @@ func parseDNSAddress(s string) (DNSServer, error) {
 		srv.Port = port
 	}
 	return srv, nil
+}
+
+// kinds names transports as princo.yaml does.
+func kinds(ts []Transport) string {
+	var out []string
+	for _, t := range ts {
+		out = append(out, t.Kind)
+	}
+	return strings.Join(out, " and ")
 }
 
 func deref[T any](p *T) T {

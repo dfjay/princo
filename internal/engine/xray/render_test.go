@@ -157,6 +157,177 @@ func TestRenderServer_Edges(t *testing.T) {
 	}
 }
 
+// The first transport takes the port and Reality; XHTTP beside tcp is the
+// fixture's fi. Alone, gRPC or XHTTP is the Reality inbound itself, with
+// no Vision flow and no fallback.
+func TestRenderServer_Transports(t *testing.T) {
+	for kind, tc := range map[string]struct {
+		transport fleet.Transport
+		stream    map[string]any
+	}{
+		"grpc": {
+			fleet.Transport{Kind: fleet.TransportGRPC, ServiceName: "svc"},
+			map[string]any{"network": "grpc", "grpcSettings": map[string]any{"serviceName": "svc"}},
+		},
+		"xhttp": {
+			fleet.Transport{Kind: fleet.TransportXHTTP, Path: "/p", Mode: "auto"},
+			map[string]any{"network": "xhttp", "xhttpSettings": map[string]any{"path": "/p"}},
+		},
+	} {
+		t.Run(kind, func(t *testing.T) {
+			f := fleettest.Load(t, fixture)
+			fi, _ := f.Node("fi")
+			fi.Reality.Transports = []fleet.Transport{tc.transport}
+			data, err := New().RenderServer(f, "fi")
+			require.NoError(t, err)
+			var cfg map[string]any
+			require.NoError(t, json.Unmarshal(data, &cfg))
+
+			inbounds := cfg["inbounds"].([]any)
+			require.Len(t, inbounds, 1)
+			in := inbounds[0].(map[string]any)
+			require.Equal(t, "vless-reality-in", in["tag"])
+			require.Equal(t, 443.0, in["port"])
+			settings := in["settings"].(map[string]any)
+			require.NotContains(t, settings, "fallbacks")
+			// relay runs sing-box, which comes by gRPC but has no XHTTP.
+			const reporter = "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
+			if kind == "grpc" {
+				require.Contains(t, settings["clients"], map[string]any{"id": reporter, "email": "monitor:relay"})
+			} else {
+				for _, c := range settings["clients"].([]any) {
+					require.NotEqual(t, reporter, c.(map[string]any)["id"])
+				}
+			}
+			stream := in["streamSettings"].(map[string]any)
+			require.Equal(t, "reality", stream["security"])
+			require.Contains(t, stream, "realitySettings")
+			for k, v := range tc.stream {
+				require.Equal(t, v, stream[k], k)
+			}
+			xrayCheck(t, data)
+		})
+	}
+}
+
+// Every transport fleet lists for xray has its renderer, and a node the
+// renderer can't serve or reach is an error.
+func TestTransportsRendered(t *testing.T) {
+	for _, kind := range fleet.EngineTransports(engineName) {
+		require.Contains(t, transports, kind)
+	}
+	for want, ts := range map[string][]fleet.Transport{
+		"node fi: no reality transport xray speaks":            nil,
+		"node fi: xray renders no reality transport \"quic\"":  {{Kind: "quic"}},
+		"node fi: xray doesn't serve its 3 reality transports": {{Kind: fleet.TransportTCP}, {Kind: fleet.TransportXHTTP}, {Kind: fleet.TransportGRPC}},
+		// XHTTP would sit behind gRPC, which has no fallback to it.
+		"node fi: xray doesn't serve its 2 reality transports": {{Kind: fleet.TransportGRPC, ServiceName: "s"}, {Kind: fleet.TransportXHTTP, Path: "/p"}},
+	} {
+		f := fleettest.Load(t, fixture)
+		fi, _ := f.Node("fi")
+		fi.Reality.Transports = ts
+		_, err := New().RenderServer(f, "fi")
+		require.ErrorContains(t, err, want)
+	}
+	f := fleettest.Load(t, fixture)
+	fi, _ := f.Node("fi")
+	fi.Egress = fleet.Egress{Kind: fleet.EgressNode, Node: &fleet.Node{Name: "up", Reality: &fleet.Reality{}}}
+	_, err := New().RenderServer(f, "fi")
+	require.ErrorContains(t, err, "node up: no reality transport xray speaks")
+}
+
+// From princo.yaml to both ends of a hop: an xray node chains to one of
+// XHTTP alone, which takes the hop's account by that transport.
+func TestChainOverXHTTP(t *testing.T) {
+	cfg, err := config.Parse([]byte(`
+princo: v1
+defaults:
+  engine: xray
+  reality: { server_name: s.example.com }
+nodes:
+  exit:
+    address: exit.example.com
+    reality: { short_id: "01", public_key: x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc, transports: { xhttp: { path: /p, mode: stream-up } } }
+  entry:
+    address: entry.example.com
+    reality: { short_id: "02", public_key: x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc, transports: { tcp: {}, xhttp: { path: /q } } }
+    egress: exit
+users:
+  u: { nodes: [entry] }
+client:
+  groups:
+    proxy: {}
+`))
+	require.NoError(t, err)
+	f, err := fleet.Build(cfg, secrets.NewStore(map[string]any{
+		"users": map[string]any{"u": "dbc5aca6-f0dd-416d-b30f-813754d72f99"},
+		"nodes": map[string]any{
+			"exit":  map[string]any{"reality": "WJcIvGK46S17DFQ3-QnhPr0P6hJ1QYZWZiFp7jUgzXk"},
+			"entry": map[string]any{"reality": "WJcIvGK46S17DFQ3-QnhPr0P6hJ1QYZWZiFp7jUgzXk", "chain": "755f7363-f3ff-4523-b419-f2e71e80e7fd"},
+		},
+	}))
+	require.NoError(t, err)
+	render := func(name string) map[string]any {
+		data, err := New().RenderServer(f, name)
+		require.NoError(t, err)
+		xrayCheck(t, data)
+		var cfg map[string]any
+		require.NoError(t, json.Unmarshal(data, &cfg))
+		return cfg
+	}
+
+	hop := render("entry")["outbounds"].([]any)[0].(map[string]any)
+	require.Equal(t, "exit/reality-xhttp", hop["tag"])
+	require.Equal(t, map[string]any{"path": "/p", "mode": "stream-up"}, hop["streamSettings"].(map[string]any)["xhttpSettings"])
+
+	in := render("exit")["inbounds"].([]any)[0].(map[string]any)
+	require.Equal(t, "xhttp", in["streamSettings"].(map[string]any)["network"])
+	require.Equal(t, []any{map[string]any{"id": "755f7363-f3ff-4523-b419-f2e71e80e7fd", "email": "chain:entry"}},
+		in["settings"].(map[string]any)["clients"], "exit has no users of its own")
+}
+
+// An xray node reaches its upstream by the upstream's transport, XHTTP
+// included, which only xray connects by.
+func TestRenderServer_DialsTransports(t *testing.T) {
+	for kind, tc := range map[string]struct {
+		transport fleet.Transport
+		stream    map[string]any
+	}{
+		"grpc": {
+			fleet.Transport{Kind: fleet.TransportGRPC, ServiceName: "svc"},
+			map[string]any{"network": "grpc", "grpcSettings": map[string]any{"serviceName": "svc"}},
+		},
+		"xhttp": {
+			fleet.Transport{Kind: fleet.TransportXHTTP, Path: "/p", Mode: "stream-one"},
+			map[string]any{"network": "xhttp", "xhttpSettings": map[string]any{"path": "/p", "mode": "stream-one"}},
+		},
+	} {
+		t.Run(kind, func(t *testing.T) {
+			f := fleettest.Load(t, fixture)
+			fi, _ := f.Node("fi")
+			up := &fleet.Node{Name: "up", Engine: "xray", Address: "up.example.com", Reality: &fleet.Reality{
+				ServerName: "s.example.com", ShortID: "01", PublicKey: "x1UdIXGj0boXzk96E0ZBwNxdTvF-YwsK4XGVqVhvfFc",
+				Transports: []fleet.Transport{tc.transport},
+			}}
+			fi.Egress, fi.ChainUUID = fleet.Egress{Kind: fleet.EgressNode, Node: up}, "755f7363-f3ff-4523-b419-f2e71e80e7fd"
+			data, err := New().RenderServer(f, "fi")
+			require.NoError(t, err)
+			var cfg map[string]any
+			require.NoError(t, json.Unmarshal(data, &cfg))
+
+			hop := cfg["outbounds"].([]any)[0].(map[string]any)
+			require.Equal(t, "up/reality-"+kind, hop["tag"])
+			require.NotContains(t, hop["settings"], "flow")
+			stream := hop["streamSettings"].(map[string]any)
+			require.Equal(t, "reality", stream["security"])
+			for k, v := range tc.stream {
+				require.Equal(t, v, stream[k], k)
+			}
+			xrayCheck(t, data)
+		})
+	}
+}
+
 // fi takes relay's reports in the fixture; here it also sends its own
 // through de and us.
 func TestRenderServer_MonitorVia(t *testing.T) {

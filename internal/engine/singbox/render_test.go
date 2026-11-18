@@ -80,7 +80,7 @@ func TestChain(t *testing.T) {
 	route := relay["route"].(map[string]any)
 	require.Equal(t, map[string]any{"ip_is_private": true, "action": "reject"}, route["rules"].([]any)[4],
 		"no resolve: domains go to de as they are")
-	require.Equal(t, "de-reality", route["final"], "relay exits through de")
+	require.Equal(t, "de/reality", route["final"], "relay exits through de")
 	upstream := relay["outbounds"].([]any)[0].(map[string]any)
 	require.Equal(t, "de.example.com", upstream["server"])
 	require.Equal(t, "755f7363-f3ff-4523-b419-f2e71e80e7fd", upstream["uuid"])
@@ -145,7 +145,7 @@ func TestMonitorVia(t *testing.T) {
 	for _, o := range renderJSON(t, e.RenderServer, f, "relay")["outbounds"].([]any) {
 		tags = append(tags, o.(map[string]any)["tag"])
 	}
-	require.Equal(t, []any{"monitor-us-reality", "monitor:monitor-us", "monitor:fi", "monitor:us", "direct"}, tags)
+	require.Equal(t, []any{"monitor-us/reality", "monitor:monitor-us", "monitor:fi", "monitor:us", "direct"}, tags)
 	deNode.Name = "de"
 
 	// A chained node resolves the reports' domains itself to send them direct.
@@ -202,7 +202,7 @@ func TestClientGroups(t *testing.T) {
 	}
 
 	// A default this user can't use gives way to the first member.
-	f.Client.Groups[0].Default = "de-reality"
+	f.Client.Groups[0].Default = "de/reality"
 	bob = renderJSON(t, client(e, engine.AnyPlatform), f, "bob")
 	for _, ob := range bob["outbounds"].([]any) {
 		if ob := ob.(map[string]any); ob["tag"] == "select" {
@@ -308,6 +308,13 @@ func TestSingBoxCheck(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		t.Run("client-linux", func(t *testing.T) { check(t, renderJSON(t, client(e, engine.Linux), f, "bob")) })
 	}
+	t.Run("grpc", func(t *testing.T) {
+		f := withGRPC(t)
+		for _, n := range []string{"de", "us", "relay"} {
+			check(t, renderJSON(t, e.RenderServer, f, n))
+		}
+		check(t, renderJSON(t, client(e, engine.AnyPlatform), f, "bob"))
+	})
 	for _, obfs := range []string{"salamander", "gecko"} {
 		t.Run("obfs-"+obfs, func(t *testing.T) {
 			f := withObfs(t, obfs)
@@ -482,6 +489,18 @@ func renderJSON(t *testing.T, render func(*fleet.Fleet, string) ([]byte, error),
 	return out
 }
 
+// outboundsByTag indexes a rendered config's outbounds.
+func outboundsByTag(t *testing.T, cfg map[string]any) map[string]map[string]any {
+	t.Helper()
+	out := map[string]map[string]any{}
+	for _, ob := range cfg["outbounds"].([]any) {
+		ob := ob.(map[string]any)
+		require.NotContains(t, out, ob["tag"], "an outbound twice")
+		out[ob["tag"].(string)] = ob
+	}
+	return out
+}
+
 func walk(v any, visit func(map[string]any)) {
 	switch v := v.(type) {
 	case map[string]any:
@@ -525,6 +544,127 @@ func emptyRuleSet(t *testing.T, bin, dir string) string {
 	msg, err := exec.CommandContext(t.Context(), bin, "rule-set", "compile", "-o", out, src).CombinedOutput()
 	require.NoError(t, err, string(msg))
 	return out
+}
+
+// withGRPC is the fixture with de, the chain's upstream, and us serving
+// Reality over gRPC.
+func withGRPC(t *testing.T) *fleet.Fleet {
+	t.Helper()
+	f := fleettest.Load(t, fixture)
+	for _, name := range []string{"de", "us"} {
+		n, _ := f.Node(name)
+		n.Reality.Transports = []fleet.Transport{{Kind: fleet.TransportGRPC, ServiceName: "svc-" + name}}
+	}
+	return f
+}
+
+// Over gRPC there is no Vision flow, on either side, and whatever reaches
+// the node takes the transport: apps, a chain hop, a relayed connection.
+func TestRealityGRPC(t *testing.T) {
+	f := withGRPC(t)
+	e := New()
+	grpc := func(node string) map[string]any {
+		return map[string]any{"type": "grpc", "service_name": "svc-" + node}
+	}
+
+	de := renderJSON(t, e.RenderServer, f, "de")
+	in := de["inbounds"].([]any)[0].(map[string]any)
+	require.Equal(t, grpc("de"), in["transport"])
+	require.Contains(t, in["users"], map[string]any{"name": "chain:relay", "uuid": "755f7363-f3ff-4523-b419-f2e71e80e7fd"})
+	for _, u := range in["users"].([]any) {
+		require.NotContains(t, u, "flow")
+	}
+
+	relay := renderJSON(t, e.RenderServer, f, "relay")
+	require.Equal(t, "de/reality-grpc", relay["route"].(map[string]any)["final"])
+	hop := relay["outbounds"].([]any)[0].(map[string]any)
+	require.Equal(t, "de/reality-grpc", hop["tag"])
+	require.Equal(t, grpc("de"), hop["transport"])
+	require.NotContains(t, hop, "flow")
+	in = relay["inbounds"].([]any)[0].(map[string]any)
+	require.NotContains(t, in, "transport", "relay itself stays on tcp")
+	require.Equal(t, "xtls-rprx-vision", in["users"].([]any)[0].(map[string]any)["flow"])
+
+	reports := outboundsByTag(t, relay)["monitor:us"]
+	require.Equal(t, grpc("us"), reports["transport"], "the monitor's reports take it too")
+	require.NotContains(t, reports, "flow")
+	us := renderJSON(t, e.RenderServer, f, "us")
+	require.Contains(t, us["inbounds"].([]any)[0].(map[string]any)["users"],
+		map[string]any{"name": "monitor:relay", "uuid": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"})
+
+	bob := outboundsByTag(t, renderJSON(t, client(e, engine.AnyPlatform), f, "bob"))
+	require.Equal(t, grpc("us"), bob["us-reality-grpc"]["transport"])
+	require.NotContains(t, bob["us-reality-grpc"], "flow")
+	require.NotContains(t, bob, "us-reality")
+	require.Equal(t, "xtls-rprx-vision", bob["relay-reality"]["flow"])
+	require.Equal(t, []any{"select-auto", "us-reality-grpc", "us-reality-grpc@relay"}, bob["select"]["outbounds"])
+	require.Equal(t, "relay-reality", bob["us-reality-grpc@relay"]["detour"])
+	require.Equal(t, grpc("us"), bob["us-reality-grpc@relay"]["transport"])
+}
+
+// The label names what the profile shows: members, relayed ones and what
+// refers to them. princo.yaml goes on referring to a member by its ID.
+func TestClientLabel(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	f.Client.Label = "{node} · {protocol}"
+	f.Client.Groups[0].Default = "us/reality@relay"
+	bob := outboundsByTag(t, renderJSON(t, client(New(), engine.AnyPlatform), f, "bob"))
+	require.Equal(t, []any{"select-auto", "us · reality", "us · reality@relay"}, bob["select"]["outbounds"])
+	require.Equal(t, "us · reality@relay", bob["select"]["default"])
+	require.Equal(t, "relay · reality", bob["us · reality@relay"]["detour"])
+	require.Equal(t, []any{"us · reality", "us · reality@relay"}, bob["select-auto"]["outbounds"])
+	require.Equal(t, []any{"direct", "relay · reality"}, bob["ru-select"]["outbounds"])
+	require.NotContains(t, bob, "us-reality")
+}
+
+// A relay that serves gRPC is the detour by it.
+func TestRelayGRPC(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	relay, _ := f.Node("relay")
+	relay.Reality.Transports = []fleet.Transport{{Kind: fleet.TransportGRPC, ServiceName: "svc"}}
+	bob := outboundsByTag(t, renderJSON(t, client(New(), engine.AnyPlatform), f, "bob"))
+	require.Equal(t, "relay-reality-grpc", bob["us-reality@relay"]["detour"])
+	require.Equal(t, "xtls-rprx-vision", bob["us-reality@relay"]["flow"], "the member stays on tcp inside it")
+	require.Contains(t, bob, "relay-reality-grpc")
+}
+
+// Every transport fleet lists for sing-box has its renderer, and one that
+// hasn't is an error, not a config for another transport.
+func TestTransportsRendered(t *testing.T) {
+	for _, kind := range fleet.EngineTransports(engineName) {
+		require.Contains(t, transports, kind)
+	}
+	e := New()
+	for name, ts := range map[string][]fleet.Transport{
+		"sing-box renders no reality transport \"xhttp\"": {{Kind: fleet.TransportXHTTP, Path: "/p"}},
+		"sing-box serves one reality transport, got 0":    nil,
+		"sing-box serves one reality transport, got 2":    {{Kind: fleet.TransportTCP}, {Kind: fleet.TransportGRPC}},
+	} {
+		f := fleettest.Load(t, fixture)
+		us, _ := f.Node("us")
+		us.Reality.Transports = ts
+		_, err := e.RenderServer(f, "us")
+		require.ErrorContains(t, err, "node us: "+name)
+	}
+	// de is where relay's chain goes, and one of those it reports through.
+	f := fleettest.Load(t, fixture)
+	de, _ := f.Node("de")
+	de.Reality.Transports = []fleet.Transport{{Kind: fleet.TransportXHTTP, Path: "/p"}}
+	_, err := e.RenderServer(f, "relay")
+	require.ErrorContains(t, err, "node de: no reality transport sing-box connects by")
+}
+
+// A node that serves only what sing-box doesn't speak is in no group: its
+// share links are all its users get.
+func TestClientUndialable(t *testing.T) {
+	f := fleettest.Load(t, fixture)
+	fi, _ := f.Node("fi")
+	fi.Reality.Transports = fi.Reality.Transports[1:]
+	alice := outboundsByTag(t, renderJSON(t, client(New(), engine.AnyPlatform), f, "alice"))
+	for tag := range alice {
+		require.NotContains(t, tag, "fi-")
+	}
+	require.Equal(t, []any{"select-auto", "de-reality", "de-hysteria2", "de-naive", "us-reality"}, alice["select"]["outbounds"])
 }
 
 func TestRealityTarget(t *testing.T) {

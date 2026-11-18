@@ -22,7 +22,8 @@ Keep credentials in encrypted age or sops files, separate from your fleet config
 - **Manage a fleet together.** Define shared defaults, per-user access and node
   groups in one `princo.yaml`.
 - **Offer several protocols on port 443.** Use VLESS-Reality, Hysteria2 and
-  Naive on sing-box, or VLESS-Reality and XHTTP on xray.
+  Naive on sing-box, or VLESS-Reality on xray, over TCP with Vision, gRPC or,
+  on xray, XHTTP.
 - **Choose where traffic exits.** Route directly, through Cloudflare WARP or
   through another node. Set routing and DNS for both servers and clients.
 - **Give each user one subscription.** Publish share links, a sing-box profile
@@ -152,8 +153,8 @@ depends on the client:
 
 - sing-box apps (SFA, SFI, SFM) 1.14 or newer import the full profile, with
   groups and routing, from either link.
-- Other apps take the share links. XHTTP needs an Xray-core app such as
-  v2rayN, v2rayNG or Happ; few apps import Naive links.
+- Other apps take the share links. Reality over XHTTP needs an Xray-core app
+  such as v2rayN, v2rayNG or Happ; few apps import Naive links.
 
 After changing the fleet config or credentials, deploy again to publish the
 updated server configs and subscriptions.

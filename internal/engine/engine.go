@@ -54,9 +54,8 @@ func MonitorAccounts(f *fleet.Fleet, n *fleet.Node) []any {
 // WarpPeerPublicKey is Cloudflare WARP's WireGuard peer key.
 const WarpPeerPublicKey = "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo="
 
-// ClientEngine renders client profiles whatever engine the servers run:
-// sing-box profiles are what the apps import.
-const ClientEngine = "sing-box"
+// ClientEngine renders client profiles whatever engine the servers run.
+const ClientEngine = fleet.ClientEngine
 
 // Platform is what a client profile runs on.
 type Platform string

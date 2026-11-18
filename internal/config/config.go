@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 
@@ -64,7 +65,6 @@ type Defaults struct {
 	ACMEEmail string     `yaml:"acme_email"`
 	Reality   *Reality   `yaml:"reality"`
 	Hysteria2 *Hysteria2 `yaml:"hysteria2"`
-	XHTTP     *XHTTP     `yaml:"xhttp"`
 	Egress    string     `yaml:"egress"`
 	DNS       *DNS       `yaml:"dns"`
 	Rules     []Rule     `yaml:"rules"`
@@ -84,7 +84,6 @@ type Node struct {
 	Reality     *Reality        `yaml:"reality"`
 	Hysteria2   *Hysteria2      `yaml:"hysteria2"`
 	Naive       *Naive          `yaml:"naive"`
-	XHTTP       *XHTTP          `yaml:"xhttp"`
 	Warp        *Warp           `yaml:"warp"`
 	Egress      string          `yaml:"egress"`
 	DNS         *DNS            `yaml:"dns"`
@@ -100,17 +99,68 @@ type Reality struct {
 	ShortID    string                 `yaml:"short_id"`
 	PublicKey  string                 `yaml:"public_key"`
 	PrivateKey *secrets.SecretOrPlain `yaml:"private_key"`
+	Transports *Transports            `yaml:"transports"`
+}
+
+// UnmarshalYAML refuses transports: without a value, as a block whose
+// only line was commented out: it would decode like the field left out.
+func (r *Reality) UnmarshalYAML(node *yaml.Node) error {
+	if slices.Contains(valueless(node), "transports") {
+		return errors.New("reality.transports: has no transports; list them, or leave it out for tcp")
+	}
+	type reality Reality
+	return decodeStrict(node, (*reality)(r))
+}
+
+// valueless lists the keys of a mapping that were given no value. A flow
+// mapping's comes back from decodeStrict's round trip as an empty string.
+func valueless(node *yaml.Node) []string {
+	var out []string
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if v := node.Content[i+1]; isNull(v) || v.Kind == yaml.ScalarNode && v.Value == "" {
+			out = append(out, node.Content[i].Value)
+		}
+	}
+	return out
+}
+
+// Transports are the ways into a Reality inbound. A block, even an empty
+// one, enables its transport; without the field that is tcp alone.
+type Transports struct {
+	TCP   *TCP   `yaml:"tcp"`
+	GRPC  *GRPC  `yaml:"grpc"`
+	XHTTP *XHTTP `yaml:"xhttp"`
+}
+
+// UnmarshalYAML refuses a block without a value, as tcp: for tcp: {}: it
+// would decode as a transport left out.
+func (t *Transports) UnmarshalYAML(node *yaml.Node) error {
+	if keys := valueless(node); len(keys) > 0 {
+		return fmt.Errorf("reality.transports.%s: write %s: {} to enable it", keys[0], keys[0])
+	}
+	type transports Transports
+	return decodeStrict(node, (*transports)(t))
+}
+
+// TCP is VLESS on the TLS stream itself, with XTLS Vision.
+type TCP struct{}
+
+type GRPC struct {
+	ServiceName string `yaml:"service_name"`
+}
+
+type XHTTP struct {
+	Path string `yaml:"path"`
+	Mode string `yaml:"mode"`
 }
 
 type Hysteria2 struct {
 	Masquerade   string                 `yaml:"masquerade"`
 	Obfs         string                 `yaml:"obfs"`
 	ObfsPassword *secrets.SecretOrPlain `yaml:"obfs_password"`
-}
-
-type XHTTP struct {
-	Path string `yaml:"path"`
-	Mode string `yaml:"mode"`
 }
 
 type Naive struct {
@@ -170,6 +220,8 @@ type Client struct {
 	DNS    *DNS           `yaml:"dns"`
 	Rules  []Rule         `yaml:"rules"`
 	Final  string         `yaml:"final"`
+	// Label is what apps show for a node's protocol, a template.
+	Label string `yaml:"label"`
 	// Log is the apps' log level; above warn they log every destination.
 	Log string `yaml:"log"`
 	// IPv6 says whether the user's own network has IPv6; unset, the

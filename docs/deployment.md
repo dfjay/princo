@@ -231,7 +231,8 @@ forwards TLS unchanged, so the site still handles its own certificate.
 The NixOS module rejects nginx virtual hosts that also try to listen on 443.
 
 Reality and Naive behind the multiplexer still see each client's own address,
-in their logs and in [`princo stats`](#watching-who-connects). sing-box no
+in their logs and in [`princo stats`](#watching-who-connects), unless Reality
+is over `grpc`, where an app can name another. sing-box no
 longer reads the PROXY protocol, so nginx connects to them transparently: from
 the client's address, to `127.0.0.1` or `::1` as the client's family. The
 engine listens on both, bound to the loopback interface so nothing outside
@@ -279,7 +280,11 @@ and the last 1000 it closed. `--for 1h` watches the node that long and counts
 only what happens meanwhile, traffic included. `--ips` lists each user's
 addresses, and `--user` shows one user. Many addresses from different
 networks at once suggest a shared subscription; rotate that user's UUID with
-`princo user rotate`.
+`princo user rotate <name>`, and deploy the nodes before handing out the new
+links: until then they keep the old UUID. Over Reality's `grpc` transport an
+app can name the address it comes from, as sing-box takes it from the
+connection's `X-Forwarded-For` header when there is one: don't judge such a
+node's users by their addresses.
 
 sing-box's API reports the connections on `127.0.0.1:8446`, behind a secret
 at `nodes/<node>/api`. `princo stats` reaches it over the node's `ssh:` with
