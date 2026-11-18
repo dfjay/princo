@@ -664,7 +664,7 @@ func TestClientUndialable(t *testing.T) {
 	for tag := range alice {
 		require.NotContains(t, tag, "fi-")
 	}
-	require.NotContains(t, alice["select"]["outbounds"], "fi-xhttp")
+	require.Equal(t, []any{"select-auto", "de-reality", "de-hysteria2", "de-naive", "us-reality"}, alice["select"]["outbounds"])
 }
 
 func TestRealityTarget(t *testing.T) {

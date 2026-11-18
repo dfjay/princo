@@ -309,6 +309,27 @@ monitor:
 
 // A node of XHTTP alone is in share links only. A group left with nothing
 // else would send the user's traffic directly, which must be asked for.
+// A hop refused for its transport is still a hop of the chain as written:
+// the loop it closes is reported now, not once the transport is fixed.
+func TestBuild_ChainLoopThroughRefusedHop(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p }
+    egress: b
+  b:
+    address: b.example.com
+    engine: xray
+    reality: { server_name: s, short_id: "2", public_key: p, transports: { xhttp: { path: /p } } }
+    egress: a
+users:
+  u: {}
+`, map[string]any{})
+	require.ErrorContains(t, err, "nodes.a.egress: engine sing-box can't connect to chain upstream b")
+	require.ErrorContains(t, err, "nodes.a.egress: chain loops back to a")
+}
+
 func TestBuild_UnusableGroups(t *testing.T) {
 	cfg := func(nodes, group string) string {
 		return `
@@ -346,7 +367,8 @@ client:
 		"to direct, later":  cfg("[a]", "{ fallback: mid }\n    mid: { nodes: none, fallback: direct }"),
 		"asked for":         cfg("[a]", "{ fallback: direct }"),
 		"not in the group":  cfg("[a]", "{ nodes: \"!x\" }"),
-		"hysteria2 instead": strings.Replace(cfg("[b]", "{}"), `public_key: p }`+"\nusers", `public_key: p }`+"\n    hysteria2: { masquerade: https://example.com }\nusers", 1),
+		// b serves Hysteria2 alone: the group has it to offer.
+		"hysteria2 instead": strings.Replace(cfg("[a, b]", "{}"), `reality: { server_name: s, short_id: "2", public_key: p }`, "hysteria2: { masquerade: https://example.com }", 1),
 	} {
 		_, err := build(t, ok, conventionalSecrets())
 		require.NoError(t, err, name)
@@ -459,6 +481,11 @@ client:
 	// Only a share link, as sing-box has no XHTTP, but named like another.
 	_, err = build(t, cfg("{protocol}-{node}", "  u: {}"), sec)
 	require.ErrorContains(t, err, `client.label: xhttp-fr/reality is named "reality-xhttp-fr", like fr/reality-xhttp`)
+
+	// Both at once: a link named like another, and like a group v has.
+	_, err = build(t, strings.Replace(cfg("{protocol}-{node}", "  v: {}"), "    all: {}", "    all: {}\n    reality-xhttp-fr: {}", 1), sec)
+	require.ErrorContains(t, err, `client.label: xhttp-fr/reality is named "reality-xhttp-fr", like fr/reality-xhttp`)
+	require.ErrorContains(t, err, `client.label: xhttp-fr/reality is named "reality-xhttp-fr", like group reality-xhttp-fr`)
 
 	// The user's own label is theirs to get right, and to fix it with.
 	_, err = build(t, cfg("{node}-{protocol}", "  u: { nodes: [fr] }\n  v: { client: { label: \"{node} {protocol}\" } }"), sec)

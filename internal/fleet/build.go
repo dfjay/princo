@@ -339,6 +339,8 @@ func (b *builder) xrayLimits(where string, n *Node) {
 
 // egress resolves each node's way out, once every node exists.
 func (b *builder) egress() {
+	// chains are the nodes' upstreams as written, valid or not.
+	chains := map[*Node]*Node{}
 	for _, n := range b.f.Nodes {
 		c, _ := b.cfg.Nodes.Get(n.Name)
 		where := "nodes." + n.Name
@@ -364,6 +366,9 @@ func (b *builder) egress() {
 			}
 		default:
 			up, ok := b.f.nodes[egress]
+			if ok {
+				chains[n] = up
+			}
 			switch {
 			case !ok:
 				b.errorf("%s.egress: %q is not warp, direct or a node", where, egress)
@@ -379,10 +384,11 @@ func (b *builder) egress() {
 			}
 		}
 	}
-	// Chains must end somewhere.
+	// Chains must end somewhere: as princo.yaml has them, so that a hop
+	// refused for another reason doesn't hide a loop until it is fixed.
 	for _, n := range b.f.Nodes {
 		seen := map[*Node]bool{}
-		for m := n; m != nil && m.Egress.Kind == EgressNode; m = m.Egress.Node {
+		for m := n; chains[m] != nil && chains[m] != m; m = chains[m] {
 			if seen[m] {
 				b.errorf("nodes.%s.egress: chain loops back to %s", n.Name, m.Name)
 				break
@@ -780,9 +786,9 @@ func (b *builder) profileNames(u *User, reported map[string]bool) {
 			id, name := MemberID(n, p), u.Client.Name(u, n, p)
 			if other, ok := links[name]; ok {
 				clash(id, name, other)
-				continue
+			} else {
+				links[name] = id
 			}
-			links[name] = id
 			if other, ok := selectors[name]; ok && slices.Contains(offered, p) {
 				clash(id, name, other)
 			}

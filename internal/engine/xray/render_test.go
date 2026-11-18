@@ -191,11 +191,13 @@ func TestRenderServer_Transports(t *testing.T) {
 			settings := in["settings"].(map[string]any)
 			require.NotContains(t, settings, "fallbacks")
 			// relay runs sing-box, which comes by gRPC but has no XHTTP.
-			reporter := map[string]any{"id": "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61", "email": "monitor:relay"}
+			const reporter = "0c1d6a52-8e0b-4f6e-9d1c-3b7a5e2f4a61"
 			if kind == "grpc" {
-				require.Contains(t, settings["clients"], reporter)
+				require.Contains(t, settings["clients"], map[string]any{"id": reporter, "email": "monitor:relay"})
 			} else {
-				require.NotContains(t, settings["clients"], reporter)
+				for _, c := range settings["clients"].([]any) {
+					require.NotEqual(t, reporter, c.(map[string]any)["id"])
+				}
 			}
 			stream := in["streamSettings"].(map[string]any)
 			require.Equal(t, "reality", stream["security"])
