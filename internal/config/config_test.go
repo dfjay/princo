@@ -173,3 +173,26 @@ func TestUserClient_Strict(t *testing.T) {
 	_, err := Parse([]byte("princo: v1\nusers:\n  r:\n    client: { finl: direct }\n"))
 	require.ErrorContains(t, err, "field finl not found in type config.Client")
 }
+
+// tcp has no fields, so tcp: is easily written for tcp: {}; it would
+// otherwise decode as a transport left out.
+func TestParse_Transports(t *testing.T) {
+	cfg, err := Parse([]byte("princo: v1\nnodes:\n  a:\n    reality:\n      transports: { tcp: {}, grpc: { service_name: s } }\n"))
+	require.NoError(t, err)
+	a, _ := cfg.Nodes.Get("a")
+	require.NotNil(t, a.Reality.Transports.TCP)
+	require.Equal(t, "s", a.Reality.Transports.GRPC.ServiceName)
+	require.Nil(t, a.Reality.Transports.XHTTP)
+
+	_, err = Parse([]byte("princo: v1\nnodes:\n  a:\n    reality:\n      transports:\n        tcp:\n        xhttp: { path: /p }\n"))
+	require.ErrorContains(t, err, "reality.transports.tcp: write tcp: {} to enable it")
+	// As a block whose only line was commented out.
+	_, err = Parse([]byte("princo: v1\nnodes:\n  a:\n    reality:\n      short_id: \"1\"\n      transports:\n"))
+	require.ErrorContains(t, err, "reality.transports: has no transports; list them, or leave it out for tcp")
+	_, err = Parse([]byte("princo: v1\ndefaults:\n  reality:\n    transports: { grpc: }\n"))
+	require.ErrorContains(t, err, "reality.transports.grpc: write grpc: {} to enable it")
+	_, err = Parse([]byte("princo: v1\nnodes:\n  a:\n    reality:\n      transports: { grpc: { name: s } }\n"))
+	require.ErrorContains(t, err, "field name not found")
+	_, err = Parse([]byte("princo: v1\nnodes:\n  a:\n    reality:\n      transports: { quic: {} }\n"))
+	require.ErrorContains(t, err, "field quic not found")
+}

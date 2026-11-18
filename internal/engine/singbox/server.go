@@ -15,6 +15,9 @@ func (e *Engine) RenderServer(f *fleet.Fleet, name string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("no node named %q", name)
 	}
+	if err := checkServer(n); err != nil {
+		return nil, err
+	}
 	var sets ruleSets
 	cfg := map[string]any{
 		"log":          renderLog(n.Log),
@@ -90,17 +93,15 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	users := f.UsersOf(n)
 	var out []any
 	if r := n.Reality; r != nil {
-		accounts := make([]any, 0, len(users))
-		for _, u := range users {
-			accounts = append(accounts, map[string]any{"name": u.Name, "uuid": u.UUID, "flow": "xtls-rprx-vision"})
-		}
-		// Chain hops that exit here log in like users.
-		for _, m := range f.ChainsInto(n) {
-			accounts = append(accounts, map[string]any{"name": "chain:" + m.Name, "uuid": m.ChainUUID, "flow": "xtls-rprx-vision"})
-		}
-		// So do the nodes that send their monitor's reports through here.
-		for _, m := range f.MonitorsInto(n) {
-			accounts = append(accounts, map[string]any{"name": fleet.MonitorAccount(m), "uuid": m.MonitorUUID, "flow": "xtls-rprx-vision"})
+		// One transport: sing-box has no fallback to serve another by.
+		t := r.Transports[0]
+		accounts := []any{}
+		for _, a := range f.Accounts(n, t) {
+			account := map[string]any{"name": a.Name, "uuid": a.UUID}
+			if t.Vision() {
+				account["flow"] = vision
+			}
+			accounts = append(accounts, account)
 		}
 		in := map[string]any{
 			"type":        "vless",
@@ -118,6 +119,9 @@ func serverInbounds(f *fleet.Fleet, n *fleet.Node) []any {
 					"short_id":    []any{r.ShortID},
 				},
 			},
+		}
+		if tr := transport(t); tr != nil {
+			in["transport"] = tr
 		}
 		if n.Mux() {
 			behindMux(in, engine.MuxRealityPort)
@@ -212,10 +216,10 @@ func serverTLS(f *fleet.Fleet, domain string) map[string]any {
 func serverOutbounds(f *fleet.Fleet, n *fleet.Node) []any {
 	var out []any
 	if up := n.Egress.Node; up != nil {
-		out = append(out, realityOutbound(up, n.ChainUUID))
+		out = append(out, realityOutbound(up, dial(up), n.ChainUUID))
 	}
 	for _, up := range n.MonitorVia {
-		o := realityOutbound(up, n.MonitorUUID)
+		o := realityOutbound(up, dial(up), n.MonitorUUID)
 		o["tag"] = engine.MonitorTag(up)
 		out = append(out, o)
 	}
@@ -231,7 +235,7 @@ func egressTag(n *fleet.Node) string {
 	case fleet.EgressWarp:
 		return engine.WarpTag
 	case fleet.EgressNode:
-		return outboundTag(n.Egress.Node, "reality")
+		return fleet.MemberID(n.Egress.Node, dial(n.Egress.Node).Protocol())
 	default:
 		return "direct"
 	}

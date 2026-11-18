@@ -9,8 +9,10 @@ import (
 	"github.com/dfjay/princo/internal/fleet"
 )
 
+const engineName = fleet.Xray
+
 func init() {
-	engine.Register("xray", func() engine.Engine { return New() })
+	engine.Register(engineName, func() engine.Engine { return New() })
 }
 
 // minVersion is the first release whose freedom resolves domains by
@@ -22,7 +24,7 @@ type Engine struct{}
 
 func New() *Engine { return &Engine{} }
 
-func (e *Engine) Name() string { return "xray" }
+func (e *Engine) Name() string { return engineName }
 
 func (e *Engine) MinVersion() string { return minVersion }
 

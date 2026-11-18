@@ -22,6 +22,11 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 	if p != engine.AnyPlatform && !slices.Contains(e.ClientPlatforms(), p) {
 		return nil, fmt.Errorf("sing-box has no profiles for %s", p)
 	}
+	for _, n := range u.Nodes {
+		if err := checkRenders(n, n.Dials(engineName)); err != nil {
+			return nil, err
+		}
+	}
 	c := newClientView(f, u)
 	var sets ruleSets
 
@@ -184,17 +189,28 @@ type member struct {
 	relay *fleet.Node // nil when straight
 }
 
-// tags are the member's outbounds, one per protocol. Through a relay that is
-// Reality alone, the protocol the relay is reached by too.
-func (p member) tags() []any {
+// tags are the member's outbounds as the profile shows them, one per
+// protocol, and ids how princo.yaml refers to each. Through a relay that
+// is Reality alone, by the transport dial picks.
+func (c *clientView) tags(p member) (tags []any, ids []string) {
 	if p.relay != nil {
-		return []any{relayedTag(p)}
+		id := fleet.MemberID(p.exit, dial(p.exit).Protocol())
+		return []any{c.relayedTag(p)}, []string{fleet.Relayed(id, p.relay)}
 	}
-	var tags []any
-	for _, protocol := range protocols(p.exit) {
-		tags = append(tags, outboundTag(p.exit, protocol))
+	for _, protocol := range p.exit.ClientProtocols() {
+		tags = append(tags, c.tag(p.exit, protocol))
+		ids = append(ids, fleet.MemberID(p.exit, protocol))
 	}
-	return tags
+	return tags, ids
+}
+
+// tag is what the profile shows for n's protocol.
+func (c *clientView) tag(n *fleet.Node, protocol string) string {
+	return c.user.Client.Name(c.user, n, protocol)
+}
+
+func (c *clientView) relayedTag(p member) string {
+	return fleet.Relayed(c.tag(p.exit, dial(p.exit).Protocol()), p.relay)
 }
 
 func newClientView(f *fleet.Fleet, u *fleet.User) *clientView {
@@ -202,7 +218,8 @@ func newClientView(f *fleet.Fleet, u *fleet.User) *clientView {
 	for _, g := range u.Client.Groups {
 		var straight []member
 		for _, n := range u.Nodes {
-			if g.Members.Matches(n) {
+			// A node may serve nothing the profile speaks.
+			if g.Members.Matches(n) && len(n.ClientProtocols()) > 0 {
 				straight = append(straight, member{exit: n})
 			}
 		}
@@ -212,11 +229,11 @@ func newClientView(f *fleet.Fleet, u *fleet.User) *clientView {
 			continue
 		}
 		for _, relay := range u.Nodes {
-			if !g.Relay.Matches(relay) || relay.Reality == nil {
+			if !g.Relay.Matches(relay) || !dials(relay) {
 				continue
 			}
 			for _, p := range straight {
-				if p.exit != relay && p.exit.Reality != nil {
+				if p.exit != relay && dials(p.exit) {
 					c.members[g.Name] = append(c.members[g.Name], member{exit: p.exit, relay: relay})
 				}
 			}
@@ -282,8 +299,13 @@ func (c *clientView) outbounds() []any {
 			continue
 		}
 		var proxies []any
+		byID := map[string]any{}
 		for _, p := range members {
-			proxies = append(proxies, p.tags()...)
+			tags, ids := c.tags(p)
+			proxies = append(proxies, tags...)
+			for i, id := range ids {
+				byID[id] = tags[i]
+			}
 		}
 		var tags []any
 		auto := g.Name + "-auto"
@@ -295,18 +317,20 @@ func (c *clientView) outbounds() []any {
 			tags = append(tags, "direct")
 		}
 		tags = append(tags, proxies...)
-		def := g.Default
-		switch {
-		case def == "auto":
+		// The default may be a member this user hasn't got.
+		def := proxies[0]
+		switch member, ok := byID[g.Default]; {
+		case g.Default == "auto":
 			def = auto
-		case def == "first", !slices.Contains(tags, any(def)):
-			// The default may be a node this user can't use.
-			def = proxies[0].(string)
+		case g.Default == "direct" && g.IncludeDirect:
+			def = "direct"
+		case ok:
+			def = member
 		}
 		out = append(out, map[string]any{"type": "selector", "tag": g.Name, "outbounds": tags, "default": def})
 	}
 	for _, n := range c.user.Nodes {
-		for _, ob := range nodeOutbounds(n, c.user) {
+		for _, ob := range nodeOutbounds(n, c.user, func(protocol string) string { return c.tag(n, protocol) }) {
 			out = append(out, ob)
 		}
 	}
@@ -314,51 +338,45 @@ func (c *clientView) outbounds() []any {
 	relayed := map[string]bool{}
 	for _, g := range c.user.Client.Groups {
 		for _, p := range c.members[g.Name] {
-			if p.relay == nil || relayed[relayedTag(p)] {
+			if p.relay == nil {
 				continue
 			}
-			relayed[relayedTag(p)] = true
-			ob := realityOutbound(p.exit, c.user.UUID)
-			ob["tag"] = relayedTag(p)
-			ob["detour"] = outboundTag(p.relay, "reality")
+			tag := c.relayedTag(p)
+			if relayed[tag] {
+				continue
+			}
+			relayed[tag] = true
+			ob := realityOutbound(p.exit, dial(p.exit), c.user.UUID)
+			ob["tag"] = tag
+			ob["detour"] = c.tag(p.relay, dial(p.relay).Protocol())
 			out = append(out, ob)
 		}
 	}
 	return append(out, map[string]any{"type": "direct", "tag": "direct"})
 }
 
-func outboundTag(n *fleet.Node, protocol string) string { return n.Name + "-" + protocol }
-
-// relayedTag names a member through a relay, as fr-reality@ru; no name of a
-// node or a group has an @.
-func relayedTag(p member) string { return outboundTag(p.exit, "reality") + "@" + p.relay.Name }
-
-// protocols are the ones n serves to sing-box apps, in the order of their
-// outbounds.
-func protocols(n *fleet.Node) []string {
-	var out []string
-	if n.Reality != nil {
-		out = append(out, "reality")
-	}
-	if n.Hysteria2 != nil {
-		out = append(out, "hysteria2")
-	}
-	if n.Naive != nil {
-		out = append(out, "naive")
-	}
-	return out
+// dial is the transport sing-box connects to n's Reality by where it
+// takes one; dials tells whether there is one.
+func dial(n *fleet.Node) fleet.Transport {
+	t, _ := n.Dial(engineName)
+	return t
 }
 
-// nodeOutbounds is how user reaches n: one outbound per protocol.
-func nodeOutbounds(n *fleet.Node, u *fleet.User) []map[string]any {
+func dials(n *fleet.Node) bool { return len(n.Dials(engineName)) > 0 }
+
+// nodeOutbounds is how user reaches n: one outbound per protocol, in the
+// order of n.ClientProtocols, each tagged as tag names its protocol.
+func nodeOutbounds(n *fleet.Node, u *fleet.User, tag func(protocol string) string) []map[string]any {
 	var out []map[string]any
-	if n.Reality != nil {
-		out = append(out, realityOutbound(n, u.UUID))
+	for _, t := range n.Dials(engineName) {
+		o := realityOutbound(n, t, u.UUID)
+		o["tag"] = tag(t.Protocol())
+		out = append(out, o)
 	}
 	if h := n.Hysteria2; h != nil {
 		o := map[string]any{
 			"type":        "hysteria2",
-			"tag":         outboundTag(n, "hysteria2"),
+			"tag":         tag("hysteria2"),
 			"server":      n.Address,
 			"server_port": 443,
 			"password":    u.UUID,
@@ -372,7 +390,7 @@ func nodeOutbounds(n *fleet.Node, u *fleet.User) []map[string]any {
 	if nv := n.Naive; nv != nil {
 		out = append(out, map[string]any{
 			"type":        "naive",
-			"tag":         outboundTag(n, "naive"),
+			"tag":         tag("naive"),
 			"server":      nv.Domain,
 			"server_port": 443,
 			"username":    u.Name,
@@ -383,17 +401,18 @@ func nodeOutbounds(n *fleet.Node, u *fleet.User) []map[string]any {
 	return out
 }
 
-// realityOutbound connects to n's VLESS-Reality inbound as uuid; clients and
-// chain hops alike.
-func realityOutbound(n *fleet.Node, uuid string) map[string]any {
+const vision = "xtls-rprx-vision"
+
+// realityOutbound connects to n's VLESS-Reality inbound by t as uuid,
+// tagged with its fleet.MemberID; clients and chain hops alike.
+func realityOutbound(n *fleet.Node, t fleet.Transport, uuid string) map[string]any {
 	r := n.Reality
-	return map[string]any{
+	out := map[string]any{
 		"type":        "vless",
-		"tag":         outboundTag(n, "reality"),
+		"tag":         fleet.MemberID(n, t.Protocol()),
 		"server":      n.Address,
 		"server_port": 443,
 		"uuid":        uuid,
-		"flow":        "xtls-rprx-vision",
 		"tls": map[string]any{
 			"enabled":     true,
 			"server_name": r.ServerName,
@@ -401,6 +420,61 @@ func realityOutbound(n *fleet.Node, uuid string) map[string]any {
 			"utls":        map[string]any{"enabled": true, "fingerprint": "chrome"},
 		},
 	}
+	if t.Vision() {
+		out["flow"] = vision
+	}
+	if tr := transport(t); tr != nil {
+		out["transport"] = tr
+	}
+	return out
+}
+
+// transports are sing-box's V2Ray transports by kind, the same on both
+// sides; nil for tcp, which needs none.
+var transports = map[string]func(fleet.Transport) map[string]any{
+	fleet.TransportTCP: func(fleet.Transport) map[string]any { return nil },
+	fleet.TransportGRPC: func(t fleet.Transport) map[string]any {
+		return map[string]any{"type": "grpc", "service_name": t.ServiceName}
+	},
+}
+
+// transport renders t, which checkRenders saw is one of transports.
+func transport(t fleet.Transport) map[string]any { return transports[t.Kind](t) }
+
+// checkServer refuses what the server renderer would make something else
+// of: transports of n's that sing-box doesn't serve together, or a node n
+// connects to by none. fleet.Build lets none through, so this is for a
+// fleet built otherwise.
+func checkServer(n *fleet.Node) error {
+	if r := n.Reality; r != nil {
+		if err := checkRenders(n, r.Transports); err != nil {
+			return err
+		}
+		if !fleet.ServesTogether(engineName, r.Transports) {
+			return fmt.Errorf("node %s: sing-box serves one reality transport, got %d", n.Name, len(r.Transports))
+		}
+	}
+	for _, up := range n.Upstreams() {
+		ts := up.Dials(engineName)
+		if len(ts) == 0 {
+			return fmt.Errorf("node %s: no reality transport sing-box connects by", up.Name)
+		}
+		if err := checkRenders(up, ts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkRenders refuses a transport fleet lists for sing-box before
+// transports has it.
+func checkRenders(n *fleet.Node, ts []fleet.Transport) error {
+	for _, t := range ts {
+		if transports[t.Kind] == nil {
+			return fmt.Errorf("node %s: sing-box renders no reality transport %q", n.Name, t.Kind)
+		}
+	}
+	return nil
 }
 
 func remoteRuleSets(domain string, tags []string) []any {

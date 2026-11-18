@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strings"
 
 	"github.com/dfjay/princo/internal/fleet"
 )
@@ -15,17 +16,27 @@ func URIs(u *fleet.User) []string {
 	var out []string
 	for _, n := range u.Nodes {
 		addr := net.JoinHostPort(n.Address, "443")
+		// A link's name is a URI component: apps differ in what they make
+		// of a literal +, & or /, so only unreserved characters stay.
 		name := func(protocol string) string {
-			return (&url.URL{Fragment: u.Name + "-" + n.Name + "-" + protocol}).EscapedFragment()
+			return strings.ReplaceAll(url.QueryEscape(u.Client.Name(u, n, protocol)), "+", "%20")
 		}
 		if r := n.Reality; r != nil {
-			out = append(out, fmt.Sprintf(
-				"vless://%s@%s?encryption=none&flow=xtls-rprx-vision&type=tcp&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
-				u.UUID, addr, r.ServerName, r.PublicKey, r.ShortID, name("reality")))
-			if x := n.XHTTP; x != nil {
-				out = append(out, fmt.Sprintf(
-					"vless://%s@%s?encryption=none&type=xhttp&path=%s&mode=%s&security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s#%s",
-					u.UUID, addr, url.QueryEscape(x.Path), x.Mode, r.ServerName, r.PublicKey, r.ShortID, name("xhttp")))
+			// What every transport's link ends with.
+			reality := fmt.Sprintf("security=reality&sni=%s&fp=chrome&pbk=%s&sid=%s", r.ServerName, r.PublicKey, r.ShortID)
+			for _, t := range r.Transports {
+				var q string
+				switch t.Kind {
+				case fleet.TransportTCP:
+					q = "flow=xtls-rprx-vision&type=tcp"
+				case fleet.TransportGRPC:
+					q = "type=grpc&serviceName=" + url.QueryEscape(t.ServiceName) + "&mode=gun"
+				case fleet.TransportXHTTP:
+					q = "type=xhttp&path=" + url.QueryEscape(t.Path) + "&mode=" + t.Mode
+				default:
+					continue
+				}
+				out = append(out, fmt.Sprintf("vless://%s@%s?encryption=none&%s&%s#%s", u.UUID, addr, q, reality, name(t.Protocol())))
 			}
 		}
 		if h := n.Hysteria2; h != nil {

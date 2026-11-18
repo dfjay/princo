@@ -279,7 +279,9 @@ and the last 1000 it closed. `--for 1h` watches the node that long and counts
 only what happens meanwhile, traffic included. `--ips` lists each user's
 addresses, and `--user` shows one user. Many addresses from different
 networks at once suggest a shared subscription; rotate that user's UUID with
-`princo user rotate`.
+`princo user rotate`. Over Reality's `grpc` transport the addresses are what
+the apps say they are, as sing-box takes a connection's from its
+`X-Forwarded-For` header: don't judge such a node's users by them.
 
 sing-box's API reports the connections on `127.0.0.1:8446`, behind a secret
 at `nodes/<node>/api`. `princo stats` reaches it over the node's `ssh:` with

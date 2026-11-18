@@ -97,7 +97,7 @@ in
     links = machine.succeed(curl + "/ | base64 -d")
     headers = machine.succeed(curl + "/ -D - -o /dev/null")
     assert "profile-web-page-url: https://subs.example.com/" + token + "/qr" in headers, headers
-    assert "#alice-de-reality" in links, links
+    assert "#de-reality" in links, links
     profile = machine.succeed(curl + "/ -A 'SFA (sing-box 1.14)'")
     assert '"outbounds"' in profile, profile
     assert machine.succeed(curl + "/sing-box") == profile

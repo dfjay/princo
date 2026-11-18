@@ -83,8 +83,8 @@ func TestRender_Platform(t *testing.T) {
 func TestRender_URIs(t *testing.T) {
 	out, err := runRender(t, "--user", "bob", "--uris")
 	require.NoError(t, err)
-	require.Contains(t, out, "#bob-us-reality\n")
-	require.Contains(t, out, "#bob-relay-reality\n")
+	require.Contains(t, out, "#us-reality\n")
+	require.Contains(t, out, "#relay-reality\n")
 }
 
 func TestRender_Links(t *testing.T) {

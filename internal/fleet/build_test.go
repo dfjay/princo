@@ -182,23 +182,289 @@ func TestParseDNSAddress(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBuild_XHTTP(t *testing.T) {
+func TestBuild_Transports(t *testing.T) {
 	f, err := build(t, `
 defaults:
-  xhttp: { path: /shared }
+  reality:
+    server_name: s
+    transports:
+      grpc: { service_name: shared }
+      xhttp: { path: /shared }
 nodes:
   a:
     address: a.example.com
     engine: xray
-    reality: { server_name: s, short_id: "1", public_key: p }
-    xhttp: {}
+    reality: { short_id: "1", public_key: p, transports: { tcp: {}, xhttp: {} } }
+  b:
+    address: b.example.com
+    reality: { short_id: "2", public_key: p, transports: { grpc: {} } }
+    egress: a
+  c:
+    address: c.example.com
+    engine: xray
+    reality: { short_id: "3", public_key: p, transports: { xhttp: { path: /own, mode: stream-one } } }
+    egress: b
+  d:
+    address: d.example.com
+    reality: { short_id: "4", public_key: p }
 users:
   u: {}
-`, conventionalSecrets())
+`, map[string]any{
+		"users": map[string]any{"u": "uuid-u"},
+		"nodes": map[string]any{
+			"a": map[string]any{"reality": "k"},
+			"b": map[string]any{"reality": "k", "chain": "chain-b"},
+			"c": map[string]any{"reality": "k", "chain": "chain-c"},
+			"d": map[string]any{"reality": "k"},
+		},
+	})
 	require.NoError(t, err)
 	a, _ := f.Node("a")
-	require.Equal(t, &XHTTP{Path: "/shared", Mode: "auto"}, a.XHTTP)
-	require.Equal(t, []string{"reality", "xhttp"}, a.Protocols())
+	b, _ := f.Node("b")
+	c, _ := f.Node("c")
+	d, _ := f.Node("d")
+	require.Equal(t, []Transport{{Kind: TransportTCP}, {Kind: TransportXHTTP, Path: "/shared", Mode: "auto"}}, a.Reality.Transports,
+		"defaults supply values; the node's blocks enable")
+	require.Equal(t, []Transport{{Kind: TransportGRPC, ServiceName: "shared"}}, b.Reality.Transports)
+	require.Equal(t, []Transport{{Kind: TransportXHTTP, Path: "/own", Mode: "stream-one"}}, c.Reality.Transports)
+	require.Equal(t, []Transport{{Kind: TransportTCP}}, d.Reality.Transports, "tcp without the block")
+	require.Equal(t, []string{"reality"}, a.Protocols())
+
+	require.Equal(t, a.Reality.Transports, a.Dials("xray"))
+	require.Equal(t, a.Reality.Transports[:1], a.Dials("sing-box"), "sing-box has no XHTTP")
+	require.Empty(t, c.Dials(ClientEngine))
+	require.Empty(t, (&Node{}).Dials("xray"))
+	grpc, ok := b.Dial("xray")
+	require.True(t, ok)
+	require.Equal(t, "reality-grpc", grpc.Protocol())
+	require.False(t, grpc.Vision())
+	require.Equal(t, "reality", a.Reality.Transports[0].Protocol())
+
+	require.Equal(t, []Account{{Name: "u", UUID: "uuid-u"}, {Name: "chain:b", UUID: "chain-b"}}, f.Accounts(a, a.Reality.Transports[0]),
+		"the hop takes the first transport it speaks")
+	require.Equal(t, []Account{{Name: "u", UUID: "uuid-u"}}, f.Accounts(a, a.Reality.Transports[1]))
+	require.Equal(t, []Account{{Name: "u", UUID: "uuid-u"}, {Name: "chain:c", UUID: "chain-c"}}, f.Accounts(b, grpc))
+}
+
+func TestBuild_TransportLimits(t *testing.T) {
+	_, err := build(t, `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p, transports: { xhttp: { path: /p } } }
+  b:
+    address: b.example.com
+    reality: { server_name: s, short_id: "2", public_key: p, transports: { tcp: {}, grpc: { service_name: g } } }
+  c:
+    address: c.example.com
+    engine: xray
+    reality: { server_name: s, short_id: "3", public_key: p, transports: { tcp: {}, grpc: { service_name: g } } }
+  d:
+    address: d.example.com
+    engine: xray
+    reality: { server_name: s, short_id: "4", public_key: p, transports: { grpc: {}, xhttp: { path: "/bad path", mode: fast } } }
+  e:
+    address: e.example.com
+    reality: { server_name: s, short_id: "5", public_key: p, transports: {} }
+  h:
+    address: h.example.com
+    reality: { server_name: s, short_id: "8", public_key: p }
+    egress: e
+  f:
+    address: f.example.com
+    engine: xray
+    tags: [only-xhttp]
+    reality: { server_name: s, short_id: "6", public_key: p, transports: { xhttp: { path: /p } } }
+  g:
+    address: g.example.com
+    reality: { server_name: s, short_id: "7", public_key: p }
+    egress: f
+users:
+  u: {}
+client:
+  groups:
+    proxy: { relay: only-xhttp }
+monitor:
+  notify:
+    ops: { type: telegram, via: only-xhttp }
+`, map[string]any{})
+	for _, want := range []string{
+		"nodes.a.reality.transports.xhttp: engine sing-box doesn't serve it",
+		"nodes.b.reality.transports: engine sing-box serves one transport at a time",
+		"nodes.c.reality.transports: engine xray serves one transport at a time, or tcp with xhttp",
+		`nodes.d.reality.transports.grpc.service_name: want a name such as a1b2c3 (letters, digits, ., _, ~, -), got ""`,
+		`nodes.d.reality.transports.xhttp.path: want a path such as /a1b2c3`,
+		`nodes.d.reality.transports.xhttp.mode: want one of auto, packet-up, stream-up, stream-one, got "fast"`,
+		"nodes.d.reality.transports: engine xray serves one transport at a time, or tcp with xhttp",
+		"nodes.e.reality.transports: enable at least one transport (tcp, grpc, xhttp)",
+		"nodes.g.egress: engine sing-box can't connect to chain upstream f, which serves reality over xhttp alone",
+		"client.groups.proxy.relay: no node with reality over a transport the profiles speak matches only-xhttp",
+		"monitor.notify.ops.via: engine sing-box of node g speaks no reality transport of the nodes it selects",
+	} {
+		require.ErrorContains(t, err, want)
+	}
+	require.NotContains(t, err.Error(), "nodes.f.reality.transports", "xray serves XHTTP alone too")
+	require.NotContains(t, err.Error(), "upstream e", "a node without transports is reported once")
+}
+
+// A node of XHTTP alone is in share links only. A group left with nothing
+// else would send the user's traffic directly, which must be asked for.
+func TestBuild_UnusableGroups(t *testing.T) {
+	cfg := func(nodes, group string) string {
+		return `
+nodes:
+  a:
+    address: a.example.com
+    engine: xray
+    tags: [x]
+    reality: { server_name: s, short_id: "1", public_key: p, transports: { xhttp: { path: /p } } }
+  b:
+    address: b.example.com
+    reality: { server_name: s, short_id: "2", public_key: p }
+users:
+  u: { nodes: ` + nodes + ` }
+client:
+  groups:
+    proxy: ` + group + `
+    other: { nodes: none }
+  final: proxy
+`
+	}
+	_, err := build(t, cfg("[a]", "{}"), conventionalSecrets())
+	require.ErrorContains(t, err, "users.u: group proxy has only nodes the profile can't use (a), which serve no protocol sing-box speaks, and would go direct")
+	require.NotContains(t, err.Error(), "group other", "no nodes at all is the fallback's case, as before")
+
+	// A fallback has to lead somewhere: other has no nodes of u's either.
+	for _, group := range []string{"{ fallback: other }", "{ fallback: loop }\n    loop: { nodes: none, fallback: proxy }"} {
+		_, err := build(t, cfg("[a]", group), conventionalSecrets())
+		require.ErrorContains(t, err, "users.u: group proxy has only nodes the profile can't use (a)", group)
+	}
+
+	for name, ok := range map[string]string{
+		"another node":      cfg("[a, b]", "{}"),
+		"to a usable group": cfg("[a, b]", "{ nodes: x, fallback: rest }\n    rest: { nodes: \"!x\" }"),
+		"to direct, later":  cfg("[a]", "{ fallback: mid }\n    mid: { nodes: none, fallback: direct }"),
+		"asked for":         cfg("[a]", "{ fallback: direct }"),
+		"not in the group":  cfg("[a]", "{ nodes: \"!x\" }"),
+		"hysteria2 instead": strings.Replace(cfg("[b]", "{}"), `public_key: p }`+"\nusers", `public_key: p }`+"\n    hysteria2: { masquerade: https://example.com }\nusers", 1),
+	} {
+		_, err := build(t, ok, conventionalSecrets())
+		require.NoError(t, err, name)
+	}
+}
+
+// What a profile shows comes from the label, and each thing in it needs a
+// name of its own: a label can make a member look like a group.
+func TestBuild_Label(t *testing.T) {
+	cfg := func(client string) string {
+		return `
+nodes:
+  a:
+    address: a.example.com
+    reality: { server_name: s, short_id: "1", public_key: p, transports: { grpc: { service_name: g } } }
+  b:
+    address: b.example.com
+    reality: { server_name: s, short_id: "2", public_key: p }
+users:
+  u: {}
+  v: {}
+client:
+` + client
+	}
+	f, err := build(t, cfg("  groups: { proxy: { relay: all, default: a/reality-grpc@b } }\n"), map[string]any{
+		"users": map[string]any{"u": "uuid-u", "v": "uuid-v"},
+		"nodes": map[string]any{"a": map[string]any{"reality": "k"}, "b": map[string]any{"reality": "k"}},
+	})
+	require.NoError(t, err)
+	u, _ := f.User("u")
+	a, _ := f.Node("a")
+	b, _ := f.Node("b")
+	require.Equal(t, "a-reality-grpc", u.Client.Name(u, a, "reality-grpc"))
+	require.Equal(t, "a-reality-grpc@b", Relayed(u.Client.Name(u, a, "reality-grpc"), b))
+	require.Equal(t, "a/reality-grpc", MemberID(a, "reality-grpc"))
+	require.Equal(t, "a/reality-grpc@b", Relayed(MemberID(a, "reality-grpc"), b))
+	require.Equal(t, "u: a (reality)", (&Client{Label: "{user}: {node} ({protocol})"}).Name(u, a, "reality"))
+
+	for client, want := range map[string]string{
+		"  label: \"{node}\"\n":                   "client.label: needs {protocol}",
+		"  label: \"{protocol}\"\n":               "client.label: needs {node}",
+		"  label: \"{node} {protocol} {city}\"\n": "client.label: unknown field {city}; have {node}, {protocol}, {user}",
+		"  label: \"{node}@{protocol}\"\n":        "client.label: can't have @",
+		// One error, though both users share the client.
+		"  groups: { a-reality-grpc: {} }\n":                                     `client.label: a/reality-grpc is named "a-reality-grpc", like group a-reality-grpc; rename the group or change the label`,
+		"  groups: { b: { auto: true } }\n  label: \"b-auto{node}{protocol}\"\n": "",
+		"  groups: { p: { auto: true } }\n  label: \"{node}-{protocol}\"\n":      "",
+		"  label: \" {node} {protocol}\"\n":                                      "client.label: can't start or end with a space",
+		// A default names a member the group has, for those with its nodes.
+		"  groups: { proxy: { default: a-reality } }\n":                          `client.groups.proxy.default: want first, auto, direct or a member of the group such as fr/reality or fr/reality@ru; "a-reality" isn't <node>/<protocol>`,
+		"  groups: { proxy: { default: c/reality } }\n":                          `"c/reality" names no node`,
+		"  groups: { proxy: { default: a/reality } }\n":                          `"a/reality" is no protocol node a offers profiles (reality-grpc)`,
+		"  groups: { proxy: { default: b/naive } }\n":                            `"b/naive" is no protocol node b offers profiles (reality)`,
+		"  groups: { proxy: { nodes: none, default: b/reality } }\n":             `"b/reality" is of a node the group's nodes leave out`,
+		"  groups: { proxy: { default: a/reality-grpc@b } }\n":                   `"a/reality-grpc@b" is through a node the group's relay leaves out`,
+		"  groups: { proxy: { relay: all, default: a/reality-grpc@nowhere } }\n": `"a/reality-grpc@nowhere" names no relay node`,
+		"  groups: { proxy: { relay: all, default: b/reality@b } }\n":            `"b/reality@b" is through the node itself`,
+		"  groups: { proxy: { default: direct } }\n":                             "client.groups.proxy.default: direct needs include_direct: true",
+		"  groups: { proxy: { include_direct: true, default: direct } }\n":       "",
+		"  groups: { proxy: { relay: all, default: b/reality@a } }\n":            "",
+	} {
+		_, err := build(t, cfg(client), map[string]any{
+			"users": map[string]any{"u": "uuid-u", "v": "uuid-v"},
+			"nodes": map[string]any{"a": map[string]any{"reality": "k"}, "b": map[string]any{"reality": "k"}},
+		})
+		if want == "" {
+			require.NoError(t, err, client)
+			continue
+		}
+		require.ErrorContains(t, err, want, client)
+		require.Equal(t, 1, strings.Count(err.Error(), want), client)
+	}
+}
+
+// Names are checked for what each user is shown: a group the profile
+// leaves out takes no name, a share link the profile has no member for
+// still needs one of its own, and a user's own label counts for them.
+func TestBuild_ProfileNames(t *testing.T) {
+	cfg := func(label, users string) string {
+		return `
+nodes:
+  fr:
+    address: fr.example.com
+    engine: xray
+    tags: [x]
+    reality: { server_name: s, short_id: "1", public_key: p, transports: { tcp: {}, xhttp: { path: /p } } }
+  xhttp-fr:
+    address: b.example.com
+    reality: { server_name: s, short_id: "2", public_key: p }
+users:
+` + users + `
+client:
+  label: "` + label + `"
+  groups:
+    fr-reality: { nodes: "!x" }
+    all: {}
+`
+	}
+	sec := map[string]any{
+		"users": map[string]any{"u": "uuid-u", "v": "uuid-v"},
+		"nodes": map[string]any{"fr": map[string]any{"reality": "k"}, "xhttp-fr": map[string]any{"reality": "k"}},
+	}
+	// u has no node in group fr-reality, so nothing of u's is named like it.
+	_, err := build(t, cfg("{node}-{protocol}", "  u: { nodes: [fr] }"), sec)
+	require.NoError(t, err)
+	// v has, and node fr too.
+	_, err = build(t, cfg("{node}-{protocol}", "  u: { nodes: [fr] }\n  v: {}"), sec)
+	require.ErrorContains(t, err, `client.label: fr/reality is named "fr-reality", like group fr-reality`)
+
+	// Only a share link, as sing-box has no XHTTP, but named like another.
+	_, err = build(t, cfg("{protocol}-{node}", "  u: {}"), sec)
+	require.ErrorContains(t, err, `client.label: xhttp-fr/reality is named "reality-xhttp-fr", like fr/reality-xhttp`)
+
+	// The user's own label is theirs to get right, and to fix it with.
+	_, err = build(t, cfg("{node}-{protocol}", "  u: { nodes: [fr] }\n  v: { client: { label: \"{node} {protocol}\" } }"), sec)
+	require.NoError(t, err)
+	_, err = build(t, cfg("{node} {protocol}", "  v: { client: { label: \"{node}-{protocol}\" } }"), sec)
+	require.ErrorContains(t, err, `users.v.client.label: fr/reality is named "fr-reality", like group fr-reality`)
 }
 
 func TestBuild_Hysteria2Obfs(t *testing.T) {
@@ -314,12 +580,10 @@ nodes:
   a:
     address: a.example.com
     reality: { server_name: s, short_id: "1", public_key: p }
-    xhttp: { path: /p }
   b:
     address: b.example.com
     engine: xray
     hysteria2: { masquerade: https://example.com }
-    xhttp: { path: "/bad path", mode: fast }
     dns:
       servers: { dot: { address: tls://1.1.1.1 } }
       final: dot
@@ -334,11 +598,7 @@ users:
   u: {}
 `, conventionalSecrets())
 	for _, want := range []string{
-		"nodes.a.xhttp: engine sing-box doesn't serve it",
 		"nodes.b.hysteria2: engine xray doesn't serve it",
-		`nodes.b.xhttp.path: want a path such as /a1b2c3`,
-		`nodes.b.xhttp.mode: want one of auto, packet-up, stream-up, stream-one, got "fast"`,
-		"nodes.b.xhttp: needs reality",
 		"nodes.b.dns.servers.dot: xray has no DNS over TLS",
 		"nodes.b.rules[0]: xray doesn't route ICMP",
 		"nodes.b.dns.rules[0].server: required",
@@ -402,7 +662,7 @@ client:
 	_, err = build(t, src(`"!"`), conventionalSecrets())
 	require.ErrorContains(t, err, `client.groups.proxy.relay: want <tag>, !<tag> or all, got "!"`)
 	_, err = build(t, src("nowhere"), conventionalSecrets())
-	require.ErrorContains(t, err, "client.groups.proxy.relay: no node with reality matches nowhere")
+	require.ErrorContains(t, err, "client.groups.proxy.relay: no node with reality over a transport the profiles speak matches nowhere")
 
 	f, err = build(t, strings.Replace(src("near"), ", relay: near", "", 1), conventionalSecrets())
 	require.NoError(t, err)
