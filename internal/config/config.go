@@ -247,13 +247,13 @@ type Subscription struct {
 	Domains []SubscriptionDomain `yaml:"domains"`
 }
 
-// SubscriptionDomain is a name of the subscription site. RuleSets says
-// how profiles served under it fetch their rule sets: "direct" or "proxy";
-// unset, princo infers it from the nodes' passthrough. A plain string is
-// Name alone.
+// SubscriptionDomain is a name of the subscription site. Fetch says how
+// the apps of those it serves reach it, for the profile and its rule
+// sets: "direct" or "proxy"; unset, princo infers it from the nodes'
+// passthrough. A plain string is Name alone.
 type SubscriptionDomain struct {
-	Name     string `yaml:"name"`
-	RuleSets string `yaml:"rule_sets"`
+	Name  string `yaml:"name"`
+	Fetch string `yaml:"fetch"`
 }
 
 func (d *SubscriptionDomain) UnmarshalYAML(node *yaml.Node) error {

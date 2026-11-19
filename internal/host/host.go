@@ -271,11 +271,11 @@ type SiteDomain struct {
 	Name string `json:"name"`
 	// Certificate names the domain's in Plan.Certificates.
 	Certificate string `json:"certificate"`
-	// RuleSets is how profiles served under the domain fetch their rule
-	// sets: "direct" or "proxy".
-	RuleSets string `json:"rule_sets"`
+	// Fetch is how the apps reach the site under the domain, for the
+	// profile and its rule sets: "direct" or "proxy".
+	Fetch string `json:"fetch"`
 	// Relay names the node found forwarding the domain to the site, which
-	// made RuleSets direct.
+	// made Fetch direct.
 	Relay string `json:"relay,omitzero"`
 }
 
@@ -388,10 +388,10 @@ func siteDomains(f *fleet.Fleet, n *fleet.Node) []SiteDomain {
 	}
 	var domains []SiteDomain
 	for _, d := range f.Subscription.Domains {
-		sd := SiteDomain{Name: d, Certificate: f.Certificate(d).Name, RuleSets: "proxy"}
-		rs := f.Subscription.RuleSets[d]
+		sd := SiteDomain{Name: d, Certificate: f.Certificate(d).Name, Fetch: "proxy"}
+		rs := f.Subscription.Fetch[d]
 		if rs.Direct {
-			sd.RuleSets = "direct"
+			sd.Fetch = "direct"
 		}
 		if rs.Relay != nil {
 			sd.Relay = rs.Relay.Name

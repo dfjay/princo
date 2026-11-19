@@ -622,28 +622,28 @@ type Subscription struct {
 	// Domains each serve the site under their own name: its links, QR pages
 	// and profiles name the domain they are served from. Lowercase.
 	Domains []string
-	// RuleSets says, by domain, how profiles served under it fetch their
-	// rule sets.
-	RuleSets map[string]RuleSetFetch
+	// Fetch says, by domain, how the apps of those it serves reach it.
+	Fetch map[string]SiteFetch
 }
 
-// RuleSetFetch is how a profile fetches its rule sets from the site.
-type RuleSetFetch struct {
-	// Direct fetches them without the proxy, as from where the domain is
+// SiteFetch is how the apps reach the site under a domain: for the
+// profile, its refreshes and the rule sets it names.
+type SiteFetch struct {
+	// Direct reaches it without the proxy, as the domain is there to be
 	// reached directly; otherwise through the profile's final outbound.
 	Direct bool
 	// Relay is the node found forwarding the domain to the site's node by
 	// passthrough, which made Direct; nil when none or when Set.
 	Relay *Node
-	// Set is when subscription.domains gave rule_sets rather than princo
+	// Set is when subscription.domains gave fetch rather than princo
 	// inferring it.
 	Set bool
 }
 
-// RuleSetsDirect reports whether profiles served under domain fetch their
-// rule sets directly; false without a subscription or for another domain.
-func (s *Subscription) RuleSetsDirect(domain string) bool {
-	return s != nil && s.RuleSets[strings.ToLower(domain)].Direct
+// FetchDirect reports whether the apps reach the site under domain
+// directly; false without a subscription or for another domain.
+func (s *Subscription) FetchDirect(domain string) bool {
+	return s != nil && s.Fetch[strings.ToLower(domain)].Direct
 }
 
 // Domain is the one princo prints links for, the first; empty without a

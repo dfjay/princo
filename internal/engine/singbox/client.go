@@ -1,8 +1,10 @@
 package singbox
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -30,6 +32,21 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 	c := newClientView(f, u)
 	var sets ruleSets
 
+	// Whatever the app takes from the site, its profile and the rule sets,
+	// it takes the way the fleet reaches domain (see fleet.SiteFetch). A
+	// domain reached directly comes ahead of the user's rules: through the
+	// proxy, a dead node would keep the app from the profile that replaces
+	// it.
+	clientRules := u.Client.Rules
+	siteDirect := f.Subscription.FetchDirect(domain)
+	if siteDirect {
+		site := fleet.Rule{
+			Match:  []fleet.Matcher{{Kind: fleet.MatchDomain, Value: strings.ToLower(domain)}},
+			Action: fleet.ActionDirect,
+		}
+		clientRules = append([]fleet.Rule{site}, clientRules...)
+	}
+
 	// Where a path can't carry IPv6, refuse it IPv6, so apps fall back to
 	// IPv4 instead of timing out: to the IPs routed into it, ahead of
 	// everything else, and by answering no AAAA for its domains, which are
@@ -44,7 +61,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		noAAAA = append(noAAAA, withoutIPv6(support, names,
 			slices.Concat(earlierNames[:support]...), map[string]any{"action": "predefined"}))
 	}
-	for _, r := range u.Client.Rules {
+	for _, r := range clientRules {
 		var out string
 		switch r.Action {
 		case fleet.ActionVia:
@@ -90,7 +107,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		map[string]any{"action": "sniff"},
 		map[string]any{"protocol": "dns", "action": "hijack-dns"},
 	)
-	for _, r := range u.Client.Rules {
+	for _, r := range clientRules {
 		bodies := compileMatch(r.Match, &sets)
 		switch r.Action {
 		case fleet.ActionVia:
@@ -114,7 +131,8 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		tun["auto_redirect"] = true
 	}
 	rulesHTTP := map[string]any{"tag": "rules-http"}
-	if detour := detourOf(ruleSetDetour(f, domain, final)); detour != "" {
+	// sing-box refuses a detour to an empty direct outbound.
+	if detour := detourOf(final); !siteDirect && detour != "" {
 		rulesHTTP["detour"] = detour
 	}
 	cfg := map[string]any{
@@ -132,12 +150,23 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		"default_http_client":   "rules-http",
 	}
 	if d := u.Client.DNS; d != nil {
-		cfg["dns"] = renderDNS(d, &sets, noAAAA, func(s fleet.DNSServer) string {
+		serverDetour := func(s fleet.DNSServer) string {
 			if s.Via == "" {
 				return ""
 			}
 			return detourOf(c.resolve(s.Via))
-		})
+		}
+		first := noAAAA
+		// Its name too, or the lookup would wait on the proxy all the same:
+		// ahead of the user's rules, as one by geosite may send it there.
+		if server := siteServer(d, strings.ToLower(domain), serverDetour); siteDirect && server != "" {
+			first = append(first, map[string]any{
+				"domain": []any{strings.ToLower(domain)},
+				"action": "route",
+				"server": server,
+			})
+		}
+		cfg["dns"] = renderDNS(d, &sets, first, serverDetour)
 		if d.DefaultResolver != "" {
 			route["default_domain_resolver"] = d.DefaultResolver
 		}
@@ -153,15 +182,57 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
-// ruleSetDetour is the outbound that fetches the rule sets from the
-// subscription site at domain: through the proxy, final, unless the fleet
-// has profiles served under domain fetch them directly (see
-// fleet.RuleSetFetch).
-func ruleSetDetour(f *fleet.Fleet, domain, final string) string {
-	if f.Subscription.RuleSetsDirect(domain) {
-		return "direct"
+// siteServer is the DNS server that looks up the name of a site reached
+// directly, one that needs no proxy: the server d's own rules give the
+// name, else final, the default resolver or the first such; empty when
+// every one goes through the proxy. A rule set's names aren't known here,
+// so a rule matching by geosite gives it none.
+func siteServer(d *fleet.DNS, domain string, detour func(fleet.DNSServer) string) string {
+	// Without the proxy, and so its own name's lookup, down the resolvers.
+	direct := func(name string) bool {
+		for range d.Servers {
+			i := slices.IndexFunc(d.Servers, func(s fleet.DNSServer) bool { return s.Name == name })
+			if i < 0 || detour(d.Servers[i]) != "" {
+				return false
+			}
+			if _, err := netip.ParseAddr(d.Servers[i].Server); err == nil {
+				return true
+			}
+			if name = cmp.Or(d.Servers[i].Resolver, d.DefaultResolver); name == "" {
+				return true
+			}
+		}
+		return false // resolvers in a circle
 	}
-	return final
+	candidates := []string{d.Final, d.DefaultResolver}
+	if i := slices.IndexFunc(d.Rules, func(r fleet.DNSRule) bool { return namesDomain(r.Match, domain) }); i >= 0 {
+		candidates = slices.Insert(candidates, 0, d.Rules[i].Server)
+	}
+	for _, s := range d.Servers {
+		candidates = append(candidates, s.Name)
+	}
+	if i := slices.IndexFunc(candidates, direct); i >= 0 {
+		return candidates[i]
+	}
+	return ""
+}
+
+// namesDomain reports whether match names domain itself, as sing-box
+// reads it, rather than through a rule set.
+func namesDomain(match []fleet.Matcher, domain string) bool {
+	return slices.ContainsFunc(match, func(m fleet.Matcher) bool {
+		v := strings.ToLower(m.Value)
+		switch m.Kind {
+		case fleet.MatchDomain:
+			return v == domain
+		case fleet.MatchDomainSuffix:
+			// A leading dot leaves the name itself out.
+			return strings.HasSuffix(domain, "."+strings.TrimPrefix(v, ".")) || v == domain
+		case fleet.MatchDomainKeyword:
+			return strings.Contains(domain, v)
+		}
+		return false
+	})
 }
 
 // detourOf turns an outbound into a detour of a DNS server or HTTP client;

@@ -70,8 +70,8 @@ func TestPlan_Mux(t *testing.T) {
 	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.RuleSets)
 	require.Equal(t, "runetfreedom", p.RuleData.GeoIP.Preset)
 	require.Equal(t, &Site{Domains: []SiteDomain{
-		{Name: "subs.example.com", Certificate: "subs.example.com", RuleSets: "proxy"},
-		{Name: "subs.example.org", Certificate: "subs.example.org", RuleSets: "direct", Relay: "relay"},
+		{Name: "subs.example.com", Certificate: "subs.example.com", Fetch: "proxy"},
+		{Name: "subs.example.org", Certificate: "subs.example.org", Fetch: "direct", Relay: "relay"},
 	}, Root: "subscription", Listen: SiteAddr}, p.Subscription)
 	// Its own keys, the chain hop exiting here, the monitor's chat, and
 	// every user for the site.
@@ -237,7 +237,7 @@ certificates:
 		{Name: "site", Domains: []string{"subs.example.com"}, Source: fleet.CertFile, Consumers: []string{ConsumerWeb}},
 		{Name: "wild", Domains: []string{"*.example.com"}, Source: fleet.CertDNS, DNS: "cloudflare", Consumers: []string{ConsumerEngine}},
 	}, p.Certificates)
-	require.Equal(t, []SiteDomain{{Name: "subs.example.com", Certificate: "site", RuleSets: "proxy"}}, p.Subscription.Domains)
+	require.Equal(t, []SiteDomain{{Name: "subs.example.com", Certificate: "site", Fetch: "proxy"}}, p.Subscription.Domains)
 	require.Subset(t, secretPaths(p), []string{"cf", "certificates/site/fullchain", "certificates/site/key"})
 
 	// A domain under the engine's wildcard shares it, and the monitor asks
@@ -249,8 +249,8 @@ certificates:
 	require.NoError(t, err)
 	require.Equal(t, []string{ConsumerEngine, ConsumerWeb}, p.Certificates[1].Consumers)
 	require.Equal(t, []SiteDomain{
-		{Name: "subs.example.com", Certificate: "site", RuleSets: "proxy"},
-		{Name: "subs2.example.com", Certificate: "wild", RuleSets: "proxy"},
+		{Name: "subs.example.com", Certificate: "site", Fetch: "proxy"},
+		{Name: "subs2.example.com", Certificate: "wild", Fetch: "proxy"},
 	}, p.Subscription.Domains)
 
 	n, _ := placeholders.Node("a")

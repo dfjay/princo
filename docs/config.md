@@ -608,7 +608,7 @@ Users' apps get the same subscription whatever engine the nodes run.
 | Field | Description |
 | --- | --- |
 | `node` | the node that serves the site |
-| `domains` | its domains; each needs a DNS record pointing at that node or a host forwarding to it, and a [certificate](#certificates). An entry is a name or `{ name, rule_sets }`; see [Rule sets in profiles](#rule-sets-in-profiles) |
+| `domains` | its domains; each needs a DNS record pointing at that node or a host forwarding to it, and a [certificate](#certificates). An entry is a name or `{ name, fetch }`; see [How apps reach the site](#how-apps-reach-the-site) |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
@@ -652,13 +652,15 @@ answer HTTP-01 for the name, so cover it with a DNS-01
 Deploy the subscription node after changing users or their access so its
 published profiles are updated.
 
-### Rule sets in profiles
+### How apps reach the site
 
-A profile fetches its rule sets from the domain it was served from, through
-the proxy by default. A domain another node forwards to the site, as `ru`
-does below, is there to be reached directly, and the nodes behind the proxy
-may refuse its address, as one in a country they keep traffic out of; its
-profiles fetch their rule sets directly, without the proxy:
+What an app takes from the site, the profile, its refreshes and the rule
+sets it names, it takes from the domain the profile was served from, and
+in one way, the domain's `fetch`: through the proxy by default, or
+directly. A domain another node forwards to the site, as `ru` does below,
+is there to be reached directly, and the nodes behind the proxy may refuse
+its address, as one in a country they keep traffic out of; its apps reach
+it directly:
 
 ```yaml
 nodes:
@@ -675,10 +677,10 @@ domain to reach the subscription node, except one that can't: to a
 loopback address, which is the forwarding node itself, or to an IP other
 than the subscription node's `address`, when that is an IP. Those are
 errors. `princo plan --node <subscription node>` shows the choice for each
-domain as `rule_sets`, and the node it found as `relay`.
+domain as `fetch`, and the node it found as `relay`.
 
-Set `rule_sets` to decide yourself: `direct` for a domain a host outside
-the fleet forwards, `proxy` to keep the proxy, or either for a passthrough
+Set `fetch` to decide yourself: `direct` for a domain a host outside the
+fleet forwards, `proxy` to keep the proxy, or either for a passthrough
 princo rejects that reaches the site all the same, through NAT or another
 hop:
 
@@ -686,14 +688,23 @@ hop:
 subscription:
   node: nl
   domains:
-    - { name: static.example.net, rule_sets: direct }
+    - { name: static.example.net, fetch: direct }
     - subs.example.com
 ```
 
-A direct fetch has no fallback: a domain blocked where a user is fails their
-first start, though rule sets fetched before stay cached. Fetching directly
-also shows the domain's name on the user's network on every refresh, as
-fetching the profile does.
+A profile from a `direct` domain routes the domain to `direct` ahead of
+the user's rules and looks its name up with a server that needs no proxy,
+neither to be reached nor to have its own name looked up: the one a DNS
+rule gives the name by `domain`, `domain_suffix` or `domain_keyword`, else
+`final`, `default_resolver` or the first such server. A rule by `geosite`
+doesn't choose it. With every server behind the proxy, the lookup still
+waits on it. So a node blocked where the user is doesn't keep the app from
+the profile that replaces it.
+
+Direct has no fallback: a domain blocked where a user is fails their first
+start, though rule sets fetched before stay cached. It also shows the
+domain's name on the user's network on every refresh, and asks the direct
+resolver for it, in plain text when that is `udp`.
 
 ### Platforms
 

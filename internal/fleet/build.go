@@ -604,7 +604,7 @@ func (b *builder) subscription() {
 		b.errorf("subscription.domains: required")
 		return
 	}
-	s := &Subscription{Node: n, RuleSets: map[string]RuleSetFetch{}}
+	s := &Subscription{Node: n, Fetch: map[string]SiteFetch{}}
 	for i, cd := range c.Domains {
 		d := strings.ToLower(cd.Name)
 		if why, ok := taken[d]; ok {
@@ -614,7 +614,7 @@ func (b *builder) subscription() {
 		}
 		taken[d] = "the site has it already"
 		s.Domains = append(s.Domains, d)
-		s.RuleSets[d] = b.ruleSetFetch(fmt.Sprintf("subscription.domains[%d]", i), d, cd.RuleSets, n)
+		s.Fetch[d] = b.siteFetch(fmt.Sprintf("subscription.domains[%d]", i), d, cd.Fetch, n)
 	}
 	if n != nil {
 		n.ServesSubscription = true
@@ -622,26 +622,26 @@ func (b *builder) subscription() {
 	}
 }
 
-// ruleSetFetch is how profiles served under domain fetch their rule sets:
-// as set, or directly when another node forwards domain to site, the
-// subscription node, by passthrough. Such a relay is there to be reached
-// directly, and the nodes behind the proxy may refuse its address, as one
-// in a country they keep traffic out of. A passthrough of domain that
-// can't reach site is an error, as it would send profiles' rule sets
-// elsewhere; setting rule_sets takes the decision back.
-func (b *builder) ruleSetFetch(where, domain, set string, site *Node) RuleSetFetch {
+// siteFetch is how the apps reach the site under domain: as set, or
+// directly when another node forwards domain to site, the subscription
+// node, by passthrough. Such a relay is there to be reached directly, and
+// the nodes behind the proxy may refuse its address, as one in a country
+// they keep traffic out of. A passthrough of domain that can't reach site
+// is an error, as it would send the apps elsewhere; setting fetch takes
+// the decision back.
+func (b *builder) siteFetch(where, domain, set string, site *Node) SiteFetch {
 	switch set {
 	case "direct":
-		return RuleSetFetch{Direct: true, Set: true}
+		return SiteFetch{Direct: true, Set: true}
 	case "proxy":
-		return RuleSetFetch{Set: true}
+		return SiteFetch{Set: true}
 	case "":
 	default:
-		b.errorf("%s.rule_sets: %q: want direct or proxy", where, set)
-		return RuleSetFetch{}
+		b.errorf("%s.fetch: %q: want direct or proxy", where, set)
+		return SiteFetch{}
 	}
 	if site == nil {
-		return RuleSetFetch{}
+		return SiteFetch{}
 	}
 	var relay *Node
 	for _, r := range b.f.Nodes {
@@ -653,14 +653,14 @@ func (b *builder) ruleSetFetch(where, domain, set string, site *Node) RuleSetFet
 				continue
 			}
 			if why := missesSite(pt.Target, site); why != "" {
-				b.errorf("nodes.%s.passthrough.%s: %s, not to node %s, which serves the subscription site; if it reaches the site all the same, set %s.rule_sets to direct or proxy", r.Name, pt.Host, why, site.Name, where)
+				b.errorf("nodes.%s.passthrough.%s: %s, not to node %s, which serves the subscription site; if it reaches the site all the same, set %s.fetch to direct or proxy", r.Name, pt.Host, why, site.Name, where)
 			}
 			if relay == nil {
 				relay = r
 			}
 		}
 	}
-	return RuleSetFetch{Direct: relay != nil, Relay: relay}
+	return SiteFetch{Direct: relay != nil, Relay: relay}
 }
 
 // missesSite says why target can't be site, or "" when it may be: a

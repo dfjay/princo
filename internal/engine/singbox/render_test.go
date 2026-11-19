@@ -696,3 +696,71 @@ func TestRuleSetDetour(t *testing.T) {
 	require.Nil(t, detour("subs.example.org"), "served through a relay")
 	require.Equal(t, "select", detour(""), "from SagerNet's rule sets")
 }
+
+// A profile from a domain reached directly refreshes directly too, its
+// name looked up without the proxy: a dead node would otherwise keep the
+// app from the profile that replaces it.
+func TestSiteDirect(t *testing.T) {
+	e := New()
+	render := func(f *fleet.Fleet, domain string) (route, dns []any) {
+		out, err := e.RenderClient(f, "alice", engine.AnyPlatform, domain)
+		require.NoError(t, err)
+		var cfg map[string]any
+		require.NoError(t, json.Unmarshal(out, &cfg))
+		return cfg["route"].(map[string]any)["rules"].([]any), cfg["dns"].(map[string]any)["rules"].([]any)
+	}
+	routeRule := map[string]any{"domain": []any{"subs.example.org"}, "action": "route", "outbound": "direct"}
+	dnsRule := map[string]any{"domain": []any{"subs.example.org"}, "action": "route", "server": "bootstrap-dns"}
+
+	f := fleettest.Load(t, fixture)
+	route, dns := render(f, "SUBS.example.org")
+	i := slices.IndexFunc(route, func(r any) bool { return r.(map[string]any)["action"] == "hijack-dns" })
+	require.Equal(t, routeRule, route[i+1], "right after hijack-dns, ahead of the user's rules")
+	require.Contains(t, dns, any(dnsRule))
+
+	route, dns = render(f, "subs.example.com")
+	require.NotContains(t, route, any(map[string]any{"domain": []any{"subs.example.com"}, "action": "route", "outbound": "direct"}), "served by the site's node")
+	for _, r := range dns {
+		require.NotContains(t, r, "domain")
+	}
+
+	// The server the user's own rules give the name, when it needs no
+	// proxy; a rule by geosite, or one to a proxied server, gives none.
+	alice, _ := f.User("alice")
+	d := alice.Client.DNS
+	rules := d.Rules
+	named := func(match, server string) map[string]any {
+		m, err := fleet.ParseMatcher(match)
+		require.NoError(t, err)
+		d.Rules = append([]fleet.DNSRule{{Match: []fleet.Matcher{m}, Server: server}}, rules...)
+		_, dns := render(f, "subs.example.org")
+		i := slices.IndexFunc(dns, func(r any) bool { return r.(map[string]any)["server"] != nil })
+		return dns[i].(map[string]any)
+	}
+	dnsRule["server"] = "direct-dns"
+	require.Equal(t, dnsRule, named("domain_suffix:example.org", "direct-dns"))
+	require.Equal(t, dnsRule, named("domain_keyword:subs", "direct-dns"))
+	dnsRule["server"] = "bootstrap-dns"
+	require.Equal(t, dnsRule, named("domain_suffix:.subs.example.org", "direct-dns"), "subdomains only")
+	require.Equal(t, dnsRule, named("domain:subs.example.org", "proxy-dns"), "through the proxy")
+	d.Rules = rules
+
+	// A server reached directly may still look its own name up through
+	// the proxy.
+	d.Servers = append([]fleet.DNSServer{{Name: "doh", Type: "https", Server: "dns.example.net", Resolver: "proxy-dns"}}, d.Servers...)
+	_, dns = render(f, "subs.example.org")
+	require.Contains(t, dns, any(dnsRule))
+	d.DefaultResolver = "doh"
+	dnsRule["server"] = "direct-dns"
+	_, dns = render(f, "subs.example.org")
+	require.Contains(t, dns, any(dnsRule), "the first that needs no proxy")
+
+	// With every server behind the proxy, the app's lookup has nowhere
+	// else to go; the route still skips the proxy.
+	for i := range alice.Client.DNS.Servers {
+		alice.Client.DNS.Servers[i].Via = "select"
+	}
+	route, dns = render(f, "subs.example.org")
+	require.Contains(t, route, any(routeRule))
+	require.NotContains(t, dns, any(dnsRule))
+}

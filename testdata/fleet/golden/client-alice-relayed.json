@@ -13,6 +13,27 @@
             "invert": true
           },
           {
+            "domain": [
+              "subs.example.org"
+            ],
+            "query_type": [
+              "AAAA"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "predefined",
+        "mode": "and",
+        "rules": [
+          {
+            "default_interface_address": [
+              "2000::/3"
+            ],
+            "invert": true
+          },
+          {
             "query_type": [
               "AAAA"
             ],
@@ -22,6 +43,13 @@
           }
         ],
         "type": "logical"
+      },
+      {
+        "action": "route",
+        "domain": [
+          "subs.example.org"
+        ],
+        "server": "bootstrap-dns"
       },
       {
         "action": "route",
@@ -246,6 +274,13 @@
       {
         "action": "hijack-dns",
         "protocol": "dns"
+      },
+      {
+        "action": "route",
+        "domain": [
+          "subs.example.org"
+        ],
+        "outbound": "direct"
       },
       {
         "action": "route",
