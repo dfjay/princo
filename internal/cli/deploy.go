@@ -32,7 +32,9 @@ with monitor: in princo.yaml, the timer that checks the node.
 
 Rule sets are built from the fleet's rule_data, downloaded unless
 --rule-sets names a directory holding it: geoip.dat or geoip.mmdb, and
-geosite.dat.`,
+geosite.dat. With subscription.rule_sets.url, the client profiles' are
+published there beforehand, by you: the node serving the subscription
+isn't deployed until the address serves each of them.`,
 		Example: `  princo deploy --node fr
   princo deploy --node fr --dry-run
   princo deploy --node fr --host admin@fr.example.com`,
@@ -66,6 +68,14 @@ geosite.dat.`,
 				}
 			}
 
+			client := &http.Client{Timeout: time.Minute}
+			// Ahead of the profiles that name them, and of the secrets.
+			if s := p.Subscription; s != nil && s.RuleSets.URL != "" {
+				if err := deploy.Published(ctx, client, s.RuleSets.URL, s.RuleSets.Files); err != nil {
+					return err
+				}
+			}
+
 			f, err := loadFleet(global)
 			if err != nil {
 				return err
@@ -79,8 +89,7 @@ geosite.dat.`,
 					return err
 				}
 			}
-			client := &http.Client{Timeout: time.Minute}
-			ruleSets, err := deploy.RuleSets(ctx, client, ruleSetDir, f.RuleData, p.AllRuleSets(), files[p.Config])
+			ruleSets, err := deploy.RuleSets(ctx, client, ruleSetDir, f.RuleData, p.HostRuleSets(), files[p.Config])
 			if err != nil {
 				return err
 			}

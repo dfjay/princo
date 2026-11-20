@@ -609,6 +609,7 @@ Users' apps get the same subscription whatever engine the nodes run.
 | --- | --- |
 | `node` | the node that serves the site |
 | `domains` | its domains; each needs a DNS record pointing at that node or a host forwarding to it, and a [certificate](#certificates). An entry is a name or `{ name, fetch }`; see [How apps reach the site](#how-apps-reach-the-site) |
+| `rule_sets` | where the profiles get their rule sets, `{ url, fetch }`; see [Where profiles get rule sets](#where-profiles-get-rule-sets) |
 
 Each user gets `https://<domain>/<token>/`, where the token comes from
 their UUID: share links for most apps, the profile for sing-box apps, and
@@ -654,10 +655,9 @@ published profiles are updated.
 
 ### How apps reach the site
 
-What an app takes from the site, the profile, its refreshes and the rule
-sets it names, it takes from the domain the profile was served from, and
-in one way, the domain's `fetch`: through the proxy by default, or
-directly. A domain another node forwards to the site, as `ru` does below,
+An app takes its profile and the profile's refreshes from the domain the
+profile was served from, and in one way, the domain's `fetch`: through
+the proxy by default, or directly. A domain another node forwards to the site, as `ru` does below,
 is there to be reached directly, and the nodes behind the proxy may refuse
 its address, as one in a country they keep traffic out of; its apps reach
 it directly:
@@ -701,10 +701,71 @@ doesn't choose it. With every server behind the proxy, the lookup still
 waits on it. So a node blocked where the user is doesn't keep the app from
 the profile that replaces it.
 
-Direct has no fallback: a domain blocked where a user is fails their first
-start, though rule sets fetched before stay cached. It also shows the
-domain's name on the user's network on every refresh, and asks the direct
-resolver for it, in plain text when that is `udp`.
+Direct has no fallback: a domain blocked where a user is keeps their app
+from the profile. It also shows the domain's name on the user's network on
+every refresh, and asks the direct resolver for it, in plain text when
+that is `udp`.
+
+### Where profiles get rule sets
+
+A profile names its rule sets by URL, and sing-box fetches them itself,
+past the tunnel and the profile's rules. By default the site serves them,
+at `https://<domain>/rules/<tag>.srs`, built from the same
+[`rule_data`](#rule_data) as the nodes', and each domain's profiles fetch
+them the way the domain is reached. `rule_sets` changes either:
+
+| Field | Description |
+| --- | --- |
+| `url` | an HTTPS address outside the fleet the rule sets are published under, each as `<tag>.srs`; the site then serves none |
+| `fetch` | `direct` or `proxy`; unset, `direct` from `url`, and from the site as its domain's `fetch` says |
+
+`proxy` is the profile's `final`: a user whose `final` is `direct` fetches
+directly all the same. Through the proxy, a profile starts only once a
+node answers. Fetching
+directly doesn't wait for one, but must get past whatever stands between
+the user and the address: a network that stalls longer downloads from the
+site's node passes a profile and not its rule sets. Serve those from
+where the users reach them, object storage or any static host:
+
+```yaml
+subscription:
+  node: nl
+  domains: [subs.example.com]
+  rule_sets:
+    url: https://static.example.net/princo/
+```
+
+Or keep them on the site and fetch them through the proxy, whatever the
+domain's `fetch`:
+
+```yaml
+subscription:
+  node: nl
+  domains: [{ name: static.example.net, fetch: direct }]
+  rule_sets: { fetch: proxy }
+```
+
+Fetched directly, the host's name is looked up with a server that needs
+no proxy, chosen as for a `direct` domain above. Rule sets fetched before
+stay cached, by URL: a new `url` has every app fetch them anew, and an
+app starting without one of them fails.
+
+princo doesn't publish to `url`; you do, before deploying the node that
+serves the subscription, as its profiles name the files:
+
+```bash
+princo rule-sets --node nl --client --out public
+rclone copy public remote:bucket/princo    # or any other upload
+princo deploy --node nl
+```
+
+`princo deploy` refuses that node while `url` lacks a rule set its
+profiles name; `princo rule-sets --node nl --check` checks the same for
+other deployments, as with NixOS. Neither compares contents. Keep the
+names and overwrite the files in place, and leave those no profile names
+any more until every app has the profile that dropped them: an app still
+on an earlier profile fetches them on a fresh start. `princo plan --node
+nl` lists the files under `subscription.rule_sets`.
 
 ### Platforms
 

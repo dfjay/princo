@@ -72,7 +72,10 @@ func TestPlan_Mux(t *testing.T) {
 	require.Equal(t, &Site{Domains: []SiteDomain{
 		{Name: "subs.example.com", Certificate: "subs.example.com", Fetch: "proxy"},
 		{Name: "subs.example.org", Certificate: "subs.example.org", Fetch: "direct", Relay: "relay"},
-	}, Root: "subscription", Listen: SiteAddr}, p.Subscription)
+	}, Root: "subscription", Listen: SiteAddr, RuleSets: ClientRuleSets{
+		Files: []string{"geoip-ru.srs", "geosite-category-ru.srs"},
+	}}, p.Subscription)
+	require.Equal(t, p.RuleSets, p.HostRuleSets(), "the profiles' are the engine's too")
 	// Its own keys, the chain hop exiting here, the monitor's chat, and
 	// every user for the site.
 	require.Equal(t, []string{
@@ -190,7 +193,22 @@ func TestPlan_XraySubscription(t *testing.T) {
 	p, err := NewPlan(f, "fi", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
 	require.NoError(t, err)
 	require.Equal(t, []string{"geoip.dat", "geosite.dat"}, p.RuleSets)
-	require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, p.SiteRuleSets)
+	require.Equal(t, ClientRuleSets{Files: []string{"geoip-ru.srs", "geosite-category-ru.srs"}}, p.Subscription.RuleSets)
+	require.Equal(t, []string{"geoip-ru.srs", "geoip.dat", "geosite-category-ru.srs", "geosite.dat"}, p.HostRuleSets())
+
+	// Published elsewhere, they are listed all the same, for whoever
+	// publishes them, and the node keeps its own alone.
+	cfg.Subscription.RuleSets = &config.SubscriptionRuleSets{URL: "https://Static.example.net/princo", Fetch: "proxy"}
+	f, err = fleet.Build(cfg, secrets.AllPlaceholders{})
+	require.NoError(t, err)
+	p, err = NewPlan(f, "fi", func(path string) (string, int) { return "sops:s.yaml#" + path, 0 })
+	require.NoError(t, err)
+	require.Equal(t, ClientRuleSets{
+		URL:   "https://static.example.net/princo/",
+		Fetch: "proxy",
+		Files: []string{"geoip-ru.srs", "geosite-category-ru.srs"},
+	}, p.Subscription.RuleSets)
+	require.Equal(t, []string{"geoip.dat", "geosite.dat"}, p.HostRuleSets())
 }
 
 func TestCertificates(t *testing.T) {

@@ -79,7 +79,12 @@ let
       "${cfg.enginePkgs.${nix.package}}/${nix.path}"
     else
       pkgs.fetchurl { inherit (nix) url hash; };
-  needs = kind: lib.any (lib.hasPrefix kind) (plan.rule_sets ++ plan.site_rule_sets);
+  # The client profiles' rule sets are the site's to serve unless they are
+  # published elsewhere (subscription.rule_sets.url).
+  servesRuleSets = site != null && !(site.rule_sets ? url);
+  needs =
+    kind:
+    lib.any (lib.hasPrefix kind) (plan.rule_sets ++ lib.optionals servesRuleSets site.rule_sets.files);
   ruleData = pkgs.linkFarm "princo-rule-data" (
     map
       (kind: {
@@ -147,12 +152,14 @@ let
     '';
     # The client profiles' rule sets, the node's own. Store
     # paths share an mtime, so the apps download them whole.
-    locations."~ ^/rules/([^/]+\\.srs)$".extraConfig = ''
-      alias /var/lib/princo/rules/$1;
-      default_type application/octet-stream;
-      etag off;
-      if_modified_since off;
-    '';
+    locations."~ ^/rules/([^/]+\\.srs)$" = lib.mkIf servesRuleSets {
+      extraConfig = ''
+        alias /var/lib/princo/rules/$1;
+        default_type application/octet-stream;
+        etag off;
+        if_modified_since off;
+      '';
+    };
     # Named capture: the `if` regex below would reset $1.
     locations."~ ^/(?<token>[a-f0-9]+)/?$".extraConfig = ''
       # sing-box apps send "SFx (sing-box ...)": give them the

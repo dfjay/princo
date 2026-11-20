@@ -102,7 +102,7 @@ func Build(p *host.Plan, files, ruleSets map[string][]byte, earlier Earlier) (*b
 		}
 		b.Files = append(b.Files, f)
 	}
-	for _, name := range p.AllRuleSets() {
+	for _, name := range p.HostRuleSets() {
 		data, ok := ruleSets[name]
 		if !ok {
 			return nil, fmt.Errorf("rule set %s is missing", name)
@@ -357,6 +357,8 @@ func addSite(b *bundle.Bundle, p *host.Plan, missing []string) error {
 		"CertDir":       engine.CertDir,
 		"RuleSetDir":    engine.RuleSetDir,
 		"RuleSetPath":   engine.RuleSetSitePath,
+		// Published elsewhere, they aren't the site's to serve.
+		"ServeRuleSets": p.Subscription != nil && p.Subscription.RuleSets.URL == "",
 	}
 	if p.Subscription != nil {
 		data["Root"] = path.Join(FilesDir, p.Subscription.Root)

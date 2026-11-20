@@ -624,10 +624,57 @@ type Subscription struct {
 	Domains []string
 	// Fetch says, by domain, how the apps of those it serves reach it.
 	Fetch map[string]SiteFetch
+	// RuleSetURL is the address outside the fleet the profiles' rule sets
+	// are published under, ending in a slash; empty when the site serves
+	// them, under RuleSetSitePath of each domain.
+	RuleSetURL string
+	// RuleSetFetch is how the profiles get them: FetchDirect, FetchProxy
+	// or, unset, directly from RuleSetURL and from the site the way its
+	// domain is reached.
+	RuleSetFetch string
+}
+
+// RuleSetSitePath is where the subscription site serves the client
+// profiles' rule sets.
+const RuleSetSitePath = "/rules/"
+
+const (
+	FetchDirect = "direct"
+	FetchProxy  = "proxy"
+)
+
+// RuleSetOrigin is where a client profile gets its rule sets.
+type RuleSetOrigin struct {
+	// URL is what <tag>.srs follows; empty for the rule sets' upstream,
+	// which a profile served by no site takes them from.
+	URL string
+	// Direct fetches them without the proxy; otherwise through the
+	// profile's final outbound.
+	Direct bool
+}
+
+// RuleSetOrigin is where the profile served from domain gets its rule
+// sets: the address they are published under or the site at domain
+// itself; the upstream without a domain.
+func (s *Subscription) RuleSetOrigin(domain string) RuleSetOrigin {
+	if domain == "" {
+		return RuleSetOrigin{}
+	}
+	o := RuleSetOrigin{URL: "https://" + strings.ToLower(domain) + RuleSetSitePath, Direct: s.FetchDirect(domain)}
+	if s == nil {
+		return o
+	}
+	if s.RuleSetURL != "" {
+		o.URL, o.Direct = s.RuleSetURL, true
+	}
+	if s.RuleSetFetch != "" {
+		o.Direct = s.RuleSetFetch == FetchDirect
+	}
+	return o
 }
 
 // SiteFetch is how the apps reach the site under a domain: for the
-// profile, its refreshes and the rule sets it names.
+// profile and its refreshes.
 type SiteFetch struct {
 	// Direct reaches it without the proxy, as the domain is there to be
 	// reached directly; otherwise through the profile's final outbound.

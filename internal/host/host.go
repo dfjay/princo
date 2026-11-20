@@ -184,9 +184,6 @@ type Plan struct {
 	// RuleSets are the files the server config loads from engine.RuleSetDir,
 	// in the engine's format (e.g. geoip-ru.srs for sing-box).
 	RuleSets []string `json:"rule_sets"`
-	// SiteRuleSets are the client profiles' other rule sets in
-	// engine.RuleSetDir, which the subscription site serves.
-	SiteRuleSets []string `json:"site_rule_sets"`
 	// RuleData is what the rule sets are built from.
 	RuleData fleet.RuleData `json:"rule_data"`
 	// Subscription is the site the node serves; nil on other nodes.
@@ -265,6 +262,21 @@ type Site struct {
 	Root string `json:"root"`
 	// Listen is where the web server serves it over HTTPS.
 	Listen string `json:"listen"`
+	// RuleSets are the rule sets its profiles fetch.
+	RuleSets ClientRuleSets `json:"rule_sets"`
+}
+
+// ClientRuleSets are the rule sets the client profiles fetch, and where.
+type ClientRuleSets struct {
+	// URL is the address outside the fleet they are to be published
+	// under, each by its name; empty when the site serves them, from
+	// engine.RuleSetDir at engine.RuleSetSitePath.
+	URL string `json:"url,omitempty"`
+	// Fetch is how the profiles get them, "direct" or "proxy"; empty when
+	// each domain's profiles get them as they reach the domain.
+	Fetch string `json:"fetch,omitempty"`
+	// Files are their names, in the client engine's format.
+	Files []string `json:"files"`
 }
 
 type SiteDomain struct {
@@ -272,7 +284,7 @@ type SiteDomain struct {
 	// Certificate names the domain's in Plan.Certificates.
 	Certificate string `json:"certificate"`
 	// Fetch is how the apps reach the site under the domain, for the
-	// profile and its rule sets: "direct" or "proxy".
+	// profile: "direct" or "proxy".
 	Fetch string `json:"fetch"`
 	// Relay names the node found forwarding the domain to the site, which
 	// made Fetch direct.
@@ -299,9 +311,6 @@ type Source struct {
 
 var certRe = regexp.MustCompile(regexp.QuoteMeta(engine.CertDir) + `/([^/"]+)/`)
 
-// siteRuleSetRe finds the rule sets client profiles get from the site.
-var siteRuleSetRe = regexp.MustCompile(`https://[^/"]+` + regexp.QuoteMeta(engine.RuleSetSitePath) + `([^/"]+\.srs)"`)
-
 // NewPlan plans node. f must be built with secrets.AllPlaceholders: the
 // plan reads the secrets, rule sets and certificates off the rendered
 // files, so it always matches what render writes. locate tells where a
@@ -325,7 +334,6 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 		UDPPorts:         []int{},
 		ACMEEmail:        n.ACMEEmail,
 		RuleSets:         e.RuleSets(files[ConfigFile(n.Engine)]),
-		SiteRuleSets:     []string{},
 		RuleData:         f.RuleData,
 		Secrets:          []Secret{},
 	}
@@ -342,24 +350,31 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 		p.Monitor = &Monitor{Config: MonitorFile, IntervalSeconds: int(f.Monitor.Interval.Seconds())}
 	}
 	p.Certificates = certificates(f, n, files[ConfigFile(n.Engine)])
+	var client engine.Engine
 	if domains := siteDomains(f, n); domains != nil {
-		p.Subscription = &Site{Domains: domains, Root: SiteDir, Listen: SiteAddr}
+		p.Subscription = &Site{Domains: domains, Root: SiteDir, Listen: SiteAddr, RuleSets: ClientRuleSets{
+			URL:   f.Subscription.RuleSetURL,
+			Fetch: f.Subscription.RuleSetFetch,
+			Files: []string{},
+		}}
+		if client, err = engine.Lookup(engine.ClientEngine); err != nil {
+			return nil, err
+		}
 	}
 
 	var secretPaths []string
 	for _, name := range slices.Sorted(maps.Keys(files)) {
 		data := files[name]
 		secretPaths = append(secretPaths, secrets.Placeholders(data)...)
-		if strings.HasPrefix(name, SiteDir+"/") {
-			for _, m := range siteRuleSetRe.FindAllSubmatch(data, -1) {
-				if name := string(m[1]); !slices.Contains(p.RuleSets, name) {
-					p.SiteRuleSets = append(p.SiteRuleSets, name)
-				}
-			}
+		if client != nil && strings.HasPrefix(name, SiteDir+"/") {
+			rs := &p.Subscription.RuleSets
+			rs.Files = append(rs.Files, client.ClientRuleSets(data)...)
 		}
 	}
 	p.RuleSets = sortedUnique(p.RuleSets)
-	p.SiteRuleSets = sortedUnique(p.SiteRuleSets)
+	if p.Subscription != nil {
+		p.Subscription.RuleSets.Files = sortedUnique(p.Subscription.RuleSets.Files)
+	}
 	for _, s := range sortedUnique(secretPaths) {
 		location, config := locate(s)
 		kind, file, key, err := secrets.ParseLocation(location)
@@ -483,9 +498,13 @@ func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {
 	return m
 }
 
-// AllRuleSets are the files of RuleSets and SiteRuleSets.
-func (p *Plan) AllRuleSets() []string {
-	return sortedUnique(slices.Concat(p.RuleSets, p.SiteRuleSets))
+// HostRuleSets are the files the node keeps in engine.RuleSetDir: those
+// of RuleSets and, when its site serves them, the client profiles'.
+func (p *Plan) HostRuleSets() []string {
+	if p.Subscription == nil || p.Subscription.RuleSets.URL != "" {
+		return slices.Clone(p.RuleSets)
+	}
+	return sortedUnique(slices.Concat(p.RuleSets, p.Subscription.RuleSets.Files))
 }
 
 func sortedUnique(s []string) []string {

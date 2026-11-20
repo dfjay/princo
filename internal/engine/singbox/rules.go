@@ -12,6 +12,19 @@ import (
 
 var ruleSetRe = regexp.MustCompile(regexp.QuoteMeta(engine.RuleSetDir) + `/([^/"]+)`)
 
+// clientRuleSetRe finds the rule sets a profile fetches, whatever their
+// origin.
+var clientRuleSetRe = regexp.MustCompile(`"url": "https://[^"]*/([^/"]+\.srs)"`)
+
+func (e *Engine) ClientRuleSets(profile []byte) []string {
+	out := []string{}
+	for _, m := range clientRuleSetRe.FindAllSubmatch(profile, -1) {
+		out = append(out, string(m[1]))
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 // RuleSets lists the local rule sets a rendered config loads, sorted.
 func (e *Engine) RuleSets(config []byte) []string {
 	out := []string{}

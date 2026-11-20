@@ -616,10 +616,51 @@ func (b *builder) subscription() {
 		s.Domains = append(s.Domains, d)
 		s.Fetch[d] = b.siteFetch(fmt.Sprintf("subscription.domains[%d]", i), d, cd.Fetch, n)
 	}
+	if rs := c.RuleSets; rs != nil {
+		s.RuleSetURL = b.ruleSetURL(rs.URL, s.Domains)
+		switch rs.Fetch {
+		case "", FetchDirect, FetchProxy:
+			s.RuleSetFetch = rs.Fetch
+		default:
+			b.errorf("subscription.rule_sets.fetch: %q: want direct or proxy", rs.Fetch)
+		}
+	}
 	if n != nil {
 		n.ServesSubscription = true
 		b.f.Subscription = s
 	}
+}
+
+// ruleSetURL is subscription.rule_sets.url as the profiles prefix their
+// rule sets' names with it, ending in a slash; empty when unset. The apps
+// fetch it as it is: over HTTPS, with nothing of a request's own in it,
+// and outside site, the subscription's domains.
+func (b *builder) ruleSetURL(set string, site []string) string {
+	if set == "" {
+		return ""
+	}
+	u, err := url.Parse(set)
+	switch {
+	case err != nil:
+		b.errorf("subscription.rule_sets.url: %v", err)
+	case u.Scheme != "https" || u.Hostname() == "" || u.Opaque != "":
+		b.errorf("subscription.rule_sets.url: %q: want https://host/path/", set)
+	case u.User != nil:
+		b.errorf("subscription.rule_sets.url: anyone holding a profile reads it; it can't carry credentials")
+	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
+		b.errorf("subscription.rule_sets.url: %q: a rule set's name follows it, so it can't have a query or a fragment", set)
+	case slices.Contains(site, strings.ToLower(u.Hostname())):
+		// With url, the site stops serving them.
+		b.errorf("subscription.rule_sets.url: %s is the subscription site, which serves them without url", strings.ToLower(u.Hostname()))
+	default:
+		u.Host = strings.ToLower(u.Host)
+		if !strings.HasSuffix(u.EscapedPath(), "/") {
+			// Both, or the path's own escapes are lost.
+			u.Path, u.RawPath = u.Path+"/", u.EscapedPath()+"/"
+		}
+		return u.String()
+	}
+	return ""
 }
 
 // siteFetch is how the apps reach the site under domain: as set, or
@@ -631,9 +672,9 @@ func (b *builder) subscription() {
 // the decision back.
 func (b *builder) siteFetch(where, domain, set string, site *Node) SiteFetch {
 	switch set {
-	case "direct":
+	case FetchDirect:
 		return SiteFetch{Direct: true, Set: true}
-	case "proxy":
+	case FetchProxy:
 		return SiteFetch{Set: true}
 	case "":
 	default:

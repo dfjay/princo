@@ -77,6 +77,11 @@ checks against the SHA-256 published with it where there is one. To provide
 the data locally, pass `--rule-sets DIR` with `geoip.dat` or `geoip.mmdb`,
 and `geosite.dat`. `princo rule-sets` builds a node's rule sets alone.
 
+With [`subscription.rule_sets.url`](config.md#where-profiles-get-rule-sets)
+the client profiles' rule sets aren't the node's: publish them at that
+address first. `princo deploy` refuses the node serving the subscription
+while the address lacks one.
+
 ### Previewing changes and handling failures
 
 On a host that already has princo installed:
@@ -182,6 +187,11 @@ deploy-rs. The module:
   `princo-render.service`, keeping decrypted secrets out of the Nix store;
 - runs the engine through `princo.service` and checks its minimum required
   version.
+
+With [`subscription.rule_sets.url`](config.md#where-profiles-get-rule-sets)
+the module neither builds nor serves the client profiles' rule sets:
+publish them before switching the node serving the subscription, and
+check the address with `princo rule-sets --node <name> --check`.
 
 The node's rule sets are built from the preset its `rule_data` names:
 from nixpkgs, or for `runetfreedom` from princo's pin of its latest release,
