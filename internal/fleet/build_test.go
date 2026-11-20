@@ -982,6 +982,7 @@ func TestBuild_SubscriptionRuleSets(t *testing.T) {
 		"https://static.example.net/?v=1":   "it can't have a query or a fragment",
 		"https://static.example.net/#rules": "it can't have a query or a fragment",
 		"https://Direct.example.com/rules/": "direct.example.com is the subscription site, which serves them without url",
+		"https://direct.example.com./":      "direct.example.com is the subscription site, which serves them without url",
 	} {
 		_, err = build(t, site("  rule_sets: { url: \""+set+"\" }\n"), conventionalSecrets())
 		require.ErrorContains(t, err, "subscription.rule_sets.url: ", set)
@@ -989,6 +990,12 @@ func TestBuild_SubscriptionRuleSets(t *testing.T) {
 	}
 	_, err = build(t, site("  rule_sets: { fetch: relay }\n"), conventionalSecrets())
 	require.ErrorContains(t, err, `subscription.rule_sets.fetch: "relay": want direct or proxy`)
+
+	// Reported with the site's own problems, not after them.
+	_, err = build(t, nodes+"subscription: { node: a, rule_sets: { url: \"http://static.example.net/\", fetch: relay } }\n", conventionalSecrets())
+	require.ErrorContains(t, err, "subscription.domains: required")
+	require.ErrorContains(t, err, "subscription.rule_sets.url: ")
+	require.ErrorContains(t, err, "subscription.rule_sets.fetch: ")
 
 	_, err = config.Parse([]byte("princo: v1\nsubscription: { node: a, domains: [a.example.com], rule_sets: { s3: {} } }\n"))
 	require.ErrorContains(t, err, "s3", "decoded strictly")
