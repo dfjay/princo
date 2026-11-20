@@ -356,8 +356,7 @@ func addSite(b *bundle.Bundle, p *host.Plan, missing []string) error {
 		"ACMEDir":       ACMEDir,
 		"CertDir":       engine.CertDir,
 		"RuleSetDir":    engine.RuleSetDir,
-		"RuleSetPath":   engine.RuleSetSitePath,
-		// Published elsewhere, they aren't the site's to serve.
+		"RuleSetPath":   fleet.RuleSetSitePath,
 		"ServeRuleSets": p.Subscription != nil && p.Subscription.RuleSets.URL == "",
 	}
 	if p.Subscription != nil {

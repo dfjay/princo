@@ -563,16 +563,16 @@ func remoteRuleSets(origin fleet.RuleSetOrigin, tags []string) []any {
 			"tag":    tag,
 			"type":   "remote",
 			"format": "binary",
-			"url":    RuleSetURL(origin, tag),
+			"url":    ruleSetURL(origin, tag),
 		})
 	}
 	return out
 }
 
-// RuleSetURL is where a client profile gets a rule set: at its origin,
+// ruleSetURL is where a client profile gets a rule set: at its origin,
 // which holds the nodes' own, or without one SagerNet's, which may tell
 // different countries from the nodes' rule data.
-func RuleSetURL(origin fleet.RuleSetOrigin, tag string) string {
+func ruleSetURL(origin fleet.RuleSetOrigin, tag string) string {
 	if origin.URL != "" {
 		return origin.URL + tag + ".srs"
 	}
@@ -583,8 +583,7 @@ func RuleSetURL(origin fleet.RuleSetOrigin, tag string) string {
 	return "https://raw.githubusercontent.com/SagerNet/" + repo + "/rule-set/" + tag + ".srs"
 }
 
-// originHost is the host the rule sets of origin are fetched from, in
-// lowercase; empty for the upstream.
+// originHost is the host of origin, in lowercase; empty for the upstream.
 func originHost(origin fleet.RuleSetOrigin) string {
 	u, err := url.Parse(origin.URL)
 	if err != nil {

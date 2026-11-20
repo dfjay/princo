@@ -59,11 +59,9 @@ func httpsOnly(client *http.Client) *http.Client {
 	return &c
 }
 
-// Published checks that every rule set named is served under url, where
-// the client profiles fetch them: a profile naming one that isn't there
-// keeps its app from starting. It compares no contents, as rule data
-// newer than what was published builds other files. A redirect out of
-// HTTPS, which the apps would follow, is an error.
+// Published checks that url, where the client profiles fetch them, serves
+// every rule set named: an app doesn't start without one. It compares no
+// contents, as newer rule data builds other files.
 func Published(ctx context.Context, client *http.Client, url string, names []string) error {
 	client = httpsOnly(client)
 	var missing []string

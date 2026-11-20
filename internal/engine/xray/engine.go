@@ -35,10 +35,10 @@ func (e *Engine) RenderClient(*fleet.Fleet, string, engine.Platform, string) ([]
 
 func (e *Engine) ClientPlatforms() []engine.Platform { return nil }
 
-// RuleSets lists the geodata files a rendered config loads.
 // ClientRuleSets is empty: xray renders no client profiles.
 func (e *Engine) ClientRuleSets([]byte) []string { return nil }
 
+// RuleSets lists the geodata files a rendered config loads.
 func (e *Engine) RuleSets(config []byte) []string {
 	out := []string{}
 	if bytes.Contains(config, []byte(`"geoip:`)) {

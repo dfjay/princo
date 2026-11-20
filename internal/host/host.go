@@ -270,7 +270,7 @@ type Site struct {
 type ClientRuleSets struct {
 	// URL is the address outside the fleet they are to be published
 	// under, each by its name; empty when the site serves them, from
-	// engine.RuleSetDir at engine.RuleSetSitePath.
+	// engine.RuleSetDir.
 	URL string `json:"url,omitempty"`
 	// Fetch is how the profiles get them, "direct" or "proxy"; empty when
 	// each domain's profiles get them as they reach the domain.
@@ -350,31 +350,29 @@ func NewPlan(f *fleet.Fleet, node string, locate func(path string) (string, int)
 		p.Monitor = &Monitor{Config: MonitorFile, IntervalSeconds: int(f.Monitor.Interval.Seconds())}
 	}
 	p.Certificates = certificates(f, n, files[ConfigFile(n.Engine)])
-	var client engine.Engine
 	if domains := siteDomains(f, n); domains != nil {
+		client, err := engine.Lookup(engine.ClientEngine)
+		if err != nil {
+			return nil, err
+		}
+		sets := []string{}
+		for name, data := range files {
+			if strings.HasPrefix(name, SiteDir+"/") {
+				sets = append(sets, client.ClientRuleSets(data)...)
+			}
+		}
 		p.Subscription = &Site{Domains: domains, Root: SiteDir, Listen: SiteAddr, RuleSets: ClientRuleSets{
 			URL:   f.Subscription.RuleSetURL,
 			Fetch: f.Subscription.RuleSetFetch,
-			Files: []string{},
+			Files: sortedUnique(sets),
 		}}
-		if client, err = engine.Lookup(engine.ClientEngine); err != nil {
-			return nil, err
-		}
 	}
 
 	var secretPaths []string
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		data := files[name]
-		secretPaths = append(secretPaths, secrets.Placeholders(data)...)
-		if client != nil && strings.HasPrefix(name, SiteDir+"/") {
-			rs := &p.Subscription.RuleSets
-			rs.Files = append(rs.Files, client.ClientRuleSets(data)...)
-		}
+		secretPaths = append(secretPaths, secrets.Placeholders(files[name])...)
 	}
 	p.RuleSets = sortedUnique(p.RuleSets)
-	if p.Subscription != nil {
-		p.Subscription.RuleSets.Files = sortedUnique(p.Subscription.RuleSets.Files)
-	}
 	for _, s := range sortedUnique(secretPaths) {
 		location, config := locate(s)
 		kind, file, key, err := secrets.ParseLocation(location)
@@ -502,7 +500,7 @@ func newMux(f *fleet.Fleet, n *fleet.Node) *Mux {
 // of RuleSets and, when its site serves them, the client profiles'.
 func (p *Plan) HostRuleSets() []string {
 	if p.Subscription == nil || p.Subscription.RuleSets.URL != "" {
-		return slices.Clone(p.RuleSets)
+		return p.RuleSets
 	}
 	return sortedUnique(slices.Concat(p.RuleSets, p.Subscription.RuleSets.Files))
 }

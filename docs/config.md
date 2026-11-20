@@ -721,11 +721,11 @@ them the way the domain is reached. `rule_sets` changes either:
 
 `proxy` is the profile's `final`: a user whose `final` is `direct` fetches
 directly all the same. Through the proxy, a profile starts only once a
-node answers. Fetching
-directly doesn't wait for one, but must get past whatever stands between
-the user and the address: a network that stalls longer downloads from the
-site's node passes a profile and not its rule sets. Serve those from
-where the users reach them, object storage or any static host:
+node answers. Fetching directly doesn't wait for one, but must get past
+whatever stands between the user and the address: a network that stalls
+longer downloads from the site's node passes a profile and not its rule
+sets. Serve those from where the users reach them, object storage or any
+static host:
 
 ```yaml
 subscription:

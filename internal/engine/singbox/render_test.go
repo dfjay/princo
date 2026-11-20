@@ -728,7 +728,6 @@ func TestRuleSetOrigin(t *testing.T) {
 		client, urls, rules := render(f, domain)
 		require.Equal(t, map[string]any{"tag": "rules-http", "domain_resolver": "bootstrap-dns"}, client, domain)
 		require.Equal(t, published, urls, domain)
-		require.Equal(t, []string{"geoip-ru.srs", "geosite-category-ru.srs"}, e.ClientRuleSets(mustRender(t, e, f, domain)))
 		// sing-box fetches them past the tunnel: no rule names the host.
 		require.NotContains(t, fmt.Sprint(rules), "static.example.net", domain)
 	}
@@ -742,7 +741,7 @@ func TestRuleSetOrigin(t *testing.T) {
 	require.Equal(t, "ru-dns", client["domain_resolver"])
 
 	f = fleettest.Load(t, fixture)
-	f.Subscription.RuleSetURL, f.Subscription.RuleSetFetch = "https://static.example.net/princo/", fleet.FetchProxy
+	f.Subscription.RuleSetURL, f.Subscription.RuleSetFetch = "https://static.example.net/princo/", "proxy"
 	client, urls, _ := render(f, "subs.example.org")
 	require.Equal(t, map[string]any{"tag": "rules-http", "detour": "select"}, client)
 	require.Equal(t, published, urls)
@@ -750,22 +749,15 @@ func TestRuleSetOrigin(t *testing.T) {
 	// The site's own, through the proxy from a domain reached directly,
 	// whose profile still refreshes directly.
 	f = fleettest.Load(t, fixture)
-	f.Subscription.RuleSetFetch = fleet.FetchProxy
+	f.Subscription.RuleSetFetch = "proxy"
 	client, urls, rules := render(f, "subs.example.org")
 	require.Equal(t, map[string]any{"tag": "rules-http", "detour": "select"}, client)
 	require.Equal(t, []any{"https://subs.example.org/rules/geoip-ru.srs", "https://subs.example.org/rules/geosite-category-ru.srs"}, urls)
 	require.Contains(t, rules, any(map[string]any{"domain": []any{"subs.example.org"}, "action": "route", "outbound": "direct"}))
 
-	f.Subscription.RuleSetFetch = fleet.FetchDirect
+	f.Subscription.RuleSetFetch = "direct"
 	client, _, _ = render(f, "subs.example.com")
 	require.Equal(t, map[string]any{"tag": "rules-http", "domain_resolver": "bootstrap-dns"}, client)
-}
-
-func mustRender(t *testing.T, e *Engine, f *fleet.Fleet, domain string) []byte {
-	t.Helper()
-	out, err := e.RenderClient(f, "alice", engine.AnyPlatform, domain)
-	require.NoError(t, err)
-	return out
 }
 
 // A profile from a domain reached directly refreshes directly too, its

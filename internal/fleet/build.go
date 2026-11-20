@@ -619,7 +619,7 @@ func (b *builder) subscription() {
 	if rs := c.RuleSets; rs != nil {
 		s.RuleSetURL = b.ruleSetURL(rs.URL, s.Domains)
 		switch rs.Fetch {
-		case "", FetchDirect, FetchProxy:
+		case "", fetchDirect, fetchProxy:
 			s.RuleSetFetch = rs.Fetch
 		default:
 			b.errorf("subscription.rule_sets.fetch: %q: want direct or proxy", rs.Fetch)
@@ -632,9 +632,8 @@ func (b *builder) subscription() {
 }
 
 // ruleSetURL is subscription.rule_sets.url as the profiles prefix their
-// rule sets' names with it, ending in a slash; empty when unset. The apps
-// fetch it as it is: over HTTPS, with nothing of a request's own in it,
-// and outside site, the subscription's domains.
+// rule sets' names with it, ending in a slash; empty when unset. site is
+// the subscription's domains.
 func (b *builder) ruleSetURL(set string, site []string) string {
 	if set == "" {
 		return ""
@@ -650,7 +649,6 @@ func (b *builder) ruleSetURL(set string, site []string) string {
 	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
 		b.errorf("subscription.rule_sets.url: %q: a rule set's name follows it, so it can't have a query or a fragment", set)
 	case slices.Contains(site, strings.ToLower(u.Hostname())):
-		// With url, the site stops serving them.
 		b.errorf("subscription.rule_sets.url: %s is the subscription site, which serves them without url", strings.ToLower(u.Hostname()))
 	default:
 		u.Host = strings.ToLower(u.Host)
@@ -672,9 +670,9 @@ func (b *builder) ruleSetURL(set string, site []string) string {
 // the decision back.
 func (b *builder) siteFetch(where, domain, set string, site *Node) SiteFetch {
 	switch set {
-	case FetchDirect:
+	case fetchDirect:
 		return SiteFetch{Direct: true, Set: true}
-	case FetchProxy:
+	case fetchProxy:
 		return SiteFetch{Set: true}
 	case "":
 	default:
