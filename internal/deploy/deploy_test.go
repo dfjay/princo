@@ -43,7 +43,7 @@ func plan(t *testing.T, node string) (*host.Plan, map[string][]byte, map[string]
 	files, err := host.Files(fleettest.Load(t, fixture), node)
 	require.NoError(t, err)
 	ruleSets := map[string][]byte{}
-	for _, f := range p.AllRuleSets() {
+	for _, f := range p.HostRuleSets() {
 		ruleSets[f] = []byte("SRS " + f)
 	}
 	return p, files, ruleSets
@@ -208,12 +208,52 @@ func TestBuild_MissingRuleSet(t *testing.T) {
 }
 
 func TestBuild_SiteRuleSets(t *testing.T) {
-	p := &host.Plan{Node: "fi", Engine: "xray", Config: "xray.json", RuleSets: []string{"geoip.dat"}, SiteRuleSets: []string{"geoip-ru.srs"}}
-	b, err := Build(p, map[string][]byte{"xray.json": nil}, map[string][]byte{"geoip.dat": nil, "geoip-ru.srs": nil}, Earlier{})
+	site := &host.Site{
+		Domains:  []host.SiteDomain{{Name: "subs.example.com", Certificate: "subs.example.com"}},
+		Listen:   host.SiteAddr,
+		RuleSets: host.ClientRuleSets{Files: []string{"geoip-ru.srs"}},
+	}
+	p := &host.Plan{Node: "fi", Engine: "xray", Config: "xray.json", RuleSets: []string{"geoip.dat"}, Subscription: site}
+	files := map[string][]byte{"xray.json": nil}
+	b, err := Build(p, files, map[string][]byte{"geoip.dat": nil, "geoip-ru.srs": nil}, Earlier{})
 	require.NoError(t, err)
 	file(t, b, engine.RuleSetDir+"/geoip-ru.srs")
 	require.Contains(t, b.Units[0].Files, engine.RuleSetDir+"/geoip.dat")
 	require.NotContains(t, b.Units[0].Files, engine.RuleSetDir+"/geoip-ru.srs", "the site's alone don't restart the engine")
+	require.Contains(t, string(file(t, b, SiteConf)), "location ~ ^/rules/")
+
+	// Published elsewhere, they are neither the node's to keep nor the
+	// site's to serve.
+	site.RuleSets.URL = "https://static.example.net/princo/"
+	b, err = Build(p, files, map[string][]byte{"geoip.dat": nil}, Earlier{})
+	require.NoError(t, err)
+	require.False(t, slices.ContainsFunc(b.Files, func(f bundle.File) bool { return f.Path == engine.RuleSetDir+"/geoip-ru.srs" }))
+	require.NotContains(t, string(file(t, b, SiteConf)), "/rules/")
+}
+
+func TestPublished(t *testing.T) {
+	var asked []string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.Method+" "+r.URL.Path)
+		if r.URL.Path != "/princo/geoip-ru.srs" {
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	url := srv.URL + "/princo/"
+	require.NoError(t, Published(t.Context(), srv.Client(), url, []string{"geoip-ru.srs"}))
+	require.Equal(t, []string{"HEAD /princo/geoip-ru.srs"}, asked)
+
+	plain := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	t.Cleanup(plain.Close)
+	downgrade := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plain.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(downgrade.Close)
+	require.ErrorContains(t, Published(t.Context(), downgrade.Client(), downgrade.URL+"/", []string{"geoip-ru.srs"}), "isn't https")
+
+	err := Published(t.Context(), srv.Client(), url, []string{"geoip-ru.srs", "geosite-a.srs", "geosite-b.srs"})
+	require.EqualError(t, err, url+" doesn't serve geosite-a.srs (404 Not Found), geosite-b.srs (404 Not Found); publish what princo rule-sets --client builds there first")
 }
 
 func TestRuleSets_HTTPSRedirects(t *testing.T) {

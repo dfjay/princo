@@ -243,14 +243,25 @@ type Group struct {
 }
 
 type Subscription struct {
-	Node    string               `yaml:"node"`
-	Domains []SubscriptionDomain `yaml:"domains"`
+	Node     string                `yaml:"node"`
+	Domains  []SubscriptionDomain  `yaml:"domains"`
+	RuleSets *SubscriptionRuleSets `yaml:"rule_sets"`
+}
+
+// SubscriptionRuleSets is where the client profiles get their rule sets,
+// and how. URL is an HTTPS address outside the fleet they are published
+// under, each as <tag>.srs; unset, the subscription site serves them.
+// Fetch is "direct" or "proxy"; unset, direct from URL, and from the site
+// as its domain is reached.
+type SubscriptionRuleSets struct {
+	URL   string `yaml:"url"`
+	Fetch string `yaml:"fetch"`
 }
 
 // SubscriptionDomain is a name of the subscription site. Fetch says how
-// the apps of those it serves reach it, for the profile and its rule
-// sets: "direct" or "proxy"; unset, princo infers it from the nodes'
-// passthrough. A plain string is Name alone.
+// the apps of those it serves reach it, for the profile: "direct" or
+// "proxy"; unset, princo infers it from the nodes' passthrough. A plain
+// string is Name alone.
 type SubscriptionDomain struct {
 	Name  string `yaml:"name"`
 	Fetch string `yaml:"fetch"`

@@ -931,9 +931,79 @@ func TestBuild_SubscriptionDomains(t *testing.T) {
 	require.ErrorContains(t, err, "subscription.domains[0]: shop.example.com: nodes.a.naive.domain takes it to Naive; give one of them another name")
 }
 
-// Profiles fetch their rule sets directly from a domain another node
-// forwards to the site's node, through the proxy from the rest, unless
-// subscription.domains says otherwise.
+// Profiles get their rule sets from the site, as its domain is reached,
+// or from where subscription.rule_sets says, and that way.
+func TestBuild_SubscriptionRuleSets(t *testing.T) {
+	const nodes = "nodes:\n" +
+		"  a:\n    address: a.example.com\n    reality: { server_name: s.example.com, short_id: \"1\", public_key: p }\n"
+	site := func(ruleSets string) string {
+		return nodes + "subscription:\n  node: a\n  domains: [{ name: Direct.example.com, fetch: direct }, proxied.example.com]\n" + ruleSets
+	}
+	site1 := RuleSetOrigin{URL: "https://direct.example.com/rules/", Direct: true}
+	site2 := RuleSetOrigin{URL: "https://proxied.example.com/rules/"}
+
+	f, err := build(t, site(""), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, site1, f.Subscription.RuleSetOrigin("DIRECT.example.com"))
+	require.Equal(t, site2, f.Subscription.RuleSetOrigin("proxied.example.com"))
+	require.Equal(t, RuleSetOrigin{}, f.Subscription.RuleSetOrigin(""), "the upstream, for a profile no site serves")
+	require.Equal(t, site2, (*Subscription)(nil).RuleSetOrigin("proxied.example.com"))
+
+	// The site's, another way than its domains are reached.
+	f, err = build(t, site("  rule_sets: { fetch: proxy }\n"), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, RuleSetOrigin{URL: site1.URL}, f.Subscription.RuleSetOrigin("direct.example.com"))
+	f, err = build(t, site("  rule_sets: { fetch: direct }\n"), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, RuleSetOrigin{URL: site2.URL, Direct: true}, f.Subscription.RuleSetOrigin("proxied.example.com"))
+
+	// Published outside the fleet: fetched directly unless told otherwise.
+	for set, want := range map[string]string{
+		"https://Static.example.net":         "https://static.example.net/",
+		"https://static.example.net/a/b":     "https://static.example.net/a/b/",
+		"https://static.example.net:8443/a/": "https://static.example.net:8443/a/",
+		"https://static.example.net/a%2Fb":   "https://static.example.net/a%2Fb/",
+	} {
+		f, err = build(t, site("  rule_sets: { url: \""+set+"\" }\n"), conventionalSecrets())
+		require.NoError(t, err, set)
+		for _, d := range f.Subscription.Domains {
+			require.Equal(t, RuleSetOrigin{URL: want, Direct: true}, f.Subscription.RuleSetOrigin(d), set)
+		}
+	}
+	f, err = build(t, site("  rule_sets: { url: \"https://static.example.net/\", fetch: proxy }\n"), conventionalSecrets())
+	require.NoError(t, err)
+	require.Equal(t, RuleSetOrigin{URL: "https://static.example.net/"}, f.Subscription.RuleSetOrigin("direct.example.com"))
+
+	for set, why := range map[string]string{
+		"http://static.example.net/":        "want https://host/path/",
+		"static.example.net/rules":          "want https://host/path/",
+		"https:///rules/":                   "want https://host/path/",
+		"https://key@static.example.net/":   "it can't carry credentials",
+		"https://static.example.net/?v=1":   "it can't have a query or a fragment",
+		"https://static.example.net/#rules": "it can't have a query or a fragment",
+		"https://Direct.example.com/rules/": "direct.example.com is the subscription site, which serves them without url",
+		"https://direct.example.com./":      "direct.example.com is the subscription site, which serves them without url",
+	} {
+		_, err = build(t, site("  rule_sets: { url: \""+set+"\" }\n"), conventionalSecrets())
+		require.ErrorContains(t, err, "subscription.rule_sets.url: ", set)
+		require.ErrorContains(t, err, why, set)
+	}
+	_, err = build(t, site("  rule_sets: { fetch: relay }\n"), conventionalSecrets())
+	require.ErrorContains(t, err, `subscription.rule_sets.fetch: "relay": want direct or proxy`)
+
+	// Reported with the site's own problems, not after them.
+	_, err = build(t, nodes+"subscription: { node: a, rule_sets: { url: \"http://static.example.net/\", fetch: relay } }\n", conventionalSecrets())
+	require.ErrorContains(t, err, "subscription.domains: required")
+	require.ErrorContains(t, err, "subscription.rule_sets.url: ")
+	require.ErrorContains(t, err, "subscription.rule_sets.fetch: ")
+
+	_, err = config.Parse([]byte("princo: v1\nsubscription: { node: a, domains: [a.example.com], rule_sets: { s3: {} } }\n"))
+	require.ErrorContains(t, err, "s3", "decoded strictly")
+}
+
+// The apps reach a domain another node forwards to the site's node
+// directly, the rest through the proxy, unless subscription.domains says
+// otherwise.
 func TestBuild_SubscriptionFetch(t *testing.T) {
 	nodes := func(siteAddress, target string) string {
 		return "nodes:\n" +

@@ -15,9 +15,6 @@ const (
 	// RuleSetDir holds the geosite/geoip rule sets in the engine's format:
 	// one <tag>.srs each for sing-box, geosite.dat and geoip.dat for xray.
 	RuleSetDir = "/var/lib/princo/rules"
-	// RuleSetSitePath is where the subscription site serves the client
-	// profiles' rule sets from RuleSetDir, so they match the nodes'.
-	RuleSetSitePath = "/rules/"
 	// CertDir holds <certificate name>/{fullchain,key}.pem.
 	CertDir        = "/var/lib/princo/certs"
 	MuxRealityPort = fleet.MuxRealityPort
@@ -83,6 +80,8 @@ type Engine interface {
 	ClientPlatforms() []Platform
 	// RuleSets lists the files in RuleSetDir a rendered server config loads.
 	RuleSets(config []byte) []string
+	// ClientRuleSets lists the files a rendered client profile fetches.
+	ClientRuleSets(profile []byte) []string
 }
 
 var (

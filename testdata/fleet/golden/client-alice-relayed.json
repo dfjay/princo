@@ -93,6 +93,7 @@
   },
   "http_clients": [
     {
+      "domain_resolver": "bootstrap-dns",
       "tag": "rules-http"
     }
   ],

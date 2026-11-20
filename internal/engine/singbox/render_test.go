@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"flag"
+	"fmt"
 	"maps"
 	"math/big"
 	"os"
@@ -304,6 +305,11 @@ func TestSingBoxCheck(t *testing.T) {
 		check(t, renderJSON(t, func(f *fleet.Fleet, user string) ([]byte, error) {
 			return e.RenderClient(f, user, engine.AnyPlatform, "subs.example.org")
 		}, f, "alice"))
+	})
+	t.Run("client-published", func(t *testing.T) {
+		f := fleettest.Load(t, fixture)
+		f.Subscription.RuleSetURL = "https://static.example.net/princo/"
+		check(t, renderJSON(t, client(e, engine.AnyPlatform), f, "alice"))
 	})
 	if runtime.GOOS == "linux" {
 		t.Run("client-linux", func(t *testing.T) { check(t, renderJSON(t, client(e, engine.Linux), f, "bob")) })
@@ -695,6 +701,63 @@ func TestRuleSetDetour(t *testing.T) {
 	// sing-box refuses a detour to an empty direct outbound.
 	require.Nil(t, detour("subs.example.org"), "served through a relay")
 	require.Equal(t, "select", detour(""), "from SagerNet's rule sets")
+}
+
+// Rule sets published outside the fleet are fetched from there directly,
+// their host looked up without the proxy, whatever domain serves the
+// profile; subscription.rule_sets.fetch decides otherwise, for the site's
+// too.
+func TestRuleSetOrigin(t *testing.T) {
+	e := New()
+	render := func(f *fleet.Fleet, domain string) (client map[string]any, urls []any, rules []any) {
+		out, err := e.RenderClient(f, "alice", engine.AnyPlatform, domain)
+		require.NoError(t, err)
+		var cfg map[string]any
+		require.NoError(t, json.Unmarshal(out, &cfg))
+		route := cfg["route"].(map[string]any)
+		for _, rs := range route["rule_set"].([]any) {
+			urls = append(urls, rs.(map[string]any)["url"])
+		}
+		return cfg["http_clients"].([]any)[0].(map[string]any), urls, route["rules"].([]any)
+	}
+	published := []any{"https://static.example.net/princo/geoip-ru.srs", "https://static.example.net/princo/geosite-category-ru.srs"}
+
+	f := fleettest.Load(t, fixture)
+	f.Subscription.RuleSetURL = "https://static.example.net/princo/"
+	for _, domain := range f.Subscription.Domains {
+		client, urls, rules := render(f, domain)
+		require.Equal(t, map[string]any{"tag": "rules-http", "domain_resolver": "bootstrap-dns"}, client, domain)
+		require.Equal(t, published, urls, domain)
+		// sing-box fetches them past the tunnel: no rule names the host.
+		require.NotContains(t, fmt.Sprint(rules), "static.example.net", domain)
+	}
+
+	// A DNS rule naming the host chooses its server.
+	f.Users[0].Client.DNS.Rules = append(f.Users[0].Client.DNS.Rules, fleet.DNSRule{
+		Match:  []fleet.Matcher{{Kind: fleet.MatchDomainSuffix, Value: "example.net"}},
+		Server: "ru-dns",
+	})
+	client, _, _ := render(f, "subs.example.com")
+	require.Equal(t, "ru-dns", client["domain_resolver"])
+
+	f = fleettest.Load(t, fixture)
+	f.Subscription.RuleSetURL, f.Subscription.RuleSetFetch = "https://static.example.net/princo/", "proxy"
+	client, urls, _ := render(f, "subs.example.org")
+	require.Equal(t, map[string]any{"tag": "rules-http", "detour": "select"}, client)
+	require.Equal(t, published, urls)
+
+	// The site's own, through the proxy from a domain reached directly,
+	// whose profile still refreshes directly.
+	f = fleettest.Load(t, fixture)
+	f.Subscription.RuleSetFetch = "proxy"
+	client, urls, rules := render(f, "subs.example.org")
+	require.Equal(t, map[string]any{"tag": "rules-http", "detour": "select"}, client)
+	require.Equal(t, []any{"https://subs.example.org/rules/geoip-ru.srs", "https://subs.example.org/rules/geosite-category-ru.srs"}, urls)
+	require.Contains(t, rules, any(map[string]any{"domain": []any{"subs.example.org"}, "action": "route", "outbound": "direct"}))
+
+	f.Subscription.RuleSetFetch = "direct"
+	client, _, _ = render(f, "subs.example.com")
+	require.Equal(t, map[string]any{"tag": "rules-http", "domain_resolver": "bootstrap-dns"}, client)
 }
 
 // A profile from a domain reached directly refreshes directly too, its

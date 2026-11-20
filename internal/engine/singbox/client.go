@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -32,13 +33,13 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 	c := newClientView(f, u)
 	var sets ruleSets
 
-	// Whatever the app takes from the site, its profile and the rule sets,
-	// it takes the way the fleet reaches domain (see fleet.SiteFetch). A
-	// domain reached directly comes ahead of the user's rules: through the
-	// proxy, a dead node would keep the app from the profile that replaces
-	// it.
+	// The app takes its profile from the site the way the fleet reaches
+	// domain (see fleet.SiteFetch). A domain reached directly comes ahead
+	// of the user's rules: through the proxy, a dead node would keep the
+	// app from the profile that replaces it.
 	clientRules := u.Client.Rules
 	siteDirect := f.Subscription.FetchDirect(domain)
+	origin := f.Subscription.RuleSetOrigin(domain)
 	if siteDirect {
 		site := fleet.Rule{
 			Match:  []fleet.Matcher{{Kind: fleet.MatchDomain, Value: strings.ToLower(domain)}},
@@ -130,9 +131,11 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		// nftables redirect TCP in the kernel, the LAN's on a router too.
 		tun["auto_redirect"] = true
 	}
+	// The rule sets are sing-box's own to fetch, past the tunnel and the
+	// rules: from their origin directly, or through the final outbound.
 	rulesHTTP := map[string]any{"tag": "rules-http"}
 	// sing-box refuses a detour to an empty direct outbound.
-	if detour := detourOf(final); !siteDirect && detour != "" {
+	if detour := detourOf(final); !origin.Direct && detour != "" {
 		rulesHTTP["detour"] = detour
 	}
 	cfg := map[string]any{
@@ -166,6 +169,11 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 				"server": server,
 			})
 		}
+		// sing-box asks no DNS rule for its own lookups, only the default
+		// resolver, which may wait on the proxy.
+		if server := siteServer(d, originHost(origin), serverDetour); origin.Direct && server != "" {
+			rulesHTTP["domain_resolver"] = server
+		}
 		cfg["dns"] = renderDNS(d, &sets, first, serverDetour)
 		if d.DefaultResolver != "" {
 			route["default_domain_resolver"] = d.DefaultResolver
@@ -175,7 +183,7 @@ func (e *Engine) RenderClient(f *fleet.Fleet, name string, p engine.Platform, do
 		cfg["dns"] = map[string]any{"rules": noAAAA}
 	}
 	if len(sets.tags) > 0 {
-		route["rule_set"] = remoteRuleSets(domain, sets.tags)
+		route["rule_set"] = remoteRuleSets(origin, sets.tags)
 	}
 	cfg["route"] = route
 
@@ -548,29 +556,38 @@ func checkRenders(n *fleet.Node, ts []fleet.Transport) error {
 	return nil
 }
 
-func remoteRuleSets(domain string, tags []string) []any {
+func remoteRuleSets(origin fleet.RuleSetOrigin, tags []string) []any {
 	out := make([]any, 0, len(tags))
 	for _, tag := range tags {
 		out = append(out, map[string]any{
 			"tag":    tag,
 			"type":   "remote",
 			"format": "binary",
-			"url":    RuleSetURL(domain, tag),
+			"url":    ruleSetURL(origin, tag),
 		})
 	}
 	return out
 }
 
-// RuleSetURL is where a client profile gets a rule set: the subscription
-// site at domain, which serves the nodes' own, or without one SagerNet's,
-// which may tell different countries from the nodes' rule data.
-func RuleSetURL(domain, tag string) string {
-	if domain != "" {
-		return "https://" + domain + engine.RuleSetSitePath + tag + ".srs"
+// ruleSetURL is where a client profile gets a rule set: at its origin,
+// which holds the nodes' own, or without one SagerNet's, which may tell
+// different countries from the nodes' rule data.
+func ruleSetURL(origin fleet.RuleSetOrigin, tag string) string {
+	if origin.URL != "" {
+		return origin.URL + tag + ".srs"
 	}
 	repo := "sing-geosite"
 	if strings.HasPrefix(tag, "geoip-") {
 		repo = "sing-geoip"
 	}
 	return "https://raw.githubusercontent.com/SagerNet/" + repo + "/rule-set/" + tag + ".srs"
+}
+
+// originHost is the host of origin, in lowercase; empty for the upstream.
+func originHost(origin fleet.RuleSetOrigin) string {
+	u, err := url.Parse(origin.URL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }

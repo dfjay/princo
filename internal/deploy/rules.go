@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/dfjay/princo/internal/fleet"
@@ -23,17 +24,8 @@ func RuleSets(ctx context.Context, client *http.Client, dir string, src fleet.Ru
 		}
 	} else {
 		needGeoIP, needGeosite := ruledata.Needs(names)
-		httpsOnly := *client
-		httpsOnly.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			if req.URL.Scheme != "https" {
-				return fmt.Errorf("redirected to %s, which isn't https", req.URL)
-			}
-			if len(via) >= 10 {
-				return errors.New("stopped after 10 redirects")
-			}
-			return nil
-		}
-		get := func(ctx context.Context, url string) ([]byte, error) { return Fetch(ctx, &httpsOnly, url) }
+		https := httpsOnly(client)
+		get := func(ctx context.Context, url string) ([]byte, error) { return Fetch(ctx, https, url) }
 		if needGeoIP {
 			if geoip, err = ruledata.Fetch(ctx, get, src.GeoIP, time.Now()); err != nil {
 				return nil, fmt.Errorf("geoip data: %w", err)
@@ -50,4 +42,45 @@ func RuleSets(ctx context.Context, client *http.Client, dir string, src fleet.Ru
 		return nil, err
 	}
 	return data.Files(names, config)
+}
+
+// httpsOnly is client refusing a redirect that leaves HTTPS.
+func httpsOnly(client *http.Client) *http.Client {
+	c := *client
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Scheme != "https" {
+			return fmt.Errorf("redirected to %s, which isn't https", req.URL)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &c
+}
+
+// Published checks that url, where the client profiles fetch them, serves
+// every rule set named: an app doesn't start without one. It compares no
+// contents, as newer rule data builds other files.
+func Published(ctx context.Context, client *http.Client, url string, names []string) error {
+	client = httpsOnly(client)
+	var missing []string
+	for _, name := range names {
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, url+name, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("rule set %s: %w", name, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			missing = append(missing, fmt.Sprintf("%s (%s)", name, resp.Status))
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%s doesn't serve %s; publish what princo rule-sets --client builds there first", url, strings.Join(missing, ", "))
+	}
+	return nil
 }

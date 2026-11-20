@@ -600,11 +600,24 @@ func (b *builder) subscription() {
 			taken[strings.ToLower(n.Naive.Domain)] = fmt.Sprintf("nodes.%s.naive.domain takes it to Naive; give one of them another name", n.Name)
 		}
 	}
+	s := &Subscription{Node: n, Fetch: map[string]SiteFetch{}}
+	if rs := c.RuleSets; rs != nil {
+		var site []string
+		for _, cd := range c.Domains {
+			site = append(site, strings.ToLower(cd.Name))
+		}
+		s.RuleSetURL = b.ruleSetURL(rs.URL, site)
+		switch rs.Fetch {
+		case "", fetchDirect, fetchProxy:
+			s.RuleSetFetch = rs.Fetch
+		default:
+			b.errorf("subscription.rule_sets.fetch: %q: want direct or proxy", rs.Fetch)
+		}
+	}
 	if len(c.Domains) == 0 {
 		b.errorf("subscription.domains: required")
 		return
 	}
-	s := &Subscription{Node: n, Fetch: map[string]SiteFetch{}}
 	for i, cd := range c.Domains {
 		d := strings.ToLower(cd.Name)
 		if why, ok := taken[d]; ok {
@@ -622,6 +635,41 @@ func (b *builder) subscription() {
 	}
 }
 
+// ruleSetURL is subscription.rule_sets.url as the profiles prefix their
+// rule sets' names with it, ending in a slash; empty when unset. site is
+// the subscription's domains.
+func (b *builder) ruleSetURL(set string, site []string) string {
+	if set == "" {
+		return ""
+	}
+	u, err := url.Parse(set)
+	// A trailing dot names the same host.
+	host := ""
+	if err == nil {
+		host = strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	}
+	switch {
+	case err != nil:
+		b.errorf("subscription.rule_sets.url: %v", err)
+	case u.Scheme != "https" || u.Hostname() == "" || u.Opaque != "":
+		b.errorf("subscription.rule_sets.url: %q: want https://host/path/", set)
+	case u.User != nil:
+		b.errorf("subscription.rule_sets.url: anyone holding a profile reads it; it can't carry credentials")
+	case u.RawQuery != "" || u.ForceQuery || u.Fragment != "":
+		b.errorf("subscription.rule_sets.url: %q: a rule set's name follows it, so it can't have a query or a fragment", set)
+	case slices.Contains(site, host):
+		b.errorf("subscription.rule_sets.url: %s is the subscription site, which serves them without url", host)
+	default:
+		u.Host = strings.ToLower(u.Host)
+		if !strings.HasSuffix(u.EscapedPath(), "/") {
+			// Both, or the path's own escapes are lost.
+			u.Path, u.RawPath = u.Path+"/", u.EscapedPath()+"/"
+		}
+		return u.String()
+	}
+	return ""
+}
+
 // siteFetch is how the apps reach the site under domain: as set, or
 // directly when another node forwards domain to site, the subscription
 // node, by passthrough. Such a relay is there to be reached directly, and
@@ -631,9 +679,9 @@ func (b *builder) subscription() {
 // the decision back.
 func (b *builder) siteFetch(where, domain, set string, site *Node) SiteFetch {
 	switch set {
-	case "direct":
+	case fetchDirect:
 		return SiteFetch{Direct: true, Set: true}
-	case "proxy":
+	case fetchProxy:
 		return SiteFetch{Set: true}
 	case "":
 	default:
