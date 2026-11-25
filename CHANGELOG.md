@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.8.0](https://github.com/dfjay/princo/compare/v0.7.0...v0.8.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **subscription:** choose where profiles get rule sets ([#61](https://github.com/dfjay/princo/issues/61))
+* serve Reality over gRPC, and name members by a label ([#59](https://github.com/dfjay/princo/issues/59))
+
+### Features
+
+* serve Reality over gRPC, and name members by a label ([#59](https://github.com/dfjay/princo/issues/59)) ([bd0480d](https://github.com/dfjay/princo/commit/bd0480d26750a96d4cccab009a836ef4afe56e5b))
+* **subscription:** choose where profiles get rule sets ([#61](https://github.com/dfjay/princo/issues/61)) ([c489330](https://github.com/dfjay/princo/commit/c489330a8dc499401ae3c327ae863001ca59de39))
+
+
+### Bug Fixes
+
+* **client:** route direct subscription domains outside the proxy ([afe1e65](https://github.com/dfjay/princo/commit/afe1e65de1f4aedea99ca6aa0823c2d6f9cfaa7e))
+
 ## [0.7.0](https://github.com/dfjay/princo/compare/v0.6.0...v0.7.0) (2026-11-17)
 
 
