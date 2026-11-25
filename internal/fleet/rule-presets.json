@@ -28,15 +28,15 @@
     "geoip": {
       "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat",
       "nix": {
-        "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202611161155/geoip.dat",
-        "hash": "sha256-3AHt5vo8c6RLoSL5ktDE7MKAf2fFD8SmGzMnUyLeqKQ="
+        "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202611231330/geoip.dat",
+        "hash": "sha256-he++MPJu3MUW/NPztnHwM14wQYnZGYTuMiMvkG+mwv4="
       }
     },
     "geosite": {
       "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat",
       "nix": {
-        "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202611161155/geosite.dat",
-        "hash": "sha256-5PnTR6s/XyXeTJSHDfMbpdbBDrafLzrN4rWN24dDj5o="
+        "url": "https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/download/202611231330/geosite.dat",
+        "hash": "sha256-SxuQIBaDf0c7N7PZGYyiudJA7v3nvmClIHs1QZunKCw="
       }
     }
   },
